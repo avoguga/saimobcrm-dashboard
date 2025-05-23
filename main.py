@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from app.routers import leads, tags, pipelines, users
+from app.routers import leads, tags, pipelines, users, custom_fields, sources, events, analytics
 import config
 
 app = FastAPI(
@@ -24,6 +24,10 @@ app.include_router(leads.router)
 app.include_router(tags.router)
 app.include_router(pipelines.router)
 app.include_router(users.router)
+app.include_router(custom_fields.router)
+app.include_router(sources.router)
+app.include_router(events.router)
+app.include_router(analytics.router)
 
 @app.get("/", tags=["Root"])
 async def root():
