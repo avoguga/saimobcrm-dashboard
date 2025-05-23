@@ -1,0 +1,33 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+from app.routers import leads, tags, pipelines, users
+import config
+
+app = FastAPI(
+    title="Kommo Dashboard API",
+    description="API para o dashboard de análise de dados do Kommo",
+    version="1.0.0"
+)
+
+# Configuração de CORS para permitir acesso do frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Em produção, use apenas as origens necessárias
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Incluir rotas
+app.include_router(leads.router)
+app.include_router(tags.router)
+app.include_router(pipelines.router)
+app.include_router(users.router)
+
+@app.get("/", tags=["Root"])
+async def root():
+    return {"message": "Bem-vindo à API do Dashboard Kommo"}
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=config.DEBUG)

@@ -1,0 +1,70 @@
+# Ambientes virtuais
+venv/
+env/
+ENV/
+.env
+.venv
+env.bak/
+venv.bak/
+
+# Bytecode Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribuição/empacotamento
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Logs e arquivos temporários
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+*.tmp
+*.bak
+*.swp
+*~
+
+# Arquivos específicos do sistema operacional
+.DS_Store
+Thumbs.db
+.directory
+Desktop.ini
+
+# IDEs e editores
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+.spyderproject
+.spyproject
+.ropeproject
+.project
+.pydevproject
+.settings/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Arquivos específicos do projeto
+.env
+.secrets
+config.local.py
