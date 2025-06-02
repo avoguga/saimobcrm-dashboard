@@ -41,8 +41,11 @@ class KommoAPI:
         
         except requests.exceptions.RequestException as e:
             print(f"Erro de requisição HTTP: {e}")
-            # Para fins de depuração, retornar um objeto vazio em vez de propagar o erro
-            return {}
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"Status Code: {e.response.status_code}")
+                print(f"Response Content: {e.response.text[:500]}")
+            # Retornar estrutura vazia mas com indicador de erro
+            return {"_error": True, "_error_message": str(e)}
     
     # Métodos para Leads
     def get_leads(self, params: Optional[Dict] = None) -> Dict:
@@ -86,6 +89,43 @@ class KommoAPI:
     def get_events(self, params: Optional[Dict] = None) -> Dict:
         """Obtém eventos do Kommo com filtros opcionais"""
         return self._make_request("events", params)
+    
+    # Métodos para Tarefas
+    def get_tasks(self, params: Optional[Dict] = None) -> Dict:
+        """Obtém tarefas com filtros opcionais"""
+        return self._make_request("tasks", params)
+    
+    # Método para buscar leads com paginação completa
+    def get_all_leads(self, params: Optional[Dict] = None) -> List[Dict]:
+        """Obtém todos os leads usando paginação automática"""
+        all_leads = []
+        page = 1
+        
+        if params is None:
+            params = {}
+        
+        while True:
+            params['page'] = page
+            params['limit'] = 250  # Máximo por página
+            
+            response = self.get_leads(params)
+            
+            if not response or '_embedded' not in response or 'leads' not in response['_embedded']:
+                break
+            
+            leads = response['_embedded']['leads']
+            if not leads:
+                break
+                
+            all_leads.extend(leads)
+            
+            # Verificar se há mais páginas
+            if '_links' in response and 'next' in response['_links']:
+                page += 1
+            else:
+                break
+        
+        return all_leads
     
     # Métodos de Utilidade
     def unix_to_datetime(self, timestamp: int) -> datetime:

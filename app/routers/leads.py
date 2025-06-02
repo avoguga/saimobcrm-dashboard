@@ -72,7 +72,7 @@ async def get_leads_count():
         page = 1
         has_more = True
         
-        while has_more and page <= 5:  # Limitar a 5 páginas para evitar requisições demais
+        while has_more:  # Processar todas as páginas
             data = api.get_leads({"limit": 250, "page": page})
             
             if not data or not data.get("_embedded"):
@@ -190,8 +190,12 @@ async def get_leads_by_advertisement(
             return {"leads_by_advertisement": {}, "message": "Resposta da API não contém campo '_embedded'"}
             
         fields = embedded.get("custom_fields", [])
-        if not fields:
+        if not fields or fields is None:
             return {"leads_by_advertisement": {}, "message": "Nenhum campo personalizado encontrado"}
+        
+        # Garantir que fields é uma lista
+        if not isinstance(fields, list):
+            return {"leads_by_advertisement": {}, "message": "Formato inválido de campos personalizados"}
         
         # Encontrar o campo personalizado pelo nome
         field_id = None
@@ -218,6 +222,10 @@ async def get_leads_by_advertisement(
         for lead in leads:
             custom_fields = lead.get("custom_fields_values", [])
             
+            # Verificar se custom_fields não é None
+            if not custom_fields or not isinstance(custom_fields, list):
+                continue
+                
             for custom_field in custom_fields:
                 if custom_field.get("field_id") == field_id:
                     field_values = custom_field.get("values", [])
@@ -530,5 +538,304 @@ async def get_leads_by_stage():
         return {"leads_by_stage": stages}
     except Exception as e:
         print(f"Erro ao obter leads por estágio: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/by-status")
+async def get_leads_by_status():
+    """Retorna leads agrupados por status (won, lost, active)"""
+    try:
+        # Obter pipelines e estágios para categorizar
+        pipelines_data = api.get_pipelines()
+        
+        if not pipelines_data:
+            return {"leads_by_status": {"won": 0, "lost": 0, "active": 0}, "message": "Não foi possível obter pipelines"}
+            
+        status_categories = {"won": [], "lost": [], "active": []}
+        embedded_pipelines = pipelines_data.get("_embedded", {})
+        
+        if embedded_pipelines:
+            pipelines = embedded_pipelines.get("pipelines", [])
+            
+            for pipeline in pipelines:
+                pipeline_id = pipeline.get("id")
+                if pipeline_id is None:
+                    continue
+                    
+                statuses_data = api.get_pipeline_statuses(pipeline_id)
+                embedded_statuses = statuses_data.get("_embedded", {})
+                
+                if embedded_statuses:
+                    statuses = embedded_statuses.get("statuses", [])
+                    
+                    for status in statuses:
+                        status_id = status.get("id")
+                        status_type = status.get("type", "active")
+                        
+                        if status_type == "won":
+                            status_categories["won"].append(status_id)
+                        elif status_type == "lost":
+                            status_categories["lost"].append(status_id)
+                        else:
+                            status_categories["active"].append(status_id)
+        
+        # Contar leads por categoria
+        results = {"won": 0, "lost": 0, "active": 0}
+        
+        for category, status_ids in status_categories.items():
+            if status_ids:
+                params = {
+                    'filter[statuses]': status_ids,
+                    'limit': 1
+                }
+                
+                data = api.get_leads(params)
+                
+                # Tentar obter o total de diferentes formas
+                if data:
+                    # Método 1: _total_items
+                    if "_total_items" in data:
+                        results[category] = data["_total_items"]
+                    # Método 2: Contar páginas
+                    elif "_links" in data and "last" in data["_links"]:
+                        import re
+                        last_link = data["_links"]["last"]["href"]
+                        page_match = re.search(r'page=(\d+)', last_link)
+                        if page_match:
+                            last_page = int(page_match.group(1))
+                            results[category] = last_page * 250  # Estimativa
+                    # Método 3: Contar diretamente
+                    else:
+                        total = 0
+                        page = 1
+                        while True:
+                            params['page'] = page
+                            params['limit'] = 250
+                            data = api.get_leads(params)
+                            
+                            if not data or not data.get("_embedded"):
+                                break
+                                
+                            leads = data.get("_embedded", {}).get("leads", [])
+                            total += len(leads)
+                            
+                            if not data.get("_links", {}).get("next"):
+                                break
+                            page += 1
+                        
+                        results[category] = total
+        
+        return {"leads_by_status": results}
+    except Exception as e:
+        print(f"Erro ao obter leads por status: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/recent")
+async def get_recent_leads(
+    days: int = Query(7, description="Número de dias para considerar como recente")
+):
+    """Retorna leads criados recentemente"""
+    try:
+        from datetime import datetime, timedelta
+        
+        # Calcular timestamp de corte
+        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_timestamp = int(cutoff_date.timestamp())
+        
+        # Buscar leads com filtro de data
+        params = {
+            'filter[created_at][from]': cutoff_timestamp,
+            'limit': 250,
+            'order[created_at]': 'desc'
+        }
+        
+        data = api.get_leads(params)
+        
+        if not data:
+            return {"recent_leads": [], "total": 0, "days": days}
+            
+        leads = []
+        if "_embedded" in data:
+            raw_leads = data.get("_embedded", {}).get("leads", [])
+            
+            # Formatar leads para retorno
+            for lead in raw_leads:
+                leads.append({
+                    "id": lead.get("id"),
+                    "name": lead.get("name"),
+                    "price": lead.get("price", 0),
+                    "created_at": lead.get("created_at"),
+                    "responsible_user_id": lead.get("responsible_user_id"),
+                    "status_id": lead.get("status_id"),
+                    "pipeline_id": lead.get("pipeline_id")
+                })
+        
+        return {
+            "recent_leads": leads,
+            "total": len(leads),
+            "days": days,
+            "cutoff_date": cutoff_date.isoformat()
+        }
+    except Exception as e:
+        print(f"Erro ao obter leads recentes: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/sources")
+async def get_leads_sources():
+    """Retorna lista de fontes de leads com estatísticas"""
+    try:
+        # Primeiro obter as fontes
+        sources_data = api.get_sources()
+        
+        if not sources_data:
+            return {"sources": [], "message": "Não foi possível obter fontes"}
+        
+        sources_list = []
+        sources_map = {}
+        
+        # Processar fontes
+        embedded = sources_data.get("_embedded", {})
+        if embedded:
+            sources = embedded.get("sources", [])
+            for source in sources:
+                source_id = source.get("id")
+                if source_id is not None:
+                    source_info = {
+                        "id": source_id,
+                        "name": source.get("name", f"Fonte {source_id}"),
+                        "external_id": source.get("external_id"),
+                        "leads_count": 0
+                    }
+                    sources_list.append(source_info)
+                    sources_map[str(source_id)] = source_info
+        
+        # Contar leads por fonte
+        params = {"with": "source_id", "limit": 250}
+        data = api.get_leads(params)
+        
+        if data and "_embedded" in data:
+            leads = data.get("_embedded", {}).get("leads", [])
+            
+            for lead in leads:
+                source_id = lead.get("source_id")
+                if source_id is not None:
+                    source_id_str = str(source_id)
+                    if source_id_str in sources_map:
+                        sources_map[source_id_str]["leads_count"] += 1
+        
+        # Ordenar por número de leads
+        sources_list.sort(key=lambda x: x["leads_count"], reverse=True)
+        
+        return {
+            "sources": sources_list,
+            "total_sources": len(sources_list)
+        }
+    except Exception as e:
+        print(f"Erro ao obter fontes de leads: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/conversion-rate")
+async def get_leads_conversion_rate(
+    period_days: int = Query(30, description="Período em dias para análise")
+):
+    """Retorna taxa de conversão de leads"""
+    try:
+        from datetime import datetime, timedelta
+        
+        # Calcular período
+        cutoff_date = datetime.now() - timedelta(days=period_days)
+        cutoff_timestamp = int(cutoff_date.timestamp())
+        
+        # Obter pipelines e identificar status won
+        pipelines_data = api.get_pipelines()
+        won_statuses = []
+        
+        if pipelines_data and "_embedded" in pipelines_data:
+            for pipeline in pipelines_data.get("_embedded", {}).get("pipelines", []):
+                pipeline_id = pipeline.get("id")
+                if pipeline_id:
+                    statuses_data = api.get_pipeline_statuses(pipeline_id)
+                    if statuses_data and "_embedded" in statuses_data:
+                        for status in statuses_data.get("_embedded", {}).get("statuses", []):
+                            if status.get("type") == "won":
+                                won_statuses.append(status.get("id"))
+        
+        # Buscar todos os leads do período
+        params = {
+            'filter[created_at][from]': cutoff_timestamp,
+            'limit': 250
+        }
+        
+        all_leads_data = api.get_leads(params)
+        total_leads = 0
+        
+        if all_leads_data and "_embedded" in all_leads_data:
+            # Contar total de leads
+            if "_total_items" in all_leads_data:
+                total_leads = all_leads_data["_total_items"]
+            else:
+                # Contar manualmente
+                page = 1
+                while True:
+                    params['page'] = page
+                    data = api.get_leads(params)
+                    
+                    if not data or not data.get("_embedded"):
+                        break
+                        
+                    leads = data.get("_embedded", {}).get("leads", [])
+                    total_leads += len(leads)
+                    
+                    if not data.get("_links", {}).get("next"):
+                        break
+                    page += 1
+        
+        # Buscar leads convertidos do período
+        converted_leads = 0
+        
+        if won_statuses:
+            params = {
+                'filter[statuses]': won_statuses,
+                'filter[closed_at][from]': cutoff_timestamp,
+                'limit': 250
+            }
+            
+            won_leads_data = api.get_leads(params)
+            
+            if won_leads_data and "_embedded" in won_leads_data:
+                if "_total_items" in won_leads_data:
+                    converted_leads = won_leads_data["_total_items"]
+                else:
+                    # Contar manualmente
+                    page = 1
+                    while True:
+                        params['page'] = page
+                        data = api.get_leads(params)
+                        
+                        if not data or not data.get("_embedded"):
+                            break
+                            
+                        leads = data.get("_embedded", {}).get("leads", [])
+                        converted_leads += len(leads)
+                        
+                        if not data.get("_links", {}).get("next"):
+                            break
+                        page += 1
+        
+        # Calcular taxa de conversão
+        conversion_rate = (converted_leads / total_leads * 100) if total_leads > 0 else 0
+        
+        return {
+            "conversion_rate": round(conversion_rate, 2),
+            "total_leads": total_leads,
+            "converted_leads": converted_leads,
+            "period_days": period_days,
+            "period_start": cutoff_date.isoformat()
+        }
+    except Exception as e:
+        print(f"Erro ao calcular taxa de conversão: {e}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))

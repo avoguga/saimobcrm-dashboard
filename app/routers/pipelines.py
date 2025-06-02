@@ -23,3 +23,14 @@ async def get_pipeline_statuses(
         return {"statuses": statuses}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/{pipeline_id}/stages")
+async def get_pipeline_stages(
+    pipeline_id: int = Path(..., description="ID do pipeline")
+):
+    """Retorna todos os estágios de um pipeline específico (alias para /statuses)"""
+    try:
+        statuses = api.get_pipeline_statuses(pipeline_id)
+        return {"stages": statuses}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
