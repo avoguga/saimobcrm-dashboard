@@ -631,6 +631,7 @@ async def get_leads_by_status():
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/recent")
 async def get_recent_leads(
     days: int = Query(7, description="Número de dias para considerar como recente")
@@ -837,5 +838,467 @@ async def get_leads_conversion_rate(
         }
     except Exception as e:
         print(f"Erro ao calcular taxa de conversão: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Função auxiliar para filtrar leads por corretor (custom field)
+def filter_leads_by_corretor(leads: list, corretor_name: str) -> list:
+    """Filtra leads pelo campo personalizado 'Corretor' (field_id: 837920)"""
+    if not corretor_name or not leads:
+        return leads if leads else []
+    
+    filtered_leads = []
+    for lead in leads:
+        if not lead:  # Proteção contra leads None
+            continue
+            
+        custom_fields = lead.get("custom_fields_values", [])
+        if not custom_fields:  # Proteção contra custom_fields None
+            continue
+            
+        for field in custom_fields:
+            if not field:  # Proteção contra field None
+                continue
+                
+            if field.get("field_id") == 837920:  # ID do campo Corretor
+                values = field.get("values", [])
+                if values and len(values) > 0:
+                    value = values[0].get("value") if values[0] else None
+                    if value == corretor_name:
+                        filtered_leads.append(lead)
+                        break
+    
+    return filtered_leads
+
+# Função auxiliar para obter todos os leads (paginação automática)
+def get_all_leads_with_custom_fields():
+    """Busca todos os leads com campos personalizados"""
+    try:
+        all_leads = []
+        page = 1
+        max_pages = 10  # Limitar a 10 páginas para evitar timeout (2500 leads max)
+        
+        while page <= max_pages:
+            params = {
+                'limit': 250,
+                'page': page,
+                'with': 'custom_fields'
+            }
+            
+            data = api.get_leads(params)
+            
+            if not data or not data.get("_embedded"):
+                break
+                
+            leads = data.get("_embedded", {}).get("leads", [])
+            if not leads:
+                break
+                
+            all_leads.extend(leads)
+            
+            # Verificar se há próxima página
+            if not data.get("_links", {}).get("next"):
+                break
+            page += 1
+        
+        return all_leads if all_leads else []
+        
+    except Exception as e:
+        print(f"Erro ao buscar leads: {e}")
+        # Retornar lista vazia em caso de erro para evitar NoneType
+        return []
+
+# NOVOS ENDPOINTS COM FILTRO POR CORRETOR
+
+@router.get("/active-by-corretor")
+async def get_active_leads_by_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna leads ativos filtrados por corretor (custom field)"""
+    try:
+        # Buscar todos os leads com campos personalizados
+        all_leads = get_all_leads_with_custom_fields()
+        
+        if include_all:
+            # Retornar contagem por todos os corretores
+            corretor_counts = {}
+            
+            for lead in all_leads:
+                # Verificar se é ativo (não won e não lost)
+                if lead.get("status_id") in [142, 143]:  # won ou lost
+                    continue
+                    
+                custom_fields = lead.get("custom_fields_values", [])
+                for field in custom_fields:
+                    if field.get("field_id") == 837920:
+                        values = field.get("values", [])
+                        if values:
+                            corretor = values[0].get("value", "")
+                            if corretor:
+                                corretor_counts[corretor] = corretor_counts.get(corretor, 0) + 1
+                        break
+            
+            return {"active_leads_by_corretor": corretor_counts}
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            corretor_leads = filter_leads_by_corretor(all_leads, corretor_name)
+            
+            # Filtrar apenas ativos
+            active_leads = [lead for lead in corretor_leads if lead.get("status_id") not in [142, 143]]
+            
+            return {
+                "corretor": corretor_name,
+                "active_leads": active_leads,
+                "count": len(active_leads)
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        print(f"Erro ao obter leads ativos por corretor: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/lost-by-corretor")
+async def get_lost_leads_by_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna leads perdidos filtrados por corretor (custom field)"""
+    try:
+        all_leads = get_all_leads_with_custom_fields()
+        
+        if include_all:
+            # Retornar contagem por todos os corretores
+            corretor_counts = {}
+            
+            for lead in all_leads:
+                # Verificar se é perdido (status lost)
+                if lead.get("status_id") != 143:  # 143 = lost
+                    continue
+                    
+                custom_fields = lead.get("custom_fields_values", [])
+                for field in custom_fields:
+                    if field.get("field_id") == 837920:
+                        values = field.get("values", [])
+                        if values:
+                            corretor = values[0].get("value", "")
+                            if corretor:
+                                corretor_counts[corretor] = corretor_counts.get(corretor, 0) + 1
+                        break
+            
+            return {"lost_leads_by_corretor": corretor_counts}
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            corretor_leads = filter_leads_by_corretor(all_leads, corretor_name)
+            
+            # Filtrar apenas perdidos
+            lost_leads = [lead for lead in corretor_leads if lead.get("status_id") == 143]
+            
+            return {
+                "corretor": corretor_name,
+                "lost_leads": lost_leads,
+                "count": len(lost_leads)
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        print(f"Erro ao obter leads perdidos por corretor: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/won-by-corretor")
+async def get_won_leads_by_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna leads ganhos (vendas) filtrados por corretor (custom field)"""
+    try:
+        all_leads = get_all_leads_with_custom_fields()
+        
+        if include_all:
+            # Retornar contagem por todos os corretores
+            corretor_counts = {}
+            corretor_revenue = {}
+            
+            for lead in all_leads:
+                # Verificar se é ganho (status won)
+                if lead.get("status_id") != 142:  # 142 = won
+                    continue
+                    
+                custom_fields = lead.get("custom_fields_values", [])
+                for field in custom_fields:
+                    if field.get("field_id") == 837920:
+                        values = field.get("values", [])
+                        if values:
+                            corretor = values[0].get("value", "")
+                            if corretor:
+                                corretor_counts[corretor] = corretor_counts.get(corretor, 0) + 1
+                                corretor_revenue[corretor] = corretor_revenue.get(corretor, 0) + (lead.get("price", 0) or 0)
+                        break
+            
+            return {
+                "won_leads_by_corretor": corretor_counts,
+                "revenue_by_corretor": corretor_revenue
+            }
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            corretor_leads = filter_leads_by_corretor(all_leads, corretor_name)
+            
+            # Filtrar apenas ganhos
+            won_leads = [lead for lead in corretor_leads if lead.get("status_id") == 142]
+            total_revenue = sum(lead.get("price", 0) or 0 for lead in won_leads)
+            
+            return {
+                "corretor": corretor_name,
+                "won_leads": won_leads,
+                "count": len(won_leads),
+                "total_revenue": total_revenue,
+                "average_deal_size": total_revenue / len(won_leads) if won_leads else 0
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        print(f"Erro ao obter leads ganhos por corretor: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/by-stage-corretor")
+async def get_leads_by_stage_and_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna leads por etapa do funil filtrados por corretor"""
+    try:
+        # Buscar pipelines para mapear status
+        pipelines_data = api.get_pipelines()
+        stage_map = {}
+        
+        if pipelines_data and "_embedded" in pipelines_data:
+            for pipeline in pipelines_data.get("_embedded", {}).get("pipelines", []):
+                pipeline_id = pipeline.get("id")
+                pipeline_name = pipeline.get("name", f"Pipeline {pipeline_id}")
+                
+                if pipeline_id:
+                    statuses = pipeline.get("_embedded", {}).get("statuses", [])
+                    for status in statuses:
+                        status_id = status.get("id")
+                        status_name = status.get("name", f"Status {status_id}")
+                        stage_map[status_id] = f"{pipeline_name} - {status_name}"
+        
+        all_leads = get_all_leads_with_custom_fields()
+        
+        if include_all:
+            # Retornar contagem por todos os corretores e estágios
+            corretor_stages = {}
+            
+            for lead in all_leads:
+                status_id = lead.get("status_id")
+                stage_name = stage_map.get(status_id, f"Status {status_id}")
+                
+                custom_fields = lead.get("custom_fields_values", [])
+                for field in custom_fields:
+                    if field.get("field_id") == 837920:
+                        values = field.get("values", [])
+                        if values:
+                            corretor = values[0].get("value", "")
+                            if corretor:
+                                if corretor not in corretor_stages:
+                                    corretor_stages[corretor] = {}
+                                corretor_stages[corretor][stage_name] = corretor_stages[corretor].get(stage_name, 0) + 1
+                        break
+            
+            return {"leads_by_stage_and_corretor": corretor_stages}
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            corretor_leads = filter_leads_by_corretor(all_leads, corretor_name)
+            
+            # Agrupar por estágio
+            stage_counts = {}
+            for lead in corretor_leads:
+                status_id = lead.get("status_id")
+                stage_name = stage_map.get(status_id, f"Status {status_id}")
+                stage_counts[stage_name] = stage_counts.get(stage_name, 0) + 1
+            
+            return {
+                "corretor": corretor_name,
+                "leads_by_stage": stage_counts
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        print(f"Erro ao obter leads por estágio e corretor: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/conversion-rate-by-corretor")
+async def get_conversion_rate_by_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    period_days: int = Query(30, description="Período em dias para análise"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna taxa de conversão filtrada por corretor"""
+    try:
+        from datetime import datetime, timedelta
+        
+        # Calcular timestamp de corte
+        cutoff_date = datetime.now() - timedelta(days=period_days)
+        cutoff_timestamp = int(cutoff_date.timestamp())
+        
+        all_leads = get_all_leads_with_custom_fields()
+        
+        # Filtrar leads do período
+        period_leads = [
+            lead for lead in all_leads 
+            if lead.get("created_at", 0) >= cutoff_timestamp
+        ]
+        
+        if include_all:
+            # Calcular para todos os corretores
+            corretor_stats = {}
+            
+            for lead in period_leads:
+                custom_fields = lead.get("custom_fields_values", [])
+                for field in custom_fields:
+                    if field.get("field_id") == 837920:
+                        values = field.get("values", [])
+                        if values:
+                            corretor = values[0].get("value", "")
+                            if corretor:
+                                if corretor not in corretor_stats:
+                                    corretor_stats[corretor] = {"total": 0, "converted": 0}
+                                
+                                corretor_stats[corretor]["total"] += 1
+                                if lead.get("status_id") == 142:  # won
+                                    corretor_stats[corretor]["converted"] += 1
+                        break
+            
+            # Calcular taxas de conversão
+            for corretor in corretor_stats:
+                total = corretor_stats[corretor]["total"]
+                converted = corretor_stats[corretor]["converted"]
+                corretor_stats[corretor]["conversion_rate"] = (converted / total * 100) if total > 0 else 0
+            
+            return {
+                "conversion_rates_by_corretor": corretor_stats,
+                "period_days": period_days
+            }
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            corretor_leads = filter_leads_by_corretor(period_leads, corretor_name)
+            
+            total_leads = len(corretor_leads)
+            converted_leads = len([lead for lead in corretor_leads if lead.get("status_id") == 142])
+            conversion_rate = (converted_leads / total_leads * 100) if total_leads > 0 else 0
+            
+            return {
+                "corretor": corretor_name,
+                "conversion_rate": round(conversion_rate, 2),
+                "total_leads": total_leads,
+                "converted_leads": converted_leads,
+                "period_days": period_days
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        print(f"Erro ao calcular taxa de conversão por corretor: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/salesbot-recovery-by-corretor")
+async def get_salesbot_recovery_by_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    recovery_tag: str = Query("Recuperado pelo SalesBot", description="Nome da tag de recuperação"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna leads recuperados pelo SalesBot filtrados por corretor"""
+    try:
+        all_leads = get_all_leads_with_custom_fields()
+        
+        if include_all:
+            # Retornar dados de todos os corretores
+            corretor_stats = {}
+            
+            for lead in all_leads:
+                # Verificar se tem a tag de recuperação
+                tags = lead.get("_embedded", {}).get("tags", [])
+                has_recovery_tag = any(tag.get("name") == recovery_tag for tag in tags)
+                
+                if not has_recovery_tag:
+                    continue
+                
+                custom_fields = lead.get("custom_fields_values", [])
+                for field in custom_fields:
+                    if field.get("field_id") == 837920:
+                        values = field.get("values", [])
+                        if values:
+                            corretor = values[0].get("value", "")
+                            if corretor:
+                                if corretor not in corretor_stats:
+                                    corretor_stats[corretor] = {
+                                        "recovered_leads": 0,
+                                        "recovered_converted": 0,
+                                        "recovery_conversion_rate": 0
+                                    }
+                                
+                                corretor_stats[corretor]["recovered_leads"] += 1
+                                if lead.get("status_id") == 142:  # won
+                                    corretor_stats[corretor]["recovered_converted"] += 1
+                        break
+            
+            # Calcular taxas de conversão da recuperação
+            for corretor in corretor_stats:
+                recovered = corretor_stats[corretor]["recovered_leads"]
+                converted = corretor_stats[corretor]["recovered_converted"]
+                corretor_stats[corretor]["recovery_conversion_rate"] = (converted / recovered * 100) if recovered > 0 else 0
+            
+            return {
+                "salesbot_recovery_by_corretor": corretor_stats,
+                "recovery_tag": recovery_tag
+            }
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            corretor_leads = filter_leads_by_corretor(all_leads, corretor_name)
+            
+            # Filtrar leads com tag de recuperação
+            recovered_leads = []
+            for lead in corretor_leads:
+                tags = lead.get("_embedded", {}).get("tags", [])
+                if any(tag.get("name") == recovery_tag for tag in tags):
+                    recovered_leads.append(lead)
+            
+            recovered_converted = len([lead for lead in recovered_leads if lead.get("status_id") == 142])
+            recovery_rate = (recovered_converted / len(recovered_leads) * 100) if recovered_leads else 0
+            
+            return {
+                "corretor": corretor_name,
+                "recovered_leads": recovered_leads,
+                "recovered_count": len(recovered_leads),
+                "recovered_converted": recovered_converted,
+                "recovery_conversion_rate": round(recovery_rate, 2),
+                "recovery_tag": recovery_tag
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        print(f"Erro ao obter recuperação SalesBot por corretor: {e}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))

@@ -841,3 +841,432 @@ async def get_team_performance(
         print(f"Erro ao obter performance da equipe: {e}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
+# Função auxiliar para filtrar leads por corretor (reutilizada de leads.py)
+def filter_leads_by_corretor_analytics(leads: list, corretor_name: str) -> list:
+    """Filtra leads pelo campo personalizado 'Corretor' (field_id: 837920)"""
+    if not corretor_name or not leads:
+        return leads if leads else []
+    
+    filtered_leads = []
+    for lead in leads:
+        if not lead:  # Proteção contra leads None
+            continue
+            
+        custom_fields = lead.get("custom_fields_values", [])
+        if not custom_fields:  # Proteção contra custom_fields None
+            continue
+            
+        for field in custom_fields:
+            if not field:  # Proteção contra field None
+                continue
+                
+            if field.get("field_id") == 837920:  # ID do campo Corretor
+                values = field.get("values", [])
+                if values and len(values) > 0:
+                    value = values[0].get("value") if values[0] else None
+                    if value == corretor_name:
+                        filtered_leads.append(lead)
+                        break
+    
+    return filtered_leads
+
+# NOVOS ENDPOINTS DE ANALYTICS COM FILTRO POR CORRETOR
+
+@router.get("/lead-cycle-time-by-corretor")
+async def get_lead_cycle_time_by_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    days: int = Query(90, description="Período em dias para análise"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna tempo médio de conversão filtrado por corretor"""
+    try:
+        from datetime import datetime, timedelta
+        
+        # Buscar leads ganhos no período
+        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_timestamp = int(cutoff_date.timestamp())
+        
+        # Buscar leads com campos personalizados
+        from app.routers.leads import get_all_leads_with_custom_fields
+        all_leads = get_all_leads_with_custom_fields()
+        
+        # Filtrar leads ganhos no período
+        won_leads = [
+            lead for lead in all_leads 
+            if (lead.get("status_id") == 142 and  # won
+                lead.get("closed_at", 0) >= cutoff_timestamp)
+        ]
+        
+        if include_all:
+            # Calcular para todos os corretores
+            corretor_cycle_times = {}
+            
+            for lead in won_leads:
+                custom_fields = lead.get("custom_fields_values", [])
+                for field in custom_fields:
+                    if field.get("field_id") == 837920:
+                        values = field.get("values", [])
+                        if values:
+                            corretor = values[0].get("value", "")
+                            if corretor:
+                                # Calcular tempo de ciclo
+                                created_at = lead.get("created_at", 0)
+                                closed_at = lead.get("closed_at", 0)
+                                cycle_time_days = (closed_at - created_at) / (24 * 60 * 60)
+                                
+                                if corretor not in corretor_cycle_times:
+                                    corretor_cycle_times[corretor] = []
+                                corretor_cycle_times[corretor].append(cycle_time_days)
+                        break
+            
+            # Calcular médias
+            result = {}
+            for corretor, times in corretor_cycle_times.items():
+                result[corretor] = {
+                    "average_cycle_time_days": round(sum(times) / len(times), 1),
+                    "leads_analyzed": len(times),
+                    "fastest_conversion_days": round(min(times), 1),
+                    "slowest_conversion_days": round(max(times), 1)
+                }
+            
+            return {
+                "lead_cycle_time_by_corretor": result,
+                "period_days": days
+            }
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            corretor_leads = filter_leads_by_corretor_analytics(won_leads, corretor_name)
+            
+            if not corretor_leads:
+                return {
+                    "corretor": corretor_name,
+                    "average_cycle_time_days": 0,
+                    "leads_analyzed": 0,
+                    "period_days": days,
+                    "message": "Nenhum lead convertido encontrado para este corretor no período"
+                }
+            
+            # Calcular tempos de ciclo
+            cycle_times = []
+            for lead in corretor_leads:
+                created_at = lead.get("created_at", 0)
+                closed_at = lead.get("closed_at", 0)
+                cycle_time_days = (closed_at - created_at) / (24 * 60 * 60)
+                cycle_times.append(cycle_time_days)
+            
+            return {
+                "corretor": corretor_name,
+                "average_cycle_time_days": round(sum(cycle_times) / len(cycle_times), 1),
+                "leads_analyzed": len(cycle_times),
+                "fastest_conversion_days": round(min(cycle_times), 1),
+                "slowest_conversion_days": round(max(cycle_times), 1),
+                "period_days": days
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        print(f"Erro ao calcular cycle time por corretor: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/win-rate-by-corretor")
+async def get_win_rate_by_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    days: int = Query(90, description="Período em dias para análise"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna win rate (taxa de vitória) filtrado por corretor"""
+    try:
+        from datetime import datetime, timedelta
+        
+        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_timestamp = int(cutoff_date.timestamp())
+        
+        from app.routers.leads import get_all_leads_with_custom_fields
+        all_leads = get_all_leads_with_custom_fields()
+        
+        # Filtrar leads fechados no período
+        closed_leads = []
+        for lead in all_leads:
+            if not lead:
+                continue
+            closed_at = lead.get("closed_at")
+            status_id = lead.get("status_id")
+            
+            if (closed_at is not None and closed_at >= cutoff_timestamp and
+                status_id in [142, 143]):  # won ou lost
+                closed_leads.append(lead)
+        
+        if include_all:
+            # Calcular para todos os corretores
+            corretor_win_rates = {}
+            
+            for lead in closed_leads:
+                custom_fields = lead.get("custom_fields_values", [])
+                for field in custom_fields:
+                    if field.get("field_id") == 837920:
+                        values = field.get("values", [])
+                        if values:
+                            corretor = values[0].get("value", "")
+                            if corretor:
+                                if corretor not in corretor_win_rates:
+                                    corretor_win_rates[corretor] = {"won": 0, "lost": 0}
+                                
+                                if lead.get("status_id") == 142:  # won
+                                    corretor_win_rates[corretor]["won"] += 1
+                                else:  # lost
+                                    corretor_win_rates[corretor]["lost"] += 1
+                        break
+            
+            # Calcular win rates
+            result = {}
+            for corretor, stats in corretor_win_rates.items():
+                total_closed = stats["won"] + stats["lost"]
+                win_rate = (stats["won"] / total_closed * 100) if total_closed > 0 else 0
+                
+                result[corretor] = {
+                    "win_rate": round(win_rate, 2),
+                    "total_won": stats["won"],
+                    "total_lost": stats["lost"],
+                    "total_closed": total_closed
+                }
+            
+            return {
+                "win_rates_by_corretor": result,
+                "period_days": days
+            }
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            corretor_leads = filter_leads_by_corretor_analytics(closed_leads, corretor_name)
+            
+            won_leads = len([lead for lead in corretor_leads if lead.get("status_id") == 142])
+            lost_leads = len([lead for lead in corretor_leads if lead.get("status_id") == 143])
+            total_closed = won_leads + lost_leads
+            
+            win_rate = (won_leads / total_closed * 100) if total_closed > 0 else 0
+            
+            return {
+                "corretor": corretor_name,
+                "win_rate": round(win_rate, 2),
+                "total_won": won_leads,
+                "total_lost": lost_leads,
+                "total_closed": total_closed,
+                "period_days": days
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        print(f"Erro ao calcular win rate por corretor: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/average-deal-size-by-corretor")
+async def get_average_deal_size_by_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    days: int = Query(90, description="Período em dias para análise"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna ticket médio filtrado por corretor"""
+    try:
+        from datetime import datetime, timedelta
+        
+        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_timestamp = int(cutoff_date.timestamp())
+        
+        from app.routers.leads import get_all_leads_with_custom_fields
+        all_leads = get_all_leads_with_custom_fields()
+        
+        # Filtrar leads ganhos no período
+        won_leads = [
+            lead for lead in all_leads 
+            if (lead.get("status_id") == 142 and  # won
+                lead.get("closed_at", 0) >= cutoff_timestamp)
+        ]
+        
+        if include_all:
+            # Calcular para todos os corretores
+            corretor_deal_sizes = {}
+            
+            for lead in won_leads:
+                custom_fields = lead.get("custom_fields_values", [])
+                for field in custom_fields:
+                    if field.get("field_id") == 837920:
+                        values = field.get("values", [])
+                        if values:
+                            corretor = values[0].get("value", "")
+                            if corretor:
+                                price = lead.get("price", 0) or 0
+                                
+                                if corretor not in corretor_deal_sizes:
+                                    corretor_deal_sizes[corretor] = []
+                                corretor_deal_sizes[corretor].append(price)
+                        break
+            
+            # Calcular médias
+            result = {}
+            for corretor, prices in corretor_deal_sizes.items():
+                if prices:
+                    result[corretor] = {
+                        "average_deal_size": round(sum(prices) / len(prices), 2),
+                        "total_revenue": round(sum(prices), 2),
+                        "deals_count": len(prices),
+                        "largest_deal": round(max(prices), 2),
+                        "smallest_deal": round(min(prices), 2)
+                    }
+            
+            return {
+                "average_deal_size_by_corretor": result,
+                "period_days": days
+            }
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            corretor_leads = filter_leads_by_corretor_analytics(won_leads, corretor_name)
+            
+            if not corretor_leads:
+                return {
+                    "corretor": corretor_name,
+                    "average_deal_size": 0,
+                    "total_revenue": 0,
+                    "deals_count": 0,
+                    "period_days": days,
+                    "message": "Nenhuma venda encontrada para este corretor no período"
+                }
+            
+            prices = [lead.get("price", 0) or 0 for lead in corretor_leads]
+            
+            return {
+                "corretor": corretor_name,
+                "average_deal_size": round(sum(prices) / len(prices), 2),
+                "total_revenue": round(sum(prices), 2),
+                "deals_count": len(prices),
+                "largest_deal": round(max(prices), 2),
+                "smallest_deal": round(min(prices), 2),
+                "period_days": days
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        print(f"Erro ao calcular ticket médio por corretor: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/overview-by-corretor")
+async def get_analytics_overview_by_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    days: int = Query(30, description="Período em dias para análise"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna visão geral de analytics filtrada por corretor"""
+    try:
+        from datetime import datetime, timedelta
+        
+        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_timestamp = int(cutoff_date.timestamp())
+        
+        from app.routers.leads import get_all_leads_with_custom_fields
+        all_leads = get_all_leads_with_custom_fields()
+        
+        # Filtrar leads do período
+        period_leads = [
+            lead for lead in all_leads 
+            if lead.get("created_at", 0) >= cutoff_timestamp
+        ]
+        
+        if include_all:
+            # Calcular para todos os corretores
+            corretor_overviews = {}
+            
+            for lead in period_leads:
+                custom_fields = lead.get("custom_fields_values", [])
+                for field in custom_fields:
+                    if field.get("field_id") == 837920:
+                        values = field.get("values", [])
+                        if values:
+                            corretor = values[0].get("value", "")
+                            if corretor:
+                                if corretor not in corretor_overviews:
+                                    corretor_overviews[corretor] = {
+                                        "total_leads": 0,
+                                        "active_leads": 0,
+                                        "won_leads": 0,
+                                        "lost_leads": 0,
+                                        "total_revenue": 0
+                                    }
+                                
+                                stats = corretor_overviews[corretor]
+                                stats["total_leads"] += 1
+                                
+                                if lead.get("status_id") == 142:  # won
+                                    stats["won_leads"] += 1
+                                    stats["total_revenue"] += lead.get("price", 0) or 0
+                                elif lead.get("status_id") == 143:  # lost
+                                    stats["lost_leads"] += 1
+                                else:  # active
+                                    stats["active_leads"] += 1
+                        break
+            
+            # Calcular métricas derivadas
+            for corretor, stats in corretor_overviews.items():
+                total_closed = stats["won_leads"] + stats["lost_leads"]
+                stats["conversion_rate"] = round(
+                    (stats["won_leads"] / stats["total_leads"] * 100) if stats["total_leads"] > 0 else 0, 2
+                )
+                stats["win_rate"] = round(
+                    (stats["won_leads"] / total_closed * 100) if total_closed > 0 else 0, 2
+                )
+                stats["average_deal_size"] = round(
+                    (stats["total_revenue"] / stats["won_leads"]) if stats["won_leads"] > 0 else 0, 2
+                )
+                stats["total_revenue"] = round(stats["total_revenue"], 2)
+            
+            return {
+                "analytics_overview_by_corretor": corretor_overviews,
+                "period_days": days
+            }
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            corretor_leads = filter_leads_by_corretor_analytics(period_leads, corretor_name)
+            
+            total_leads = len(corretor_leads)
+            active_leads = len([lead for lead in corretor_leads if lead.get("status_id") not in [142, 143]])
+            won_leads = len([lead for lead in corretor_leads if lead.get("status_id") == 142])
+            lost_leads = len([lead for lead in corretor_leads if lead.get("status_id") == 143])
+            
+            total_revenue = sum(lead.get("price", 0) or 0 for lead in corretor_leads if lead.get("status_id") == 142)
+            
+            total_closed = won_leads + lost_leads
+            conversion_rate = (won_leads / total_leads * 100) if total_leads > 0 else 0
+            win_rate = (won_leads / total_closed * 100) if total_closed > 0 else 0
+            average_deal_size = (total_revenue / won_leads) if won_leads > 0 else 0
+            
+            return {
+                "corretor": corretor_name,
+                "total_leads": total_leads,
+                "active_leads": active_leads,
+                "won_leads": won_leads,
+                "lost_leads": lost_leads,
+                "total_revenue": round(total_revenue, 2),
+                "conversion_rate": round(conversion_rate, 2),
+                "win_rate": round(win_rate, 2),
+                "average_deal_size": round(average_deal_size, 2),
+                "period_days": days
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        print(f"Erro ao obter overview por corretor: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))

@@ -364,3 +364,368 @@ async def get_completed_meetings_by_user(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao buscar reuniões realizadas: {str(e)}")
+
+# Função auxiliar para obter leads relacionados às tarefas
+def get_leads_for_meetings(meeting_entity_ids: list):
+    """Busca leads relacionados às reuniões para filtrar por corretor"""
+    try:
+        from app.routers.leads import get_all_leads_with_custom_fields
+        all_leads = get_all_leads_with_custom_fields()
+        
+        # Filtrar apenas os leads relacionados às reuniões
+        related_leads = [lead for lead in all_leads if lead.get("id") in meeting_entity_ids]
+        return related_leads
+    except Exception as e:
+        print(f"Erro ao buscar leads para reuniões: {e}")
+        return []
+
+def filter_meetings_by_corretor(meetings: list, corretor_name: str):
+    """Filtra reuniões por corretor baseado no campo personalizado do lead relacionado"""
+    if not corretor_name:
+        return meetings
+    
+    # Extrair IDs de leads das reuniões
+    lead_ids = [meeting.get("entity_id") for meeting in meetings if meeting.get("entity_type") == "leads"]
+    
+    if not lead_ids:
+        return []
+    
+    # Buscar leads relacionados
+    related_leads = get_leads_for_meetings(lead_ids)
+    
+    # Criar mapeamento lead_id -> corretor
+    lead_corretor_map = {}
+    for lead in related_leads:
+        custom_fields = lead.get("custom_fields_values", [])
+        for field in custom_fields:
+            if field.get("field_id") == 837920:  # ID do campo Corretor
+                values = field.get("values", [])
+                if values:
+                    lead_corretor_map[lead.get("id")] = values[0].get("value", "")
+                break
+    
+    # Filtrar reuniões pelo corretor
+    filtered_meetings = []
+    for meeting in meetings:
+        if meeting.get("entity_type") == "leads":
+            entity_id = meeting.get("entity_id")
+            if lead_corretor_map.get(entity_id) == corretor_name:
+                filtered_meetings.append(meeting)
+        # Para outros tipos de entidade, não filtramos (pode ser contato, empresa, etc.)
+    
+    return filtered_meetings
+
+# NOVOS ENDPOINTS DE REUNIÕES COM FILTRO POR CORRETOR
+
+@router.get("/scheduled-by-corretor")
+async def get_meetings_scheduled_by_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna reuniões agendadas filtradas por corretor (custom field)"""
+    try:
+        api = KommoAPI()
+        
+        # Buscar tarefas do tipo reunião não concluídas
+        params = {
+            'filter[task_type]': 2,  # Tipo reunião
+            'filter[is_completed]': 0,  # Não concluídas (agendadas)
+            'limit': 250
+        }
+        
+        tasks_response = api.get_tasks(params)
+        
+        if not tasks_response or '_embedded' not in tasks_response:
+            return {"error": "Não foi possível obter reuniões agendadas"}
+        
+        all_meetings = tasks_response.get('_embedded', {}).get('tasks', [])
+        
+        if include_all:
+            # Agrupar por corretor
+            meetings_by_corretor = {}
+            
+            # Extrair IDs de leads das reuniões
+            lead_ids = [meeting.get("entity_id") for meeting in all_meetings if meeting.get("entity_type") == "leads"]
+            
+            if lead_ids:
+                # Buscar leads relacionados
+                related_leads = get_leads_for_meetings(lead_ids)
+                
+                # Criar mapeamento lead_id -> corretor
+                lead_corretor_map = {}
+                for lead in related_leads:
+                    custom_fields = lead.get("custom_fields_values", [])
+                    for field in custom_fields:
+                        if field.get("field_id") == 837920:  # ID do campo Corretor
+                            values = field.get("values", [])
+                            if values:
+                                lead_corretor_map[lead.get("id")] = values[0].get("value", "")
+                            break
+                
+                # Agrupar reuniões por corretor
+                for meeting in all_meetings:
+                    if meeting.get("entity_type") == "leads":
+                        entity_id = meeting.get("entity_id")
+                        corretor = lead_corretor_map.get(entity_id)
+                        if corretor:
+                            if corretor not in meetings_by_corretor:
+                                meetings_by_corretor[corretor] = []
+                            meetings_by_corretor[corretor].append(meeting)
+            
+            # Converter para contagem
+            meetings_count_by_corretor = {
+                corretor: len(meetings) 
+                for corretor, meetings in meetings_by_corretor.items()
+            }
+            
+            return {
+                "scheduled_meetings_by_corretor": meetings_count_by_corretor,
+                "total_scheduled": sum(meetings_count_by_corretor.values())
+            }
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            corretor_meetings = filter_meetings_by_corretor(all_meetings, corretor_name)
+            
+            return {
+                "corretor": corretor_name,
+                "scheduled_meetings": corretor_meetings,
+                "count": len(corretor_meetings)
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar reuniões agendadas por corretor: {str(e)}")
+
+@router.get("/completed-by-corretor")
+async def get_meetings_completed_by_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    days: int = Query(30, description="Período em dias para análise"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna reuniões realizadas filtradas por corretor (custom field)"""
+    try:
+        from datetime import datetime, timedelta
+        
+        api = KommoAPI()
+        
+        # Buscar tarefas do tipo reunião concluídas
+        params = {
+            'filter[task_type]': 2,  # Tipo reunião
+            'filter[is_completed]': 1,  # Concluídas
+            'limit': 250
+        }
+        
+        tasks_response = api.get_tasks(params)
+        
+        if not tasks_response or '_embedded' not in tasks_response:
+            return {"error": "Não foi possível obter reuniões realizadas"}
+        
+        all_meetings = tasks_response.get('_embedded', {}).get('tasks', [])
+        
+        # Filtrar por período
+        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_timestamp = int(cutoff_date.timestamp())
+        
+        period_meetings = [
+            meeting for meeting in all_meetings 
+            if meeting.get('completed_at', 0) >= cutoff_timestamp
+        ]
+        
+        if include_all:
+            # Agrupar por corretor
+            meetings_by_corretor = {}
+            
+            # Extrair IDs de leads das reuniões
+            lead_ids = [meeting.get("entity_id") for meeting in period_meetings if meeting.get("entity_type") == "leads"]
+            
+            if lead_ids:
+                # Buscar leads relacionados
+                related_leads = get_leads_for_meetings(lead_ids)
+                
+                # Criar mapeamento lead_id -> corretor
+                lead_corretor_map = {}
+                for lead in related_leads:
+                    custom_fields = lead.get("custom_fields_values", [])
+                    for field in custom_fields:
+                        if field.get("field_id") == 837920:  # ID do campo Corretor
+                            values = field.get("values", [])
+                            if values:
+                                lead_corretor_map[lead.get("id")] = values[0].get("value", "")
+                            break
+                
+                # Agrupar reuniões por corretor
+                for meeting in period_meetings:
+                    if meeting.get("entity_type") == "leads":
+                        entity_id = meeting.get("entity_id")
+                        corretor = lead_corretor_map.get(entity_id)
+                        if corretor:
+                            if corretor not in meetings_by_corretor:
+                                meetings_by_corretor[corretor] = []
+                            meetings_by_corretor[corretor].append(meeting)
+            
+            # Converter para contagem
+            meetings_count_by_corretor = {
+                corretor: len(meetings) 
+                for corretor, meetings in meetings_by_corretor.items()
+            }
+            
+            return {
+                "completed_meetings_by_corretor": meetings_count_by_corretor,
+                "total_completed": sum(meetings_count_by_corretor.values()),
+                "period_days": days
+            }
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            corretor_meetings = filter_meetings_by_corretor(period_meetings, corretor_name)
+            
+            return {
+                "corretor": corretor_name,
+                "completed_meetings": corretor_meetings,
+                "count": len(corretor_meetings),
+                "period_days": days
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar reuniões realizadas por corretor: {str(e)}")
+
+@router.get("/stats-by-corretor")
+async def get_meeting_stats_by_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    days: int = Query(30, description="Período em dias para análise"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna estatísticas de reuniões filtradas por corretor"""
+    try:
+        from datetime import datetime, timedelta
+        
+        api = KommoAPI()
+        
+        # Buscar todas as tarefas do tipo reunião
+        params = {
+            'filter[task_type]': 2,  # Tipo reunião
+            'limit': 250
+        }
+        
+        tasks_response = api.get_tasks(params)
+        
+        if not tasks_response or '_embedded' not in tasks_response:
+            return {"error": "Não foi possível obter reuniões"}
+        
+        all_meetings = tasks_response.get('_embedded', {}).get('tasks', [])
+        
+        # Filtrar por período
+        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_timestamp = int(cutoff_date.timestamp())
+        
+        # Separar reuniões por status
+        completed_meetings = [
+            meeting for meeting in all_meetings 
+            if (meeting.get('is_completed') and 
+                meeting.get('completed_at', 0) >= cutoff_timestamp)
+        ]
+        
+        scheduled_meetings = [
+            meeting for meeting in all_meetings 
+            if not meeting.get('is_completed')
+        ]
+        
+        if include_all:
+            # Calcular estatísticas para todos os corretores
+            corretor_stats = {}
+            
+            # Processar reuniões completadas
+            for meeting in completed_meetings:
+                if meeting.get("entity_type") == "leads":
+                    entity_id = meeting.get("entity_id")
+                    # Buscar corretor do lead
+                    lead_corretor = get_corretor_for_lead(entity_id)
+                    if lead_corretor:
+                        if lead_corretor not in corretor_stats:
+                            corretor_stats[lead_corretor] = {
+                                "completed_meetings": 0,
+                                "scheduled_meetings": 0,
+                                "completion_rate": 0
+                            }
+                        corretor_stats[lead_corretor]["completed_meetings"] += 1
+            
+            # Processar reuniões agendadas
+            for meeting in scheduled_meetings:
+                if meeting.get("entity_type") == "leads":
+                    entity_id = meeting.get("entity_id")
+                    # Buscar corretor do lead
+                    lead_corretor = get_corretor_for_lead(entity_id)
+                    if lead_corretor:
+                        if lead_corretor not in corretor_stats:
+                            corretor_stats[lead_corretor] = {
+                                "completed_meetings": 0,
+                                "scheduled_meetings": 0,
+                                "completion_rate": 0
+                            }
+                        corretor_stats[lead_corretor]["scheduled_meetings"] += 1
+            
+            # Calcular taxa de conclusão
+            for corretor, stats in corretor_stats.items():
+                total_meetings = stats["completed_meetings"] + stats["scheduled_meetings"]
+                if total_meetings > 0:
+                    stats["completion_rate"] = round(
+                        (stats["completed_meetings"] / total_meetings) * 100, 2
+                    )
+                stats["total_meetings"] = total_meetings
+            
+            return {
+                "meeting_stats_by_corretor": corretor_stats,
+                "period_days": days
+            }
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            corretor_completed = filter_meetings_by_corretor(completed_meetings, corretor_name)
+            corretor_scheduled = filter_meetings_by_corretor(scheduled_meetings, corretor_name)
+            
+            total_meetings = len(corretor_completed) + len(corretor_scheduled)
+            completion_rate = (len(corretor_completed) / total_meetings * 100) if total_meetings > 0 else 0
+            
+            return {
+                "corretor": corretor_name,
+                "completed_meetings": len(corretor_completed),
+                "scheduled_meetings": len(corretor_scheduled),
+                "total_meetings": total_meetings,
+                "completion_rate": round(completion_rate, 2),
+                "period_days": days
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao calcular estatísticas por corretor: {str(e)}")
+
+def get_corretor_for_lead(lead_id: int) -> str:
+    """Busca o corretor de um lead específico"""
+    try:
+        from app.routers.leads import get_all_leads_with_custom_fields
+        all_leads = get_all_leads_with_custom_fields()
+        
+        # Encontrar o lead
+        target_lead = next((lead for lead in all_leads if lead.get("id") == lead_id), None)
+        
+        if target_lead:
+            custom_fields = target_lead.get("custom_fields_values", [])
+            for field in custom_fields:
+                if field.get("field_id") == 837920:  # ID do campo Corretor
+                    values = field.get("values", [])
+                    if values:
+                        return values[0].get("value", "")
+                    break
+        
+        return None
+    except Exception as e:
+        print(f"Erro ao buscar corretor para lead {lead_id}: {e}")
+        return None

@@ -515,3 +515,402 @@ async def get_sales_by_utm(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao buscar vendas por UTM: {str(e)}")
+
+# Função auxiliar para filtrar leads por corretor (reutilizada)
+def filter_leads_by_corretor_sales(leads: list, corretor_name: str) -> list:
+    """Filtra leads pelo campo personalizado 'Corretor' (field_id: 837920)"""
+    if not corretor_name:
+        return leads
+    
+    filtered_leads = []
+    for lead in leads:
+        custom_fields = lead.get("custom_fields_values", [])
+        for field in custom_fields:
+            if field.get("field_id") == 837920:  # ID do campo Corretor
+                values = field.get("values", [])
+                if values and values[0].get("value") == corretor_name:
+                    filtered_leads.append(lead)
+                    break
+    
+    return filtered_leads
+
+# NOVOS ENDPOINTS DE VENDAS COM FILTRO POR CORRETOR
+
+@router.get("/revenue-by-corretor")
+async def get_revenue_by_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    days: int = Query(30, description="Período em dias para análise"),
+    group_by: str = Query("day", description="Agrupamento: day, week, month"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna receita de vendas filtrada por corretor"""
+    try:
+        from datetime import datetime, timedelta
+        from app.routers.leads import get_all_leads_with_custom_fields
+        
+        # Buscar todos os leads com campos personalizados
+        all_leads = get_all_leads_with_custom_fields()
+        
+        # Filtrar leads ganhos no período
+        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_timestamp = int(cutoff_date.timestamp())
+        
+        won_leads = [
+            lead for lead in all_leads 
+            if (lead.get("status_id") == 142 and  # won
+                lead.get("closed_at", 0) >= cutoff_timestamp)
+        ]
+        
+        if include_all:
+            # Calcular receita para todos os corretores
+            corretor_revenues = {}
+            
+            for lead in won_leads:
+                custom_fields = lead.get("custom_fields_values", [])
+                for field in custom_fields:
+                    if field.get("field_id") == 837920:
+                        values = field.get("values", [])
+                        if values:
+                            corretor = values[0].get("value", "")
+                            if corretor:
+                                if corretor not in corretor_revenues:
+                                    corretor_revenues[corretor] = {
+                                        "total_revenue": 0,
+                                        "sales_count": 0,
+                                        "revenue_by_period": {}
+                                    }
+                                
+                                price = lead.get("price", 0) or 0
+                                corretor_revenues[corretor]["total_revenue"] += price
+                                corretor_revenues[corretor]["sales_count"] += 1
+                                
+                                # Agrupar por período
+                                closed_at = lead.get("closed_at", 0)
+                                period_key = format_period_key(closed_at, group_by)
+                                
+                                if period_key not in corretor_revenues[corretor]["revenue_by_period"]:
+                                    corretor_revenues[corretor]["revenue_by_period"][period_key] = 0
+                                corretor_revenues[corretor]["revenue_by_period"][period_key] += price
+                        break
+            
+            # Arredondar valores
+            for corretor_data in corretor_revenues.values():
+                corretor_data["total_revenue"] = round(corretor_data["total_revenue"], 2)
+                for period in corretor_data["revenue_by_period"]:
+                    corretor_data["revenue_by_period"][period] = round(corretor_data["revenue_by_period"][period], 2)
+            
+            return {
+                "revenue_by_corretor": corretor_revenues,
+                "period_days": days,
+                "group_by": group_by
+            }
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            corretor_leads = filter_leads_by_corretor_sales(won_leads, corretor_name)
+            
+            total_revenue = 0
+            revenue_by_period = {}
+            
+            for lead in corretor_leads:
+                price = lead.get("price", 0) or 0
+                total_revenue += price
+                
+                # Agrupar por período
+                closed_at = lead.get("closed_at", 0)
+                period_key = format_period_key(closed_at, group_by)
+                
+                if period_key not in revenue_by_period:
+                    revenue_by_period[period_key] = 0
+                revenue_by_period[period_key] += price
+            
+            # Arredondar valores
+            for period in revenue_by_period:
+                revenue_by_period[period] = round(revenue_by_period[period], 2)
+            
+            return {
+                "corretor": corretor_name,
+                "total_revenue": round(total_revenue, 2),
+                "sales_count": len(corretor_leads),
+                "average_sale": round(total_revenue / len(corretor_leads), 2) if corretor_leads else 0,
+                "revenue_by_period": revenue_by_period,
+                "period_days": days,
+                "group_by": group_by
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao obter receita por corretor: {str(e)}")
+
+def format_period_key(timestamp: int, group_by: str) -> str:
+    """Formata a chave do período baseado no agrupamento"""
+    if timestamp == 0:
+        return "Unknown"
+    
+    try:
+        dt = datetime.fromtimestamp(timestamp)
+        
+        if group_by == "day":
+            return dt.strftime("%Y-%m-%d")
+        elif group_by == "week":
+            # Primeira data da semana
+            monday = dt - timedelta(days=dt.weekday())
+            return monday.strftime("Semana %Y-%m-%d")
+        elif group_by == "month":
+            return dt.strftime("%Y-%m")
+        else:
+            return dt.strftime("%Y-%m-%d")
+    except:
+        return "Unknown"
+
+@router.get("/by-user-corretor")
+async def get_sales_by_user_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    days: int = Query(30, description="Período em dias para análise"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna vendas por corretor (usando custom field) ao invés de usuário responsável"""
+    try:
+        from datetime import datetime, timedelta
+        from app.routers.leads import get_all_leads_with_custom_fields
+        
+        # Buscar todos os leads
+        all_leads = get_all_leads_with_custom_fields()
+        
+        # Filtrar leads ganhos no período
+        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_timestamp = int(cutoff_date.timestamp())
+        
+        won_leads = [
+            lead for lead in all_leads 
+            if (lead.get("status_id") == 142 and  # won
+                lead.get("closed_at", 0) >= cutoff_timestamp)
+        ]
+        
+        if include_all:
+            # Agrupar por corretor
+            sales_by_corretor = {}
+            
+            for lead in won_leads:
+                custom_fields = lead.get("custom_fields_values", [])
+                for field in custom_fields:
+                    if field.get("field_id") == 837920:
+                        values = field.get("values", [])
+                        if values:
+                            corretor = values[0].get("value", "")
+                            if corretor:
+                                if corretor not in sales_by_corretor:
+                                    sales_by_corretor[corretor] = {
+                                        "total_sales": 0,
+                                        "total_revenue": 0,
+                                        "average_sale": 0
+                                    }
+                                
+                                sales_by_corretor[corretor]["total_sales"] += 1
+                                sales_by_corretor[corretor]["total_revenue"] += lead.get("price", 0) or 0
+                        break
+            
+            # Calcular médias
+            for corretor_data in sales_by_corretor.values():
+                if corretor_data["total_sales"] > 0:
+                    corretor_data["average_sale"] = round(
+                        corretor_data["total_revenue"] / corretor_data["total_sales"], 2
+                    )
+                corretor_data["total_revenue"] = round(corretor_data["total_revenue"], 2)
+            
+            return {
+                "sales_by_corretor": sales_by_corretor,
+                "period_days": days
+            }
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            corretor_leads = filter_leads_by_corretor_sales(won_leads, corretor_name)
+            
+            total_sales = len(corretor_leads)
+            total_revenue = sum(lead.get("price", 0) or 0 for lead in corretor_leads)
+            average_sale = (total_revenue / total_sales) if total_sales > 0 else 0
+            
+            return {
+                "corretor": corretor_name,
+                "total_sales": total_sales,
+                "total_revenue": round(total_revenue, 2),
+                "average_sale": round(average_sale, 2),
+                "period_days": days,
+                "leads": corretor_leads  # Incluir detalhes dos leads
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao obter vendas por corretor: {str(e)}")
+
+@router.get("/growth-by-corretor")
+async def get_sales_growth_by_corretor(
+    corretor_name: str = Query(None, description="Nome do corretor para filtrar"),
+    current_days: int = Query(30, description="Período atual em dias"),
+    previous_days: int = Query(30, description="Período anterior em dias"),
+    include_all: bool = Query(False, description="Se True, retorna dados de todos os corretores")
+):
+    """Retorna crescimento de vendas filtrado por corretor"""
+    try:
+        from datetime import datetime, timedelta
+        from app.routers.leads import get_all_leads_with_custom_fields
+        
+        # Buscar todos os leads
+        all_leads = get_all_leads_with_custom_fields()
+        
+        # Calcular períodos
+        current_end = datetime.now()
+        current_start = current_end - timedelta(days=current_days)
+        previous_start = current_start - timedelta(days=previous_days)
+        
+        current_start_ts = int(current_start.timestamp())
+        previous_start_ts = int(previous_start.timestamp())
+        current_end_ts = int(current_end.timestamp())
+        
+        # Filtrar leads ganhos
+        current_won_leads = [
+            lead for lead in all_leads 
+            if (lead.get("status_id") == 142 and  # won
+                current_start_ts <= lead.get("closed_at", 0) <= current_end_ts)
+        ]
+        
+        previous_won_leads = [
+            lead for lead in all_leads 
+            if (lead.get("status_id") == 142 and  # won
+                previous_start_ts <= lead.get("closed_at", 0) < current_start_ts)
+        ]
+        
+        if include_all:
+            # Calcular crescimento para todos os corretores
+            corretor_growth = {}
+            
+            # Processar período atual
+            for lead in current_won_leads:
+                custom_fields = lead.get("custom_fields_values", [])
+                for field in custom_fields:
+                    if field.get("field_id") == 837920:
+                        values = field.get("values", [])
+                        if values:
+                            corretor = values[0].get("value", "")
+                            if corretor:
+                                if corretor not in corretor_growth:
+                                    corretor_growth[corretor] = {
+                                        "current": {"revenue": 0, "sales": 0},
+                                        "previous": {"revenue": 0, "sales": 0}
+                                    }
+                                
+                                corretor_growth[corretor]["current"]["revenue"] += lead.get("price", 0) or 0
+                                corretor_growth[corretor]["current"]["sales"] += 1
+                        break
+            
+            # Processar período anterior
+            for lead in previous_won_leads:
+                custom_fields = lead.get("custom_fields_values", [])
+                for field in custom_fields:
+                    if field.get("field_id") == 837920:
+                        values = field.get("values", [])
+                        if values:
+                            corretor = values[0].get("value", "")
+                            if corretor:
+                                if corretor not in corretor_growth:
+                                    corretor_growth[corretor] = {
+                                        "current": {"revenue": 0, "sales": 0},
+                                        "previous": {"revenue": 0, "sales": 0}
+                                    }
+                                
+                                corretor_growth[corretor]["previous"]["revenue"] += lead.get("price", 0) or 0
+                                corretor_growth[corretor]["previous"]["sales"] += 1
+                        break
+            
+            # Calcular crescimento percentual
+            for corretor, data in corretor_growth.items():
+                current_rev = data["current"]["revenue"]
+                previous_rev = data["previous"]["revenue"]
+                current_sales = data["current"]["sales"]
+                previous_sales = data["previous"]["sales"]
+                
+                # Crescimento de receita
+                revenue_growth = 0
+                if previous_rev > 0:
+                    revenue_growth = ((current_rev - previous_rev) / previous_rev) * 100
+                elif current_rev > 0:
+                    revenue_growth = 100
+                
+                # Crescimento de vendas
+                sales_growth = 0
+                if previous_sales > 0:
+                    sales_growth = ((current_sales - previous_sales) / previous_sales) * 100
+                elif current_sales > 0:
+                    sales_growth = 100
+                
+                data["growth"] = {
+                    "revenue_percentage": round(revenue_growth, 2),
+                    "sales_percentage": round(sales_growth, 2),
+                    "revenue_absolute": round(current_rev - previous_rev, 2),
+                    "sales_absolute": current_sales - previous_sales
+                }
+                
+                # Arredondar valores
+                data["current"]["revenue"] = round(current_rev, 2)
+                data["previous"]["revenue"] = round(previous_rev, 2)
+            
+            return {
+                "growth_by_corretor": corretor_growth,
+                "current_days": current_days,
+                "previous_days": previous_days
+            }
+        
+        elif corretor_name:
+            # Filtrar por corretor específico
+            current_corretor_leads = filter_leads_by_corretor_sales(current_won_leads, corretor_name)
+            previous_corretor_leads = filter_leads_by_corretor_sales(previous_won_leads, corretor_name)
+            
+            # Calcular totais
+            current_revenue = sum(lead.get("price", 0) or 0 for lead in current_corretor_leads)
+            previous_revenue = sum(lead.get("price", 0) or 0 for lead in previous_corretor_leads)
+            current_sales = len(current_corretor_leads)
+            previous_sales = len(previous_corretor_leads)
+            
+            # Calcular crescimento
+            revenue_growth = 0
+            if previous_revenue > 0:
+                revenue_growth = ((current_revenue - previous_revenue) / previous_revenue) * 100
+            elif current_revenue > 0:
+                revenue_growth = 100
+            
+            sales_growth = 0
+            if previous_sales > 0:
+                sales_growth = ((current_sales - previous_sales) / previous_sales) * 100
+            elif current_sales > 0:
+                sales_growth = 100
+            
+            return {
+                "corretor": corretor_name,
+                "current_period": {
+                    "revenue": round(current_revenue, 2),
+                    "sales": current_sales,
+                    "days": current_days
+                },
+                "previous_period": {
+                    "revenue": round(previous_revenue, 2),
+                    "sales": previous_sales,
+                    "days": previous_days
+                },
+                "growth": {
+                    "revenue_percentage": round(revenue_growth, 2),
+                    "sales_percentage": round(sales_growth, 2),
+                    "revenue_absolute": round(current_revenue - previous_revenue, 2),
+                    "sales_absolute": current_sales - previous_sales
+                }
+            }
+        
+        else:
+            return {"error": "Especifique corretor_name ou use include_all=true"}
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao calcular crescimento por corretor: {str(e)}")
