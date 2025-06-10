@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:developers.kommo.com)",
+      "Bash(python:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(pip install:*)",
+      "Bash(source:*)",
+      "Bash(./venv/Scripts/python.exe test_detailed_tables.py)",
+      "Bash(./venv/Scripts/python.exe debug_leads.py)",
+      "Bash(./venv/Scripts/python.exe:*)",
+      "Bash(chmod:*)",
+      "Bash(bash:*)",
+      "Bash(mv:*)"
+    ],
+    "deny": []
+  }
+}

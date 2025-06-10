@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Query, HTTPException
+from typing import Optional
 from datetime import datetime, timedelta
 import traceback
 
@@ -372,7 +373,7 @@ async def get_corretores_comparison(
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
 
 @router.get("/list")
-async def get_corretores_list():
+async def get_corretores_list(fonte: Optional[str] = Query(None, description="Fonte para filtrar dados")):
     """
     Retorna lista de todos os corretores disponíveis no sistema
     """
@@ -398,31 +399,43 @@ async def get_corretores_list():
             custom_fields = lead.get("custom_fields_values", [])
             if not custom_fields:
                 continue
+                
+            # Extrair fonte e corretor
+            fonte_lead = "N/A"
+            corretor = None
+            
             for field in custom_fields:
                 if not field:
                     continue
-                if field.get("field_id") == 837920:  # ID do campo Corretor
-                    values = field.get("values", [])
-                    if values and len(values) > 0:
-                        value = values[0].get("value") if values[0] else None
-                        corretor = value
-                        if corretor:
-                            if corretor not in corretores_data:
-                                corretores_data[corretor] = {
-                                    "name": corretor,
-                                    "total_leads": 0,
-                                    "active_leads": 0,
-                                    "won_leads": 0
-                                }
-                            
-                            corretores_data[corretor]["total_leads"] += 1
-                            
-                            status_id = lead.get("status_id")
-                            if status_id == 142:  # won
-                                corretores_data[corretor]["won_leads"] += 1
-                            elif status_id not in [142, 143]:  # active
-                                corretores_data[corretor]["active_leads"] += 1
-                    break
+                field_id = field.get("field_id")
+                values = field.get("values", [])
+                
+                if field_id == 837886 and values:  # Fonte
+                    fonte_lead = values[0].get("value", "N/A")
+                elif field_id == 837920 and values:  # Corretor
+                    value = values[0].get("value") if values[0] else None
+                    corretor = value
+            
+            # Filtrar por fonte se especificado
+            if fonte and isinstance(fonte, str) and fonte.strip() and fonte_lead != fonte:
+                continue
+                
+            if corretor:
+                if corretor not in corretores_data:
+                    corretores_data[corretor] = {
+                        "name": corretor,
+                        "total_leads": 0,
+                        "active_leads": 0,
+                        "won_leads": 0
+                    }
+                
+                corretores_data[corretor]["total_leads"] += 1
+                
+                status_id = lead.get("status_id")
+                if status_id == 142:  # won
+                    corretores_data[corretor]["won_leads"] += 1
+                elif status_id not in [142, 143]:  # active
+                    corretores_data[corretor]["active_leads"] += 1
         
         # Converter para lista e ordenar
         corretores_list = list(corretores_data.values())

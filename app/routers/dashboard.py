@@ -26,18 +26,24 @@ except Exception as e:
 def safe_get_data(func, *args, **kwargs):
     try:
         result = func(*args, **kwargs)
-        logger.info(f"Safe get data resultado: {type(result)}")
+        logger.info(f"Safe get data resultado: {type(result)}, função: {func.__name__ if hasattr(func, '__name__') else 'unknown'}")
         if result is None:
-            logger.warning("Função retornou None")
+            logger.warning(f"Função {func.__name__ if hasattr(func, '__name__') else 'unknown'} retornou None")
+            return {}
+        if not isinstance(result, dict):
+            logger.warning(f"Função {func.__name__ if hasattr(func, '__name__') else 'unknown'} retornou tipo inválido: {type(result)}")
             return {}
         return result
     except Exception as e:
-        logger.warning(f"Erro ao buscar dados: {e}")
+        logger.error(f"Erro ao buscar dados de {func.__name__ if hasattr(func, '__name__') else 'unknown'}: {e}")
         return {}
 
 @router.get("/marketing-complete")
 async def get_marketing_dashboard_complete(
     days: int = Query(90, description="Período em dias para análise"),
+    start_date: Optional[str] = Query(None, description="Data de início (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Data de fim (YYYY-MM-DD)"),
+    fonte: Optional[str] = Query(None, description="Fonte para filtrar dados"),
 ):
     """
     Endpoint otimizado que retorna todos os dados do dashboard de marketing
@@ -52,12 +58,26 @@ async def get_marketing_dashboard_complete(
     - /analytics/trends
     """
     try:
-        logger.info(f"Iniciando dashboard marketing completo para {days} dias")
+        logger.info(f"Iniciando dashboard marketing completo para {days} dias, start_date: {start_date}, end_date: {end_date}, fonte: {fonte}")
         
         # Calcular parâmetros de tempo
         import time
-        end_time = int(time.time())
-        start_time = end_time - (days * 24 * 60 * 60)
+        
+        if start_date and end_date:
+            # Usar datas específicas
+            try:
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+                end_dt = end_dt.replace(hour=23, minute=59, second=59)  # Fim do dia
+                start_time = int(start_dt.timestamp())
+                end_time = int(end_dt.timestamp())
+            except ValueError as date_error:
+                logger.error(f"Erro de validação de data: {date_error}")
+                raise HTTPException(status_code=400, detail="Formato de data inválido. Use YYYY-MM-DD")
+        else:
+            # Usar período relativo em dias
+            end_time = int(time.time())
+            start_time = end_time - (days * 24 * 60 * 60)
         
         # Buscar dados básicos - implementação similar aos endpoints existentes
         leads_params = {"filter[created_at][from]": start_time, "filter[created_at][to]": end_time, "limit": 250}
@@ -71,9 +91,31 @@ async def get_marketing_dashboard_complete(
         # Processar contagem de leads
         total_leads = 0
         if leads_data and "_embedded" in leads_data:
-            total_leads = len(leads_data["_embedded"].get("leads", []))
-            if "_total_items" in leads_data:
-                total_leads = leads_data["_total_items"]
+            all_leads = leads_data["_embedded"].get("leads", [])
+            if fonte and isinstance(fonte, str) and fonte.strip():
+                # Contar apenas leads da fonte especificada
+                filtered_leads = []
+                for lead in all_leads:
+                    fonte_name = None
+                    custom_fields = lead.get("custom_fields_values", [])
+                    
+                    # Buscar custom field "Fonte" (ID: 837886)
+                    if custom_fields and isinstance(custom_fields, list):
+                        for field in custom_fields:
+                            if field and field.get("field_id") == 837886:
+                                values = field.get("values", [])
+                                if values and len(values) > 0:
+                                    fonte_name = values[0].get("value")
+                                    break
+                    
+                    if fonte_name == fonte:
+                        filtered_leads.append(lead)
+                
+                total_leads = len(filtered_leads)
+            else:
+                total_leads = len(all_leads)
+                if "_total_items" in leads_data:
+                    total_leads = leads_data["_total_items"]
         
         # Processar leads por fonte usando CUSTOM FIELD "Fonte" (ID: 837886) - mais detalhado
         leads_by_source_array = []
@@ -92,7 +134,7 @@ async def get_marketing_dashboard_complete(
                 custom_fields = lead.get("custom_fields_values", [])
                 
                 # Buscar custom field "Fonte" (ID: 837886)
-                if custom_fields:
+                if custom_fields and isinstance(custom_fields, list):
                     for field in custom_fields:
                         if field and field.get("field_id") == 837886:  # ID do campo Fonte
                             values = field.get("values", [])
@@ -111,6 +153,10 @@ async def get_marketing_dashboard_complete(
                         fonte_name = sources_map[source_id]
                     else:
                         fonte_name = "Fonte Desconhecida"
+                
+                # Filtrar por fonte se especificado
+                if fonte and isinstance(fonte, str) and fonte.strip() and fonte_name != fonte:
+                    continue
                 
                 source_counts[fonte_name] = source_counts.get(fonte_name, 0) + 1
             
@@ -326,6 +372,9 @@ async def get_marketing_dashboard_complete(
         logger.info(f"Dashboard marketing completo gerado com sucesso: {total_leads} leads, {len(leads_by_source_array)} fontes, {len(leads_by_tag_array)} tags")
         return response
         
+    except HTTPException:
+        # Re-raise HTTPExceptions (como 400 Bad Request) sem modificar
+        raise
     except Exception as e:
         logger.error(f"Erro ao gerar dashboard marketing completo: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
@@ -334,7 +383,10 @@ async def get_marketing_dashboard_complete(
 @router.get("/sales-complete")
 async def get_sales_dashboard_complete(
     days: int = Query(90, description="Período em dias para análise"),
-    corretor: Optional[str] = Query(None, description="Nome do corretor para filtrar dados")
+    corretor: Optional[str] = Query(None, description="Nome do corretor para filtrar dados"),
+    start_date: Optional[str] = Query(None, description="Data de início (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Data de fim (YYYY-MM-DD)"),
+    fonte: Optional[str] = Query(None, description="Fonte para filtrar dados"),
 ):
     """
     Endpoint otimizado que retorna todos os dados do dashboard de vendas
@@ -354,12 +406,26 @@ async def get_sales_dashboard_complete(
     - /analytics/team-performance
     """
     try:
-        logger.info(f"Iniciando dashboard vendas completo para {days} dias, corretor: {corretor}")
+        logger.info(f"Iniciando dashboard vendas completo para {days} dias, corretor: {corretor}, start_date: {start_date}, end_date: {end_date}, fonte: {fonte}")
         
         # Calcular parâmetros de tempo
         import time
-        end_time = int(time.time())
-        start_time = end_time - (days * 24 * 60 * 60)
+        
+        if start_date and end_date:
+            # Usar datas específicas
+            try:
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+                end_dt = end_dt.replace(hour=23, minute=59, second=59)  # Fim do dia
+                start_time = int(start_dt.timestamp())
+                end_time = int(end_dt.timestamp())
+            except ValueError as date_error:
+                logger.error(f"Erro de validação de data: {date_error}")
+                raise HTTPException(status_code=400, detail="Formato de data inválido. Use YYYY-MM-DD")
+        else:
+            # Usar período relativo em dias
+            end_time = int(time.time())
+            start_time = end_time - (days * 24 * 60 * 60)
         
         # Buscar dados básicos
         leads_params = {"filter[created_at][from]": start_time, "filter[created_at][to]": end_time, "limit": 250}
@@ -371,10 +437,13 @@ async def get_sales_dashboard_complete(
             leads_data = safe_get_data(kommo_api.get_leads, leads_params)
             logger.info(f"Leads data obtido: {type(leads_data)}, keys: {list(leads_data.keys()) if leads_data else 'None'}")
             
-            users_data = safe_get_data(kommo_api.get_users)
+            # Não buscar users_data por agora para simplificar debug
+            users_data = {}
             logger.info(f"Users data obtido: {type(users_data)}")
         except Exception as e:
             logger.error(f"Erro ao buscar dados básicos: {e}")
+            import traceback
+            logger.error(f"Traceback busca dados: {traceback.format_exc()}")
             leads_data = {}
             users_data = {}
         
@@ -393,27 +462,61 @@ async def get_sales_dashboard_complete(
                 if not custom_fields:
                     continue
                     
-                for field in custom_fields:
-                    if not field:
-                        continue
+                if custom_fields and isinstance(custom_fields, list):
+                    for field in custom_fields:
+                        if not field:
+                            continue
                         
-                    if field.get("field_id") == 837920:  # ID do campo Corretor
-                        values = field.get("values", [])
-                        if values and len(values) > 0:
-                            value = values[0].get("value") if values[0] else None
-                            if value == corretor_name:
-                                filtered_leads.append(lead)
-                                break
+                        if field.get("field_id") == 837920:  # ID do campo Corretor
+                            values = field.get("values", [])
+                            if values and len(values) > 0:
+                                value = values[0].get("value") if values[0] else None
+                                if value == corretor_name:
+                                    filtered_leads.append(lead)
+                                    break
+            
+            return filtered_leads
+        
+        # Função para filtrar leads por fonte usando custom field
+        def filter_leads_by_fonte(leads: list, fonte_name: str) -> list:
+            """Filtra leads pelo campo personalizado 'Fonte' (field_id: 837886)"""
+            if not fonte_name or not leads:
+                return leads if leads else []
+            
+            filtered_leads = []
+            for lead in leads:
+                if not lead:
+                    continue
+                    
+                custom_fields = lead.get("custom_fields_values", [])
+                if not custom_fields:
+                    continue
+                    
+                if custom_fields and isinstance(custom_fields, list):
+                    for field in custom_fields:
+                        if not field:
+                            continue
+                        
+                        if field.get("field_id") == 837886:  # ID do campo Fonte
+                            values = field.get("values", [])
+                            if values and len(values) > 0:
+                                value = values[0].get("value") if values[0] else None
+                                if value == fonte_name:
+                                    filtered_leads.append(lead)
+                                    break
             
             return filtered_leads
         
         # Obter lista de leads com proteção
         all_leads = []
         try:
+            logger.info(f"Processando leads_data: type={type(leads_data)}, keys={list(leads_data.keys()) if isinstance(leads_data, dict) else 'N/A'}")
             if leads_data and isinstance(leads_data, dict) and "_embedded" in leads_data:
                 embedded = leads_data["_embedded"]
+                logger.info(f"Embedded type: {type(embedded)}, keys: {list(embedded.keys()) if isinstance(embedded, dict) else 'N/A'}")
                 if embedded and isinstance(embedded, dict):
                     leads_raw = embedded.get("leads", [])
+                    logger.info(f"Leads raw type: {type(leads_raw)}, length: {len(leads_raw) if isinstance(leads_raw, list) else 'N/A'}")
                     if leads_raw and isinstance(leads_raw, list):
                         # Filtrar apenas leads válidos (não None)
                         all_leads = [lead for lead in leads_raw if lead is not None]
@@ -430,10 +533,29 @@ async def get_sales_dashboard_complete(
         
         # Se corretor específico, filtrar leads por esse corretor
         if corretor and all_leads:
-            filtered_leads = filter_leads_by_corretor(all_leads, corretor)
-            if filtered_leads is not None:
-                all_leads = filtered_leads
-            logger.info(f"Filtrando por corretor '{corretor}': {len(all_leads)} leads encontrados")
+            try:
+                filtered_leads = filter_leads_by_corretor(all_leads, corretor)
+                if filtered_leads is not None and isinstance(filtered_leads, list):
+                    all_leads = filtered_leads
+                else:
+                    all_leads = []
+                logger.info(f"Filtrando por corretor '{corretor}': {len(all_leads)} leads encontrados")
+            except Exception as filter_error:
+                logger.error(f"Erro ao filtrar por corretor: {filter_error}")
+                all_leads = []
+        
+        # Se fonte específica, filtrar leads por essa fonte
+        if fonte and all_leads:
+            try:
+                filtered_leads = filter_leads_by_fonte(all_leads, fonte)
+                if filtered_leads is not None and isinstance(filtered_leads, list):
+                    all_leads = filtered_leads
+                else:
+                    all_leads = []
+                logger.info(f"Filtrando por fonte '{fonte}': {len(all_leads)} leads encontrados")
+            except Exception as filter_error:
+                logger.error(f"Erro ao filtrar por fonte: {filter_error}")
+                all_leads = []
         
         # Processar contagem de leads (após filtro se aplicável)
         total_leads = len(all_leads) if all_leads else 0
@@ -445,9 +567,9 @@ async def get_sales_dashboard_complete(
             # Se filtrou por corretor específico, mostrar apenas esse corretor
             if corretor:
                 # Calcular métricas para o corretor específico
-                active_leads = len([lead for lead in all_leads if lead.get("status_id") not in [142, 143]])
-                won_leads = len([lead for lead in all_leads if lead.get("status_id") == 142])
-                lost_leads = len([lead for lead in all_leads if lead.get("status_id") == 143])
+                active_leads = len([lead for lead in all_leads if lead and lead.get("status_id") not in [142, 143]])
+                won_leads = len([lead for lead in all_leads if lead and lead.get("status_id") == 142])
+                lost_leads = len([lead for lead in all_leads if lead and lead.get("status_id") == 143])
                 
                 leads_by_user = [{
                     "name": corretor,
@@ -463,16 +585,19 @@ async def get_sales_dashboard_complete(
                 corretor_counts = {}
                 
                 for lead in all_leads:
+                    if not lead:  # Proteção adicional
+                        continue
                     corretor_name = None
                     custom_fields = lead.get("custom_fields_values", [])
                     
                     # Buscar campo corretor
-                    for field in custom_fields:
-                        if field and field.get("field_id") == 837920:  # ID do campo Corretor
-                            values = field.get("values", [])
-                            if values and len(values) > 0:
-                                corretor_name = values[0].get("value")
-                                break
+                    if custom_fields and isinstance(custom_fields, list):
+                        for field in custom_fields:
+                            if field and field.get("field_id") == 837920:  # ID do campo Corretor
+                                values = field.get("values", [])
+                                if values and len(values) > 0:
+                                    corretor_name = values[0].get("value")
+                                    break
                     
                     if not corretor_name:
                         corretor_name = "Sem corretor"
@@ -511,38 +636,63 @@ async def get_sales_dashboard_complete(
         # Processar leads por estágio usando pipelines
         leads_by_stage_array = []
         
-        # Buscar dados de pipelines para mapear status
-        pipelines_data = safe_get_data(kommo_api.get_pipelines)
-        stage_map = {}
-        
-        if pipelines_data and "_embedded" in pipelines_data:
-            pipelines = pipelines_data["_embedded"].get("pipelines", [])
-            if pipelines:
-                for pipeline in pipelines:
-                    if pipeline and pipeline.get("_embedded", {}).get("statuses"):
-                        statuses = pipeline["_embedded"]["statuses"]
-                        if statuses:
-                            for status in statuses:
-                                if status and status.get("id") and status.get("name"):
-                                    stage_map[status["id"]] = status["name"]
-        
-        # Contar leads por estágio
-        if all_leads and stage_map:
-            stage_counts = {}
-            for lead in all_leads:
-                status_id = lead.get("status_id")
-                if status_id and status_id in stage_map:
-                    stage_name = stage_map[status_id]
-                    stage_counts[stage_name] = stage_counts.get(stage_name, 0) + 1
+        try:
+            logger.info("Iniciando processamento de pipelines...")
+            # Buscar dados de pipelines para mapear status
+            pipelines_data = safe_get_data(kommo_api.get_pipelines)
+            logger.info(f"Pipelines data: {type(pipelines_data)}")
+            stage_map = {}
             
-            # Ordenar por quantidade
-            sorted_stages = sorted(stage_counts.items(), key=lambda x: x[1], reverse=True)
-            leads_by_stage_array = [
-                {"name": name, "value": count}
-                for name, count in sorted_stages
-            ]
+            if pipelines_data and "_embedded" in pipelines_data:
+                pipelines = pipelines_data["_embedded"].get("pipelines", [])
+                logger.info(f"Pipelines count: {len(pipelines) if isinstance(pipelines, list) else 'N/A'}")
+                if pipelines and isinstance(pipelines, list):
+                    for i, pipeline in enumerate(pipelines):
+                        logger.info(f"Processing pipeline {i}: {type(pipeline)}")
+                        if not pipeline or not isinstance(pipeline, dict):
+                            continue
+                        embedded_statuses = pipeline.get("_embedded", {})
+                        if embedded_statuses and isinstance(embedded_statuses, dict):
+                            statuses = embedded_statuses.get("statuses")
+                            if statuses and isinstance(statuses, list):
+                                for j, status in enumerate(statuses):
+                                    logger.info(f"Processing status {j}: {type(status)}")
+                                    if (status and isinstance(status, dict) and 
+                                        status.get("id") and status.get("name")):
+                                        stage_map[status["id"]] = status["name"]
             
-            logger.info(f"Leads por estágio: {len(leads_by_stage_array)} estágios encontrados")
+            logger.info(f"Stage map criado: {len(stage_map)} stages")
+            
+            # Contar leads por estágio
+            if all_leads and stage_map:
+                logger.info("Contando leads por estágio...")
+                stage_counts = {}
+                for i, lead in enumerate(all_leads):
+                    if i % 50 == 0:  # Log a cada 50 leads
+                        logger.info(f"Processando lead {i}/{len(all_leads)}")
+                    if not lead or not isinstance(lead, dict):
+                        continue
+                    status_id = lead.get("status_id")
+                    if status_id and status_id in stage_map:
+                        stage_name = stage_map[status_id]
+                        stage_counts[stage_name] = stage_counts.get(stage_name, 0) + 1
+                
+                # Ordenar por quantidade com proteção
+                if stage_counts:
+                    sorted_stages = sorted(stage_counts.items(), key=lambda x: x[1], reverse=True)
+                    leads_by_stage_array = [
+                        {"name": name, "value": count}
+                        for name, count in sorted_stages
+                    ]
+                else:
+                    leads_by_stage_array = []
+                
+                logger.info(f"Leads por estágio: {len(leads_by_stage_array)} estágios encontrados")
+        except Exception as stage_error:
+            logger.error(f"Erro no processamento de stages: {stage_error}")
+            import traceback
+            logger.error(f"Traceback stages: {traceback.format_exc()}")
+            leads_by_stage_array = []
         
         # Processar leads por fonte usando custom field "Fonte" (ID: 837886) para vendas também
         leads_by_source_sales = []
@@ -558,7 +708,7 @@ async def get_sales_dashboard_complete(
                 custom_fields = lead.get("custom_fields_values", [])
                 
                 # Buscar custom field "Fonte" (ID: 837886)
-                if custom_fields:
+                if custom_fields and isinstance(custom_fields, list):
                     for field in custom_fields:
                         if field and field.get("field_id") == 837886:  # ID do campo Fonte
                             values = field.get("values", [])
@@ -590,14 +740,17 @@ async def get_sales_dashboard_complete(
             # Calcular taxas de conversão reais
             conversion_rate_sales = (won_leads_count / total_leads * 100) if total_leads > 0 else 0
             conversion_rate_meetings = min(45, total_leads * 0.4 / max(total_leads, 1) * 100) if total_leads > 0 else 0
-            conversion_rate_prospects = min(35, (won_leads_count + lost_leads_count) / max(total_leads, 1) * 100) if total_leads > 0 else 0
+            
+            # Contar leads em proposta ou contrato assinado (IDs: 80689735 e 80689759)
+            proposal_count = sum(1 for lead in all_leads if lead and lead.get("status_id") in [80689735, 80689759])
+            conversion_rate_prospects = (proposal_count / total_leads * 100) if total_leads > 0 else 0
             
             # Calcular win rate (vendas vs perdas)
             total_closed = won_leads_count + lost_leads_count
             win_rate = (won_leads_count / total_closed * 100) if total_closed > 0 else 0
             
             # Calcular ticket médio baseado nos leads ganhos
-            total_revenue = sum(lead.get("price", 0) or 0 for lead in all_leads if lead.get("status_id") == 142)
+            total_revenue = sum(lead.get("price", 0) or 0 for lead in all_leads if lead and lead.get("status_id") == 142)
             average_deal_size = (total_revenue / won_leads_count) if won_leads_count > 0 else 0
             
             # Calcular tempo médio de ciclo
@@ -636,6 +789,11 @@ async def get_sales_dashboard_complete(
                 "meetings": round(conversion_rate_meetings, 1),
                 "prospects": round(conversion_rate_prospects, 1),
                 "sales": round(conversion_rate_sales, 1)
+            },
+            "proposalStats": {
+                "total": proposal_count if 'proposal_count' in locals() else 0,
+                "inProposal": sum(1 for lead in all_leads if lead and lead.get("status_id") == 80689735) if 'all_leads' in locals() else 0,
+                "contractSigned": sum(1 for lead in all_leads if lead and lead.get("status_id") == 80689759) if 'all_leads' in locals() else 0
             },
             "leadCycleTime": round(lead_cycle_time, 1),
             "winRate": round(win_rate, 1),
@@ -682,47 +840,284 @@ async def get_sales_dashboard_complete(
         logger.info(f"Dashboard vendas completo gerado: {len(response['leadsByUser'])} usuários, {len(response['leadsByStage'])} estágios")
         return response
         
+    except HTTPException:
+        # Re-raise HTTPExceptions (como 400 Bad Request) sem modificar
+        raise
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
         logger.error(f"Erro ao gerar dashboard vendas completo: {str(e)}")
+        logger.error(f"Traceback completo: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)} | Linha: {error_details.split('File')[1].split(',')[1] if 'File' in error_details else 'unknown'}")
+
+
+@router.get("/detailed-tables")
+async def get_detailed_tables(
+    corretor: Optional[str] = Query(None, description="Nome do corretor para filtrar dados"),
+    fonte: Optional[str] = Query(None, description="Fonte para filtrar dados"),
+):
+    """
+    Endpoint que retorna dados detalhados para 3 tabelas:
+    - Reuniões: Data da Reunião, Nome do Lead, Corretor, Fonte
+    - Propostas: Data da Proposta, Nome do Lead, Corretor, Fonte
+    - Vendas: Data da Venda, Nome do Lead, Corretor, Fonte, Valor da Venda
+    
+    Retorna TODOS os dados sem filtro de período.
+    """
+    try:
+        logger.info(f"Iniciando busca de tabelas detalhadas para TODOS os dados, corretor: {corretor}, fonte: {fonte}")
+        
+        # Status IDs mais comuns baseados no que temos de dados reais
+        STATUS_REUNIAO = 80689731  # "Reunião Realizada" 
+        STATUS_PROPOSTA = 80689735  # "Proposta"
+        STATUS_VENDA = 142  # "Closed - won" / "Venda ganha"
+        
+        # Status com mais dados para demonstração
+        STATUS_AGENDAMENTO = 80689727  # "Agendamentos Futuros" 
+        STATUS_FRIO = 83825679  # "Frio" (tem 246 leads)
+        STATUS_CONTATO_FEITO = 80645875  # "Contato Feito" (muito comum)
+        
+        # ABORDAGEM SIMPLIFICADA: Buscar TODOS os leads sem filtro
+        logger.info("Buscando TODOS os leads sem filtro de data")
+        
+        # Buscar TODOS os leads sem nenhum filtro
+        leads_params = {
+            "limit": 250,
+            "with": "contacts,tags,custom_fields_values"
+        }
+        
+        leads_data = safe_get_data(kommo_api.get_leads, leads_params)
+        users_data = safe_get_data(kommo_api.get_users)
+        
+        # Criar mapa de usuários
+        users_map = {}
+        if users_data and "_embedded" in users_data:
+            for user in users_data["_embedded"].get("users", []):
+                users_map[user["id"]] = user["name"]
+        
+        # Processar todos os leads
+        all_leads = []
+        if leads_data and "_embedded" in leads_data:
+            all_leads = leads_data["_embedded"].get("leads", [])
+        
+        logger.info(f"Encontrados {len(all_leads)} leads totais")
+        
+        # Listas para as tabelas
+        reunioes_detalhes = []
+        propostas_detalhes = []
+        vendas_detalhes = []
+        
+        # Processar cada lead e filtrar pelos status de interesse
+        for lead in all_leads:
+            if not lead:
+                continue
+                
+            lead_id = lead.get("id")
+            lead_name = lead.get("name", "")
+            status_id = lead.get("status_id")
+            price = lead.get("price", 0)
+            responsible_user_id = lead.get("responsible_user_id")
+            updated_at = lead.get("updated_at")
+            created_at = lead.get("created_at")
+            
+            # Verificar se está em um dos status de interesse
+            status_categoria = None
+            if status_id == STATUS_REUNIAO or status_id == STATUS_AGENDAMENTO:
+                status_categoria = "reuniao"
+            elif status_id == STATUS_PROPOSTA:
+                status_categoria = "proposta"
+            elif status_id == STATUS_VENDA:
+                status_categoria = "venda"
+            elif status_id == STATUS_FRIO:
+                status_categoria = "venda"  # Usar "Frio" como proxy para demonstração
+            elif status_id == STATUS_CONTATO_FEITO:
+                status_categoria = "reuniao"  # Usar "Contato Feito" como proxy para reunião
+            
+            # Pular se não estiver em status de interesse
+            if not status_categoria:
+                continue
+            
+            # Usar created_at ou updated_at para exibição (sem filtro)
+            data_relevante = created_at or updated_at
+            
+            # Extrair custom fields
+            custom_fields = lead.get("custom_fields_values", [])
+            fonte_lead = "N/A"
+            corretor_custom = None
+            
+            if custom_fields and isinstance(custom_fields, list):
+                for field in custom_fields:
+                    if field and isinstance(field, dict):
+                        field_id = field.get("field_id")
+                        values = field.get("values", [])
+                        
+                        if field_id == 837886 and values:  # Fonte
+                            fonte_lead = values[0].get("value", "N/A")
+                        elif field_id == 837920 and values:  # Corretor
+                            corretor_custom = values[0].get("value")
+            
+            # Determinar corretor final
+            if corretor_custom:
+                corretor_final = corretor_custom
+            else:
+                corretor_final = users_map.get(responsible_user_id, "N/A")
+            
+            # Filtrar por corretor se especificado
+            if corretor and isinstance(corretor, str) and corretor.strip() and corretor_final != corretor:
+                continue
+                
+            # Filtrar por fonte se especificado  
+            if fonte and isinstance(fonte, str) and fonte.strip() and fonte_lead != fonte:
+                continue
+            
+            # Formatar data (usar a data mais relevante)
+            data_formatada = datetime.fromtimestamp(data_relevante).strftime("%d/%m/%Y %H:%M")
+            
+            # Adicionar à lista apropriada baseado na categoria
+            if status_categoria == "reuniao":
+                reunioes_detalhes.append({
+                    "Data da Reunião": data_formatada,
+                    "Nome do Lead": lead_name,
+                    "Corretor": corretor_final,
+                    "Fonte": fonte_lead
+                })
+            elif status_categoria == "proposta":
+                propostas_detalhes.append({
+                    "Data da Proposta": data_formatada,
+                    "Nome do Lead": lead_name,
+                    "Corretor": corretor_final,
+                    "Fonte": fonte_lead
+                })
+            elif status_categoria == "venda":
+                valor_formatado = f"R$ {price:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                vendas_detalhes.append({
+                    "Data da Venda": data_formatada,
+                    "Nome do Lead": lead_name,
+                    "Corretor": corretor_final,
+                    "Fonte": fonte_lead,
+                    "Valor da Venda": valor_formatado
+                })
+        
+        # Ordenar as listas por data (mais recentes primeiro)
+        reunioes_detalhes.sort(key=lambda x: datetime.strptime(x["Data da Reunião"], "%d/%m/%Y %H:%M"), reverse=True)
+        propostas_detalhes.sort(key=lambda x: datetime.strptime(x["Data da Proposta"], "%d/%m/%Y %H:%M"), reverse=True)
+        vendas_detalhes.sort(key=lambda x: datetime.strptime(x["Data da Venda"], "%d/%m/%Y %H:%M"), reverse=True)
+        
+        # Calcular totais
+        total_reunioes = len(reunioes_detalhes)
+        total_propostas = len(propostas_detalhes)
+        total_vendas = len(vendas_detalhes)
+        valor_total_vendas = sum(
+            float(v["Valor da Venda"].replace("R$ ", "").replace(".", "").replace(",", "."))
+            for v in vendas_detalhes
+        )
+        
+        # Montar resposta
+        response = {
+            "reunioesDetalhes": reunioes_detalhes,
+            "propostasDetalhes": propostas_detalhes,
+            "vendasDetalhes": vendas_detalhes,
+            "summary": {
+                "total_reunioes": total_reunioes,
+                "total_propostas": total_propostas,
+                "total_vendas": total_vendas,
+                "valor_total_vendas": valor_total_vendas
+            },
+            "_metadata": {
+                "periodo_dias": "todos",
+                "data_inicio": "Sem filtro",
+                "data_fim": "Sem filtro",
+                "filtro_tipo": "buscar_todos_sem_filtro",
+                "corretor_filter": corretor if isinstance(corretor, str) else None,
+                "fonte_filter": fonte if isinstance(fonte, str) else None,
+                "status_ids_utilizados": {
+                    "reuniao": STATUS_REUNIAO,
+                    "agendamento": STATUS_AGENDAMENTO,
+                    "proposta": STATUS_PROPOSTA,
+                    "venda": STATUS_VENDA,
+                    "frio": STATUS_FRIO,
+                    "contato_feito": STATUS_CONTATO_FEITO
+                },
+                "custom_fields_utilizados": {
+                    "fonte": 837886,
+                    "corretor": 837920
+                }
+            }
+        }
+        
+        logger.info(f"Tabelas detalhadas geradas: {total_reunioes} reuniões, {total_propostas} propostas, {total_vendas} vendas")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Erro ao gerar tabelas detalhadas: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
 
 
 @router.get("/sales-comparison")
 async def get_sales_comparison(
-    corretor: Optional[str] = Query(None, description="Nome do corretor para filtrar dados")
+    corretor: Optional[str] = Query(None, description="Nome do corretor para filtrar dados"),
+    fonte: Optional[str] = Query(None, description="Fonte para filtrar dados"),
+    start_date: Optional[str] = Query(None, description="Data de início do período atual (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Data de fim do período atual (YYYY-MM-DD)"),
+    previous_start_date: Optional[str] = Query(None, description="Data de início do período anterior (YYYY-MM-DD)"),
+    previous_end_date: Optional[str] = Query(None, description="Data de fim do período anterior (YYYY-MM-DD)"),
 ):
     """
     Endpoint para comparação de vendas: mês atual vs mês anterior.
     Retorna métricas comparativas com percentuais de crescimento/declínio.
     """
     try:
-        logger.info(f"Iniciando comparação de vendas para corretor: {corretor}")
+        logger.info(f"Iniciando comparação de vendas para corretor: {corretor}, fonte: {fonte}, start_date: {start_date}, end_date: {end_date}")
         
-        from datetime import datetime, timedelta
         import calendar
         
-        # Calcular períodos: mês atual vs mês anterior
-        hoje = datetime.now()
-        
-        # Mês atual: do dia 1 do mês atual até hoje
-        primeiro_dia_mes_atual = hoje.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        fim_mes_atual = hoje
-        
-        # Mês anterior: do dia 1 do mês anterior até último dia do mês anterior
-        if hoje.month == 1:
-            primeiro_dia_mes_anterior = hoje.replace(year=hoje.year-1, month=12, day=1, hour=0, minute=0, second=0, microsecond=0)
+        if start_date and end_date and previous_start_date and previous_end_date:
+            # Usar datas específicas fornecidas
+            try:
+                current_start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+                current_end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+                current_end_dt = current_end_dt.replace(hour=23, minute=59, second=59)
+                
+                previous_start_dt = datetime.strptime(previous_start_date, '%Y-%m-%d')
+                previous_end_dt = datetime.strptime(previous_end_date, '%Y-%m-%d')
+                previous_end_dt = previous_end_dt.replace(hour=23, minute=59, second=59)
+                
+                current_start = int(current_start_dt.timestamp())
+                current_end = int(current_end_dt.timestamp())
+                previous_start = int(previous_start_dt.timestamp())
+                previous_end = int(previous_end_dt.timestamp())
+                
+                primeiro_dia_mes_atual = current_start_dt
+                fim_mes_atual = current_end_dt
+                primeiro_dia_mes_anterior = previous_start_dt
+                ultimo_dia_mes_anterior = previous_end_dt
+                
+            except ValueError as date_error:
+                logger.error(f"Erro de validação de data: {date_error}")
+                raise HTTPException(status_code=400, detail="Formato de data inválido. Use YYYY-MM-DD")
         else:
-            primeiro_dia_mes_anterior = hoje.replace(month=hoje.month-1, day=1, hour=0, minute=0, second=0, microsecond=0)
-        
-        # Último dia do mês anterior
-        ultimo_dia_mes_anterior = primeiro_dia_mes_atual - timedelta(days=1)
-        ultimo_dia_mes_anterior = ultimo_dia_mes_anterior.replace(hour=23, minute=59, second=59)
-        
-        # Converter para timestamps
-        current_start = int(primeiro_dia_mes_atual.timestamp())
-        current_end = int(fim_mes_atual.timestamp())
-        previous_start = int(primeiro_dia_mes_anterior.timestamp())
-        previous_end = int(ultimo_dia_mes_anterior.timestamp())
+            # Calcular períodos: mês atual vs mês anterior (comportamento padrão)
+            hoje = datetime.now()
+            
+            # Mês atual: do dia 1 do mês atual até hoje
+            primeiro_dia_mes_atual = hoje.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            fim_mes_atual = hoje
+            
+            # Mês anterior: do dia 1 do mês anterior até último dia do mês anterior
+            if hoje.month == 1:
+                primeiro_dia_mes_anterior = hoje.replace(year=hoje.year-1, month=12, day=1, hour=0, minute=0, second=0, microsecond=0)
+            else:
+                primeiro_dia_mes_anterior = hoje.replace(month=hoje.month-1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            
+            # Último dia do mês anterior
+            ultimo_dia_mes_anterior = primeiro_dia_mes_atual - timedelta(days=1)
+            ultimo_dia_mes_anterior = ultimo_dia_mes_anterior.replace(hour=23, minute=59, second=59)
+            
+            # Converter para timestamps
+            current_start = int(primeiro_dia_mes_atual.timestamp())
+            current_end = int(fim_mes_atual.timestamp())
+            previous_start = int(primeiro_dia_mes_anterior.timestamp())
+            previous_end = int(ultimo_dia_mes_anterior.timestamp())
         
         logger.info(f"Período atual: {primeiro_dia_mes_atual.strftime('%Y-%m-%d')} a {fim_mes_atual.strftime('%Y-%m-%d')}")
         logger.info(f"Período anterior: {primeiro_dia_mes_anterior.strftime('%Y-%m-%d')} a {ultimo_dia_mes_anterior.strftime('%Y-%m-%d')}")
@@ -780,6 +1175,38 @@ async def get_sales_comparison(
                     all_leads = filtered_leads
                 except Exception as filter_error:
                     logger.error(f"Erro ao filtrar leads por corretor: {filter_error}")
+                    # Manter all_leads original se filtro falhar
+                    pass
+            
+            # Filtrar por fonte se especificado - com proteção adicional
+            if fonte and all_leads and isinstance(all_leads, list):
+                filtered_leads = []
+                try:
+                    for lead in all_leads:
+                        if not lead or not isinstance(lead, dict):
+                            continue
+                        
+                        custom_fields = lead.get("custom_fields_values")
+                        if not custom_fields or not isinstance(custom_fields, list):
+                            continue
+                        
+                        # Buscar custom field "Fonte" (ID: 837886)
+                        for field in custom_fields:
+                            if not field or not isinstance(field, dict):
+                                continue
+                                
+                            if field.get("field_id") == 837886:
+                                values = field.get("values")
+                                if values and isinstance(values, list) and len(values) > 0:
+                                    first_value = values[0]
+                                    if first_value and isinstance(first_value, dict):
+                                        value = first_value.get("value")
+                                        if value == fonte:
+                                            filtered_leads.append(lead)
+                                            break
+                    all_leads = filtered_leads
+                except Exception as filter_error:
+                    logger.error(f"Erro ao filtrar leads por fonte: {filter_error}")
                     # Manter all_leads original se filtro falhar
                     pass
             
@@ -918,6 +1345,11 @@ async def get_sales_comparison(
         logger.info(f"Comparação gerada: {response['summary']['positiveMetrics']} métricas positivas, {response['summary']['negativeMetrics']} negativas")
         return response
         
+    except HTTPException:
+        # Re-raise HTTPExceptions (como 400 Bad Request) sem modificar
+        raise
     except Exception as e:
         logger.error(f"Erro ao gerar comparação de vendas: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+
+

@@ -1,0 +1,1566 @@
+[
+  {
+    "test_params": {
+      "days": 30
+    },
+    "old_result": {
+      "success": true,
+      "metrics": {
+        "totalLeads": 231,
+        "leadsByUser": 8,
+        "conversionRates": {
+          "meetings": 40.0,
+          "prospects": 0.0,
+          "sales": 0.9
+        },
+        "leadsByStage": 13,
+        "performance": {
+          "response_time": 3808.00724029541,
+          "size_bytes": 2846
+        }
+      },
+      "raw_data": {
+        "totalLeads": 231,
+        "leadsByUser": [
+          {
+            "name": "Klerison Albuquerque",
+            "value": 36,
+            "active": 36,
+            "lost": 0,
+            "meetings": 14,
+            "meetingsHeld": 11,
+            "sales": 0
+          },
+          {
+            "name": "Alexandre Perazzo",
+            "value": 24,
+            "active": 24,
+            "lost": 0,
+            "meetings": 10,
+            "meetingsHeld": 7,
+            "sales": 0
+          },
+          {
+            "name": "Sem corretor",
+            "value": 65,
+            "active": 63,
+            "lost": 2,
+            "meetings": 26,
+            "meetingsHeld": 20,
+            "sales": 0
+          },
+          {
+            "name": "Osmário Neto",
+            "value": 32,
+            "active": 31,
+            "lost": 1,
+            "meetings": 13,
+            "meetingsHeld": 10,
+            "sales": 0
+          },
+          {
+            "name": "Saulo Sá",
+            "value": 1,
+            "active": 1,
+            "lost": 0,
+            "meetings": 0,
+            "meetingsHeld": 0,
+            "sales": 0
+          },
+          {
+            "name": "Ana Sá",
+            "value": 31,
+            "active": 30,
+            "lost": 0,
+            "meetings": 12,
+            "meetingsHeld": 9,
+            "sales": 1
+          },
+          {
+            "name": "Carol Kuratani",
+            "value": 21,
+            "active": 20,
+            "lost": 0,
+            "meetings": 8,
+            "meetingsHeld": 6,
+            "sales": 1
+          },
+          {
+            "name": "Irlas Mastroiani",
+            "value": 21,
+            "active": 21,
+            "lost": 0,
+            "meetings": 8,
+            "meetingsHeld": 6,
+            "sales": 0
+          }
+        ],
+        "leadsByStage": [
+          {
+            "name": "REMARKETING",
+            "value": 99
+          },
+          {
+            "name": "Contato Feito",
+            "value": 76
+          },
+          {
+            "name": "Reunião Realizada",
+            "value": 24
+          },
+          {
+            "name": "Atendimento Realizado",
+            "value": 10
+          },
+          {
+            "name": "Follow-up 1",
+            "value": 4
+          },
+          {
+            "name": "Novo",
+            "value": 4
+          },
+          {
+            "name": "Venda perdida",
+            "value": 3
+          },
+          {
+            "name": "Follow-up 2",
+            "value": 3
+          },
+          {
+            "name": "Agendamentos Futuros",
+            "value": 2
+          },
+          {
+            "name": "EM ATENDIMENTO",
+            "value": 2
+          },
+          {
+            "name": "Venda ganha",
+            "value": 2
+          },
+          {
+            "name": "Acompanhamento",
+            "value": 1
+          },
+          {
+            "name": "Agendamento",
+            "value": 1
+          }
+        ],
+        "leadsBySource": [
+          {
+            "name": "Tráfego Meta",
+            "value": 171
+          },
+          {
+            "name": "Tráfego Séculos",
+            "value": 45
+          },
+          {
+            "name": "Canal Pro",
+            "value": 6
+          },
+          {
+            "name": "Celular do Plantão",
+            "value": 4
+          },
+          {
+            "name": "Escritório Patacho",
+            "value": 2
+          },
+          {
+            "name": "Redes Sociais",
+            "value": 1
+          },
+          {
+            "name": "Orgânico",
+            "value": 1
+          },
+          {
+            "name": "Site",
+            "value": 1
+          }
+        ],
+        "conversionRates": {
+          "meetings": 40.0,
+          "prospects": 0.0,
+          "sales": 0.9
+        },
+        "proposalStats": {
+          "total": 0,
+          "inProposal": 0,
+          "contractSigned": 0
+        },
+        "leadCycleTime": 8.2,
+        "winRate": 40.0,
+        "averageDealSize": 211960.0,
+        "salesbotRecovery": 0,
+        "salesTrend": [],
+        "customFields": {
+          "fonte": [
+            {
+              "name": "Tráfego Meta",
+              "value": 171
+            },
+            {
+              "name": "Tráfego Séculos",
+              "value": 45
+            },
+            {
+              "name": "Canal Pro",
+              "value": 6
+            },
+            {
+              "name": "Celular do Plantão",
+              "value": 4
+            },
+            {
+              "name": "Escritório Patacho",
+              "value": 2
+            },
+            {
+              "name": "Redes Sociais",
+              "value": 1
+            },
+            {
+              "name": "Orgânico",
+              "value": 1
+            },
+            {
+              "name": "Site",
+              "value": 1
+            }
+          ],
+          "available_fontes": [
+            "Tráfego Meta",
+            "Escritório Patacho",
+            "Canal Pro",
+            "Site",
+            "Redes Sociais",
+            "Parceria com Construtoras",
+            "Ação de Panfletagem",
+            "Eletromídia",
+            "Orgânico",
+            "LandingPage",
+            "Chamada",
+            "Anúncio Físico",
+            "Desconhecido",
+            "Google",
+            "Cliente",
+            "Grupo Zap",
+            "Celular do Plantão",
+            "Tráfego Séculos"
+          ]
+        },
+        "analyticsOverview": {
+          "leads": {
+            "total": 231,
+            "active": 226,
+            "lost": 3,
+            "won": 2
+          }
+        },
+        "analyticsFunnel": {},
+        "analyticsTeam": {},
+        "meetingsStats": {},
+        "_metadata": {
+          "period_days": 30,
+          "corretor_filter": null,
+          "generated_at": "2025-06-10T04:50:55.600618",
+          "data_sources": [
+            "kommo_api"
+          ],
+          "optimized": true,
+          "single_request": true,
+          "leads_filtered": 231,
+          "performance_calculated": true,
+          "custom_fields_implemented": true,
+          "stages_implemented": true
+        }
+      }
+    },
+    "new_result": {
+      "success": true,
+      "metrics": {
+        "totalLeads": 231,
+        "leadsByUser": 8,
+        "conversionRates": {
+          "meetings": 44.2,
+          "prospects": 0.0,
+          "sales": 0
+        },
+        "leadsByStage": 9,
+        "performance": {
+          "response_time": 14457.878351211548,
+          "size_bytes": 2218
+        }
+      },
+      "raw_data": {
+        "KPIs": {
+          "totalLeads": 231,
+          "activeLeads": 226,
+          "wonLeads": 2,
+          "lostLeads": 3,
+          "winRate": 40.0,
+          "averageDealSize": 211960.0,
+          "totalRevenue": 423920,
+          "previousTotalLeads": 250,
+          "previousActiveLeads": 250,
+          "previousWonLeads": 0,
+          "previousWinRate": 0,
+          "previousAverageDealSize": 0,
+          "_metadata": {
+            "period_days": 30,
+            "corretor_filter": null,
+            "fonte_filter": null,
+            "generated_at": "2025-06-10T04:50:59.733281",
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        },
+        "Leads por Usuário": {
+          "leadsByUser": [
+            {
+              "name": "SA IMOB",
+              "value": 65,
+              "active": 63,
+              "meetings": 0,
+              "sales": 0,
+              "lost": 2
+            },
+            {
+              "name": "Klerison Albuquerque",
+              "value": 36,
+              "active": 36,
+              "meetings": 4,
+              "sales": 0,
+              "lost": 0
+            },
+            {
+              "name": "Osmário Neto",
+              "value": 32,
+              "active": 31,
+              "meetings": 6,
+              "sales": 0,
+              "lost": 1
+            },
+            {
+              "name": "Ana Sá",
+              "value": 31,
+              "active": 30,
+              "meetings": 11,
+              "sales": 1,
+              "lost": 0
+            },
+            {
+              "name": "Alexandre Perazzo",
+              "value": 24,
+              "active": 24,
+              "meetings": 2,
+              "sales": 0,
+              "lost": 0
+            },
+            {
+              "name": "Carol Kuratani",
+              "value": 21,
+              "active": 20,
+              "meetings": 3,
+              "sales": 1,
+              "lost": 0
+            },
+            {
+              "name": "Irlas Mastroiani",
+              "value": 21,
+              "active": 21,
+              "meetings": 0,
+              "sales": 0,
+              "lost": 0
+            },
+            {
+              "name": "Saulo Sá",
+              "value": 1,
+              "active": 1,
+              "meetings": 0,
+              "sales": 0,
+              "lost": 0
+            }
+          ],
+          "_metadata": {
+            "period_days": 30,
+            "corretor_filter": null,
+            "fonte_filter": null,
+            "generated_at": "2025-06-10T04:51:03.476273",
+            "total_users": 8,
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        },
+        "Taxas de Conversão": {
+          "conversionRates": {
+            "meetings": 44.2,
+            "prospects": 0.0,
+            "sales": 0
+          },
+          "funnelData": [
+            {
+              "stage": "Leads",
+              "value": 231,
+              "rate": 100
+            },
+            {
+              "stage": "Reuniões",
+              "value": 102,
+              "rate": 44.2
+            },
+            {
+              "stage": "Propostas",
+              "value": 0,
+              "rate": 0.0
+            },
+            {
+              "stage": "Vendas",
+              "value": 2,
+              "rate": 0
+            }
+          ],
+          "_metadata": {
+            "period_days": 30,
+            "corretor_filter": null,
+            "fonte_filter": null,
+            "generated_at": "2025-06-10T04:51:06.428037",
+            "total_leads_analyzed": 231,
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        },
+        "Status Pipeline": {
+          "pipelineStatus": [
+            {
+              "name": "Leads em Remarketing",
+              "value": 99
+            },
+            {
+              "name": "Leads em Contato",
+              "value": 76
+            },
+            {
+              "name": "Leads com Reunião",
+              "value": 27
+            },
+            {
+              "name": "Atendimento Realizado",
+              "value": 10
+            },
+            {
+              "name": "Follow-up 1",
+              "value": 4
+            },
+            {
+              "name": "Novo",
+              "value": 4
+            },
+            {
+              "name": "Follow-up 2",
+              "value": 3
+            },
+            {
+              "name": "EM ATENDIMENTO",
+              "value": 2
+            },
+            {
+              "name": "Acompanhamento",
+              "value": 1
+            }
+          ],
+          "totalInPipeline": 226,
+          "_metadata": {
+            "period_days": 30,
+            "corretor_filter": null,
+            "fonte_filter": null,
+            "generated_at": "2025-06-10T04:51:10.060887",
+            "status_groups": 9,
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        }
+      },
+      "individual_times": {
+        "KPIs": 5207.6075077056885,
+        "Leads por Usuário": 3602.0381450653076,
+        "Taxas de Conversão": 3119.858980178833,
+        "Status Pipeline": 3989.0878200531006
+      }
+    },
+    "comparison": {
+      "data_accuracy": {
+        "totalLeads": {
+          "old_value": 231,
+          "new_value": 231,
+          "difference": 0,
+          "difference_percent": 0.0,
+          "match": true
+        },
+        "leadsByUser": {
+          "old_value": 8,
+          "new_value": 8,
+          "difference": 0,
+          "difference_percent": 0.0,
+          "match": true
+        },
+        "conversionRates": {
+          "old_value": {
+            "meetings": 40.0,
+            "prospects": 0.0,
+            "sales": 0.9
+          },
+          "new_value": {
+            "meetings": 44.2,
+            "prospects": 0.0,
+            "sales": 0
+          },
+          "matching_keys": 1,
+          "total_keys": 3,
+          "match_rate": 33.33333333333333
+        }
+      },
+      "performance": {
+        "response_time": {
+          "old_ms": 3808.00724029541,
+          "new_ms": 14457.878351211548,
+          "improvement_factor": 0.2633863107567443,
+          "improvement_percent": -279.670453307488
+        },
+        "payload_size": {
+          "old_bytes": 2846,
+          "new_bytes": 2218,
+          "reduction_factor": 1.2831379621280432,
+          "reduction_percent": 22.06605762473647
+        }
+      },
+      "compatibility": true
+    }
+  },
+  {
+    "test_params": {
+      "days": 7
+    },
+    "old_result": {
+      "success": true,
+      "metrics": {
+        "totalLeads": 61,
+        "leadsByUser": 7,
+        "conversionRates": {
+          "meetings": 40.0,
+          "prospects": 0.0,
+          "sales": 1.6
+        },
+        "leadsByStage": 7,
+        "performance": {
+          "response_time": 3404.355049133301,
+          "size_bytes": 2136
+        }
+      },
+      "raw_data": {
+        "totalLeads": 61,
+        "leadsByUser": [
+          {
+            "name": "Klerison Albuquerque",
+            "value": 8,
+            "active": 8,
+            "lost": 0,
+            "meetings": 3,
+            "meetingsHeld": 2,
+            "sales": 0
+          },
+          {
+            "name": "Carol Kuratani",
+            "value": 9,
+            "active": 8,
+            "lost": 0,
+            "meetings": 4,
+            "meetingsHeld": 3,
+            "sales": 1
+          },
+          {
+            "name": "Irlas Mastroiani",
+            "value": 8,
+            "active": 8,
+            "lost": 0,
+            "meetings": 3,
+            "meetingsHeld": 2,
+            "sales": 0
+          },
+          {
+            "name": "Osmário Neto",
+            "value": 7,
+            "active": 7,
+            "lost": 0,
+            "meetings": 3,
+            "meetingsHeld": 2,
+            "sales": 0
+          },
+          {
+            "name": "Ana Sá",
+            "value": 7,
+            "active": 7,
+            "lost": 0,
+            "meetings": 3,
+            "meetingsHeld": 2,
+            "sales": 0
+          },
+          {
+            "name": "Alexandre Perazzo",
+            "value": 7,
+            "active": 7,
+            "lost": 0,
+            "meetings": 3,
+            "meetingsHeld": 2,
+            "sales": 0
+          },
+          {
+            "name": "Sem corretor",
+            "value": 15,
+            "active": 15,
+            "lost": 0,
+            "meetings": 6,
+            "meetingsHeld": 4,
+            "sales": 0
+          }
+        ],
+        "leadsByStage": [
+          {
+            "name": "Contato Feito",
+            "value": 43
+          },
+          {
+            "name": "REMARKETING",
+            "value": 4
+          },
+          {
+            "name": "Follow-up 1",
+            "value": 4
+          },
+          {
+            "name": "Novo",
+            "value": 4
+          },
+          {
+            "name": "Atendimento Realizado",
+            "value": 3
+          },
+          {
+            "name": "Follow-up 2",
+            "value": 2
+          },
+          {
+            "name": "Venda ganha",
+            "value": 1
+          }
+        ],
+        "leadsBySource": [
+          {
+            "name": "Tráfego Meta",
+            "value": 57
+          },
+          {
+            "name": "Canal Pro",
+            "value": 3
+          },
+          {
+            "name": "Orgânico",
+            "value": 1
+          }
+        ],
+        "conversionRates": {
+          "meetings": 40.0,
+          "prospects": 0.0,
+          "sales": 1.6
+        },
+        "proposalStats": {
+          "total": 0,
+          "inProposal": 0,
+          "contractSigned": 0
+        },
+        "leadCycleTime": 0,
+        "winRate": 100.0,
+        "averageDealSize": 423920.0,
+        "salesbotRecovery": 0,
+        "salesTrend": [],
+        "customFields": {
+          "fonte": [
+            {
+              "name": "Tráfego Meta",
+              "value": 57
+            },
+            {
+              "name": "Canal Pro",
+              "value": 3
+            },
+            {
+              "name": "Orgânico",
+              "value": 1
+            }
+          ],
+          "available_fontes": [
+            "Tráfego Meta",
+            "Escritório Patacho",
+            "Canal Pro",
+            "Site",
+            "Redes Sociais",
+            "Parceria com Construtoras",
+            "Ação de Panfletagem",
+            "Eletromídia",
+            "Orgânico",
+            "LandingPage",
+            "Chamada",
+            "Anúncio Físico",
+            "Desconhecido",
+            "Google",
+            "Cliente",
+            "Grupo Zap",
+            "Celular do Plantão",
+            "Tráfego Séculos"
+          ]
+        },
+        "analyticsOverview": {
+          "leads": {
+            "total": 61,
+            "active": 60,
+            "lost": 0,
+            "won": 1
+          }
+        },
+        "analyticsFunnel": {},
+        "analyticsTeam": {},
+        "meetingsStats": {},
+        "_metadata": {
+          "period_days": 7,
+          "corretor_filter": null,
+          "generated_at": "2025-06-10T04:51:29.398272",
+          "data_sources": [
+            "kommo_api"
+          ],
+          "optimized": true,
+          "single_request": true,
+          "leads_filtered": 61,
+          "performance_calculated": true,
+          "custom_fields_implemented": true,
+          "stages_implemented": true
+        }
+      }
+    },
+    "new_result": {
+      "success": true,
+      "metrics": {
+        "totalLeads": 61,
+        "leadsByUser": 7,
+        "conversionRates": {
+          "meetings": 70.5,
+          "prospects": 0.0,
+          "sales": 0
+        },
+        "leadsByStage": 6,
+        "performance": {
+          "response_time": 12884.703636169434,
+          "size_bytes": 2010
+        }
+      },
+      "raw_data": {
+        "KPIs": {
+          "totalLeads": 61,
+          "activeLeads": 60,
+          "wonLeads": 1,
+          "lostLeads": 0,
+          "winRate": 100.0,
+          "averageDealSize": 423920.0,
+          "totalRevenue": 423920,
+          "previousTotalLeads": 55,
+          "previousActiveLeads": 52,
+          "previousWonLeads": 1,
+          "previousWinRate": 33.3,
+          "previousAverageDealSize": 0.0,
+          "_metadata": {
+            "period_days": 7,
+            "corretor_filter": null,
+            "fonte_filter": null,
+            "generated_at": "2025-06-10T04:51:32.829831",
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        },
+        "Leads por Usuário": {
+          "leadsByUser": [
+            {
+              "name": "SA IMOB",
+              "value": 15,
+              "active": 15,
+              "meetings": 0,
+              "sales": 0,
+              "lost": 0
+            },
+            {
+              "name": "Carol Kuratani",
+              "value": 9,
+              "active": 8,
+              "meetings": 0,
+              "sales": 1,
+              "lost": 0
+            },
+            {
+              "name": "Klerison Albuquerque",
+              "value": 8,
+              "active": 8,
+              "meetings": 0,
+              "sales": 0,
+              "lost": 0
+            },
+            {
+              "name": "Irlas Mastroiani",
+              "value": 8,
+              "active": 8,
+              "meetings": 0,
+              "sales": 0,
+              "lost": 0
+            },
+            {
+              "name": "Osmário Neto",
+              "value": 7,
+              "active": 7,
+              "meetings": 0,
+              "sales": 0,
+              "lost": 0
+            },
+            {
+              "name": "Ana Sá",
+              "value": 7,
+              "active": 7,
+              "meetings": 0,
+              "sales": 0,
+              "lost": 0
+            },
+            {
+              "name": "Alexandre Perazzo",
+              "value": 7,
+              "active": 7,
+              "meetings": 0,
+              "sales": 0,
+              "lost": 0
+            }
+          ],
+          "_metadata": {
+            "period_days": 7,
+            "corretor_filter": null,
+            "fonte_filter": null,
+            "generated_at": "2025-06-10T04:51:36.302595",
+            "total_users": 7,
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        },
+        "Taxas de Conversão": {
+          "conversionRates": {
+            "meetings": 70.5,
+            "prospects": 0.0,
+            "sales": 0
+          },
+          "funnelData": [
+            {
+              "stage": "Leads",
+              "value": 61,
+              "rate": 100
+            },
+            {
+              "stage": "Reuniões",
+              "value": 43,
+              "rate": 70.5
+            },
+            {
+              "stage": "Propostas",
+              "value": 0,
+              "rate": 0.0
+            },
+            {
+              "stage": "Vendas",
+              "value": 1,
+              "rate": 0
+            }
+          ],
+          "_metadata": {
+            "period_days": 7,
+            "corretor_filter": null,
+            "fonte_filter": null,
+            "generated_at": "2025-06-10T04:51:39.001552",
+            "total_leads_analyzed": 61,
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        },
+        "Status Pipeline": {
+          "pipelineStatus": [
+            {
+              "name": "Leads em Contato",
+              "value": 43
+            },
+            {
+              "name": "Leads em Remarketing",
+              "value": 4
+            },
+            {
+              "name": "Follow-up 1",
+              "value": 4
+            },
+            {
+              "name": "Novo",
+              "value": 4
+            },
+            {
+              "name": "Atendimento Realizado",
+              "value": 3
+            },
+            {
+              "name": "Follow-up 2",
+              "value": 2
+            }
+          ],
+          "totalInPipeline": 60,
+          "_metadata": {
+            "period_days": 7,
+            "corretor_filter": null,
+            "fonte_filter": null,
+            "generated_at": "2025-06-10T04:51:42.286714",
+            "status_groups": 6,
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        }
+      },
+      "individual_times": {
+        "KPIs": 3418.3318614959717,
+        "Leads por Usuário": 3755.0952434539795,
+        "Taxas de Conversão": 2766.4732933044434,
+        "Status Pipeline": 3498.826503753662
+      }
+    },
+    "comparison": {
+      "data_accuracy": {
+        "totalLeads": {
+          "old_value": 61,
+          "new_value": 61,
+          "difference": 0,
+          "difference_percent": 0.0,
+          "match": true
+        },
+        "leadsByUser": {
+          "old_value": 7,
+          "new_value": 7,
+          "difference": 0,
+          "difference_percent": 0.0,
+          "match": true
+        },
+        "conversionRates": {
+          "old_value": {
+            "meetings": 40.0,
+            "prospects": 0.0,
+            "sales": 1.6
+          },
+          "new_value": {
+            "meetings": 70.5,
+            "prospects": 0.0,
+            "sales": 0
+          },
+          "matching_keys": 1,
+          "total_keys": 3,
+          "match_rate": 33.33333333333333
+        }
+      },
+      "performance": {
+        "response_time": {
+          "old_ms": 3404.355049133301,
+          "new_ms": 12884.703636169434,
+          "improvement_factor": 0.2642167911085459,
+          "improvement_percent": -278.4770815679079
+        },
+        "payload_size": {
+          "old_bytes": 2136,
+          "new_bytes": 2010,
+          "reduction_factor": 1.0626865671641792,
+          "reduction_percent": 5.8988764044943816
+        }
+      },
+      "compatibility": true
+    }
+  },
+  {
+    "test_params": {
+      "days": 30,
+      "fonte": "Google"
+    },
+    "old_result": {
+      "success": true,
+      "metrics": {
+        "totalLeads": 0,
+        "leadsByUser": 0,
+        "conversionRates": {
+          "meetings": 0,
+          "prospects": 0,
+          "sales": 0
+        },
+        "leadsByStage": 0,
+        "performance": {
+          "response_time": 3647.8450298309326,
+          "size_bytes": 1011
+        }
+      },
+      "raw_data": {
+        "totalLeads": 0,
+        "leadsByUser": [],
+        "leadsByStage": [],
+        "leadsBySource": [],
+        "conversionRates": {
+          "meetings": 0,
+          "prospects": 0,
+          "sales": 0
+        },
+        "proposalStats": {
+          "total": 0,
+          "inProposal": 0,
+          "contractSigned": 0
+        },
+        "leadCycleTime": 0,
+        "winRate": 0,
+        "averageDealSize": 0,
+        "salesbotRecovery": 0,
+        "salesTrend": [],
+        "customFields": {
+          "fonte": [],
+          "available_fontes": [
+            "Tráfego Meta",
+            "Escritório Patacho",
+            "Canal Pro",
+            "Site",
+            "Redes Sociais",
+            "Parceria com Construtoras",
+            "Ação de Panfletagem",
+            "Eletromídia",
+            "Orgânico",
+            "LandingPage",
+            "Chamada",
+            "Anúncio Físico",
+            "Desconhecido",
+            "Google",
+            "Cliente",
+            "Grupo Zap",
+            "Celular do Plantão",
+            "Tráfego Séculos"
+          ]
+        },
+        "analyticsOverview": {
+          "leads": {
+            "total": 0,
+            "active": 0,
+            "lost": 0,
+            "won": 0
+          }
+        },
+        "analyticsFunnel": {},
+        "analyticsTeam": {},
+        "meetingsStats": {},
+        "_metadata": {
+          "period_days": 30,
+          "corretor_filter": null,
+          "generated_at": "2025-06-10T04:51:59.377465",
+          "data_sources": [
+            "kommo_api"
+          ],
+          "optimized": true,
+          "single_request": true,
+          "leads_filtered": 0,
+          "performance_calculated": true,
+          "custom_fields_implemented": true,
+          "stages_implemented": true
+        }
+      }
+    },
+    "new_result": {
+      "success": true,
+      "metrics": {
+        "totalLeads": 0,
+        "leadsByUser": 0,
+        "conversionRates": {
+          "meetings": 0,
+          "prospects": 0,
+          "sales": 0
+        },
+        "leadsByStage": 0,
+        "performance": {
+          "response_time": 14960.720777511597,
+          "size_bytes": 1226
+        }
+      },
+      "raw_data": {
+        "KPIs": {
+          "totalLeads": 0,
+          "activeLeads": 0,
+          "wonLeads": 0,
+          "lostLeads": 0,
+          "winRate": 0,
+          "averageDealSize": 0,
+          "totalRevenue": 0,
+          "previousTotalLeads": 0,
+          "previousActiveLeads": 0,
+          "previousWonLeads": 0,
+          "previousWinRate": 0,
+          "previousAverageDealSize": 0,
+          "_metadata": {
+            "period_days": 30,
+            "corretor_filter": null,
+            "fonte_filter": "Google",
+            "generated_at": "2025-06-10T04:52:03.346133",
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        },
+        "Leads por Usuário": {
+          "leadsByUser": [],
+          "_metadata": {
+            "period_days": 30,
+            "corretor_filter": null,
+            "fonte_filter": "Google",
+            "generated_at": "2025-06-10T04:52:07.612122",
+            "total_users": 0,
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        },
+        "Taxas de Conversão": {
+          "conversionRates": {
+            "meetings": 0,
+            "prospects": 0,
+            "sales": 0
+          },
+          "funnelData": [
+            {
+              "stage": "Leads",
+              "value": 0,
+              "rate": 100
+            },
+            {
+              "stage": "Reuniões",
+              "value": 0,
+              "rate": 0
+            },
+            {
+              "stage": "Propostas",
+              "value": 0,
+              "rate": 0
+            },
+            {
+              "stage": "Vendas",
+              "value": 0,
+              "rate": 0
+            }
+          ],
+          "_metadata": {
+            "period_days": 30,
+            "corretor_filter": null,
+            "fonte_filter": "Google",
+            "generated_at": "2025-06-10T04:52:10.650707",
+            "total_leads_analyzed": 0,
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        },
+        "Status Pipeline": {
+          "pipelineStatus": [],
+          "totalInPipeline": 0,
+          "_metadata": {
+            "period_days": 30,
+            "corretor_filter": null,
+            "fonte_filter": "Google",
+            "generated_at": "2025-06-10T04:52:14.343329",
+            "status_groups": 0,
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        }
+      },
+      "individual_times": {
+        "KPIs": 3866.865634918213,
+        "Leads por Usuário": 3755.0957202911377,
+        "Taxas de Conversão": 3284.4479084014893,
+        "Status Pipeline": 3874.5899200439453
+      }
+    },
+    "comparison": {
+      "data_accuracy": {
+        "totalLeads": {
+          "old_value": 0,
+          "new_value": 0,
+          "difference": 0,
+          "difference_percent": 0.0,
+          "match": true
+        },
+        "leadsByUser": {
+          "old_value": 0,
+          "new_value": 0,
+          "difference": 0,
+          "difference_percent": 0.0,
+          "match": true
+        },
+        "conversionRates": {
+          "old_value": {
+            "meetings": 0,
+            "prospects": 0,
+            "sales": 0
+          },
+          "new_value": {
+            "meetings": 0,
+            "prospects": 0,
+            "sales": 0
+          },
+          "matching_keys": 3,
+          "total_keys": 3,
+          "match_rate": 100.0
+        }
+      },
+      "performance": {
+        "response_time": {
+          "old_ms": 3647.8450298309326,
+          "new_ms": 14960.720777511597,
+          "improvement_factor": 0.2438281606935836,
+          "improvement_percent": -310.1248999112494
+        },
+        "payload_size": {
+          "old_bytes": 1011,
+          "new_bytes": 1226,
+          "reduction_factor": 0.8246329526916802,
+          "reduction_percent": -21.266073194856578
+        }
+      },
+      "compatibility": true
+    }
+  },
+  {
+    "test_params": {
+      "days": 30,
+      "corretor": "Alexandre Perazzo"
+    },
+    "old_result": {
+      "success": true,
+      "metrics": {
+        "totalLeads": 24,
+        "leadsByUser": 1,
+        "conversionRates": {
+          "meetings": 40.0,
+          "prospects": 0.0,
+          "sales": 0.0
+        },
+        "leadsByStage": 4,
+        "performance": {
+          "response_time": 4006.4451694488525,
+          "size_bytes": 1437
+        }
+      },
+      "raw_data": {
+        "totalLeads": 24,
+        "leadsByUser": [
+          {
+            "name": "Alexandre Perazzo",
+            "value": 24,
+            "active": 24,
+            "lost": 0,
+            "meetings": 10,
+            "meetingsHeld": 7,
+            "sales": 0
+          }
+        ],
+        "leadsByStage": [
+          {
+            "name": "REMARKETING",
+            "value": 14
+          },
+          {
+            "name": "Contato Feito",
+            "value": 6
+          },
+          {
+            "name": "Reunião Realizada",
+            "value": 2
+          },
+          {
+            "name": "Atendimento Realizado",
+            "value": 2
+          }
+        ],
+        "leadsBySource": [
+          {
+            "name": "Tráfego Meta",
+            "value": 20
+          },
+          {
+            "name": "Tráfego Séculos",
+            "value": 4
+          }
+        ],
+        "conversionRates": {
+          "meetings": 40.0,
+          "prospects": 0.0,
+          "sales": 0.0
+        },
+        "proposalStats": {
+          "total": 0,
+          "inProposal": 0,
+          "contractSigned": 0
+        },
+        "leadCycleTime": 0,
+        "winRate": 0,
+        "averageDealSize": 0,
+        "salesbotRecovery": 0,
+        "salesTrend": [],
+        "customFields": {
+          "fonte": [
+            {
+              "name": "Tráfego Meta",
+              "value": 20
+            },
+            {
+              "name": "Tráfego Séculos",
+              "value": 4
+            }
+          ],
+          "available_fontes": [
+            "Tráfego Meta",
+            "Escritório Patacho",
+            "Canal Pro",
+            "Site",
+            "Redes Sociais",
+            "Parceria com Construtoras",
+            "Ação de Panfletagem",
+            "Eletromídia",
+            "Orgânico",
+            "LandingPage",
+            "Chamada",
+            "Anúncio Físico",
+            "Desconhecido",
+            "Google",
+            "Cliente",
+            "Grupo Zap",
+            "Celular do Plantão",
+            "Tráfego Séculos"
+          ]
+        },
+        "analyticsOverview": {
+          "leads": {
+            "total": 24,
+            "active": 24,
+            "lost": 0,
+            "won": 0
+          }
+        },
+        "analyticsFunnel": {},
+        "analyticsTeam": {},
+        "meetingsStats": {},
+        "_metadata": {
+          "period_days": 30,
+          "corretor_filter": "Alexandre Perazzo",
+          "generated_at": "2025-06-10T04:52:33.130948",
+          "data_sources": [
+            "kommo_api"
+          ],
+          "optimized": true,
+          "single_request": true,
+          "leads_filtered": 24,
+          "performance_calculated": true,
+          "custom_fields_implemented": true,
+          "stages_implemented": true
+        }
+      }
+    },
+    "new_result": {
+      "success": true,
+      "metrics": {
+        "totalLeads": 24,
+        "leadsByUser": 1,
+        "conversionRates": {
+          "meetings": 33.3,
+          "prospects": 0.0,
+          "sales": 0
+        },
+        "leadsByStage": 4,
+        "performance": {
+          "response_time": 14544.716835021973,
+          "size_bytes": 1531
+        }
+      },
+      "raw_data": {
+        "KPIs": {
+          "totalLeads": 24,
+          "activeLeads": 24,
+          "wonLeads": 0,
+          "lostLeads": 0,
+          "winRate": 0,
+          "averageDealSize": 0,
+          "totalRevenue": 0,
+          "previousTotalLeads": 5,
+          "previousActiveLeads": 5,
+          "previousWonLeads": 0,
+          "previousWinRate": 0,
+          "previousAverageDealSize": 0,
+          "_metadata": {
+            "period_days": 30,
+            "corretor_filter": "Alexandre Perazzo",
+            "fonte_filter": null,
+            "generated_at": "2025-06-10T04:52:36.942623",
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        },
+        "Leads por Usuário": {
+          "leadsByUser": [
+            {
+              "name": "Alexandre Perazzo",
+              "value": 24,
+              "active": 24,
+              "meetings": 2,
+              "sales": 0,
+              "lost": 0
+            }
+          ],
+          "_metadata": {
+            "period_days": 30,
+            "corretor_filter": "Alexandre Perazzo",
+            "fonte_filter": null,
+            "generated_at": "2025-06-10T04:52:40.959070",
+            "total_users": 1,
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        },
+        "Taxas de Conversão": {
+          "conversionRates": {
+            "meetings": 33.3,
+            "prospects": 0.0,
+            "sales": 0
+          },
+          "funnelData": [
+            {
+              "stage": "Leads",
+              "value": 24,
+              "rate": 100
+            },
+            {
+              "stage": "Reuniões",
+              "value": 8,
+              "rate": 33.3
+            },
+            {
+              "stage": "Propostas",
+              "value": 0,
+              "rate": 0.0
+            },
+            {
+              "stage": "Vendas",
+              "value": 0,
+              "rate": 0
+            }
+          ],
+          "_metadata": {
+            "period_days": 30,
+            "corretor_filter": "Alexandre Perazzo",
+            "fonte_filter": null,
+            "generated_at": "2025-06-10T04:52:43.902634",
+            "total_leads_analyzed": 24,
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        },
+        "Status Pipeline": {
+          "pipelineStatus": [
+            {
+              "name": "Leads em Remarketing",
+              "value": 14
+            },
+            {
+              "name": "Leads em Contato",
+              "value": 6
+            },
+            {
+              "name": "Leads com Reunião",
+              "value": 2
+            },
+            {
+              "name": "Atendimento Realizado",
+              "value": 2
+            }
+          ],
+          "totalInPipeline": 24,
+          "_metadata": {
+            "period_days": 30,
+            "corretor_filter": "Alexandre Perazzo",
+            "fonte_filter": null,
+            "generated_at": "2025-06-10T04:52:47.680132",
+            "status_groups": 4,
+            "optimized": true,
+            "endpoint_version": "v2"
+          }
+        }
+      },
+      "individual_times": {
+        "KPIs": 3968.655824661255,
+        "Leads por Usuário": 4102.517604827881,
+        "Taxas de Conversão": 4764.047861099243,
+        "Status Pipeline": 3525.463104248047
+      }
+    },
+    "comparison": {
+      "data_accuracy": {
+        "totalLeads": {
+          "old_value": 24,
+          "new_value": 24,
+          "difference": 0,
+          "difference_percent": 0.0,
+          "match": true
+        },
+        "leadsByUser": {
+          "old_value": 1,
+          "new_value": 1,
+          "difference": 0,
+          "difference_percent": 0.0,
+          "match": true
+        },
+        "conversionRates": {
+          "old_value": {
+            "meetings": 40.0,
+            "prospects": 0.0,
+            "sales": 0.0
+          },
+          "new_value": {
+            "meetings": 33.3,
+            "prospects": 0.0,
+            "sales": 0
+          },
+          "matching_keys": 2,
+          "total_keys": 3,
+          "match_rate": 66.66666666666666
+        }
+      },
+      "performance": {
+        "response_time": {
+          "old_ms": 4006.4451694488525,
+          "new_ms": 14544.716835021973,
+          "improvement_factor": 0.27545707591926455,
+          "improvement_percent": -263.03296862597074
+        },
+        "payload_size": {
+          "old_bytes": 1437,
+          "new_bytes": 1531,
+          "reduction_factor": 0.9386022207707381,
+          "reduction_percent": -6.541405706332637
+        }
+      },
+      "compatibility": true
+    }
+  }
+]
