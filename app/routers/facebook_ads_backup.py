@@ -61,6 +61,92 @@ async def get_insights(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/webhook")
+async def facebook_webhook(data: dict):
+    """
+    Webhook endpoint para receber notificações do Facebook
+    
+    Este endpoint pode ser usado para:
+    - Receber notificações de novos leads
+    - Atualizações de campanhas
+    - Eventos de conversão
+    """
+    try:
+        # Log do webhook recebido
+        print(f"Facebook webhook received: {data}")
+        
+        # Verificar se é uma notificação de lead
+        if data.get("object") == "page":
+            entries = data.get("entry", [])
+            
+            for entry in entries:
+                changes = entry.get("changes", [])
+                
+                for change in changes:
+                    if change.get("field") == "leadgen":
+                        # Processar novo lead
+                        lead_data = change.get("value", {})
+                        leadgen_id = lead_data.get("leadgen_id")
+                        page_id = lead_data.get("page_id")
+                        form_id = lead_data.get("form_id")
+                        adgroup_id = lead_data.get("adgroup_id")
+                        
+                        print(f"New lead received: {leadgen_id} from form {form_id}")
+                        
+                        # Aqui você pode implementar a lógica para:
+                        # 1. Buscar os dados completos do lead via API do Facebook
+                        # 2. Integrar com o Kommo CRM
+                        # 3. Enviar notificações
+                        
+                        response_data = {
+                            "status": "processed",
+                            "leadgen_id": leadgen_id,
+                            "page_id": page_id,
+                            "form_id": form_id,
+                            "adgroup_id": adgroup_id,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        
+                        return response_data
+        
+        # Para outros tipos de webhook
+        return {
+            "status": "received",
+            "message": "Webhook received successfully",
+            "data": data,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"Error processing Facebook webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing webhook: {str(e)}")
+
+@router.get("/webhook")
+async def verify_facebook_webhook(
+    hub_mode: str = Query(alias="hub.mode"),
+    hub_challenge: str = Query(alias="hub.challenge"),
+    hub_verify_token: str = Query(alias="hub.verify_token")
+):
+    """
+    Endpoint de verificação do webhook do Facebook
+    
+    O Facebook chama este endpoint para verificar se o webhook é válido
+    """
+    try:
+        # Token de verificação deve ser configurado no Facebook e aqui
+        VERIFY_TOKEN = settings.FACEBOOK_WEBHOOK_VERIFY_TOKEN if hasattr(settings, 'FACEBOOK_WEBHOOK_VERIFY_TOKEN') else "your_verify_token"
+        
+        if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:
+            print("Facebook webhook verified successfully")
+            return int(hub_challenge)
+        else:
+            print(f"Facebook webhook verification failed. Mode: {hub_mode}, Token: {hub_verify_token}")
+            raise HTTPException(status_code=403, detail="Webhook verification failed")
+            
+    except Exception as e:
+        print(f"Error verifying Facebook webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error verifying webhook: {str(e)}")
+
 @router.get("/insights/summary")
 async def get_insights_summary(
     date_preset: Optional[str] = Query("last_7d", description="Preset date range"),
@@ -164,6 +250,92 @@ async def get_adsets_for_campaign(campaign_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/webhook")
+async def facebook_webhook(data: dict):
+    """
+    Webhook endpoint para receber notificações do Facebook
+    
+    Este endpoint pode ser usado para:
+    - Receber notificações de novos leads
+    - Atualizações de campanhas
+    - Eventos de conversão
+    """
+    try:
+        # Log do webhook recebido
+        print(f"Facebook webhook received: {data}")
+        
+        # Verificar se é uma notificação de lead
+        if data.get("object") == "page":
+            entries = data.get("entry", [])
+            
+            for entry in entries:
+                changes = entry.get("changes", [])
+                
+                for change in changes:
+                    if change.get("field") == "leadgen":
+                        # Processar novo lead
+                        lead_data = change.get("value", {})
+                        leadgen_id = lead_data.get("leadgen_id")
+                        page_id = lead_data.get("page_id")
+                        form_id = lead_data.get("form_id")
+                        adgroup_id = lead_data.get("adgroup_id")
+                        
+                        print(f"New lead received: {leadgen_id} from form {form_id}")
+                        
+                        # Aqui você pode implementar a lógica para:
+                        # 1. Buscar os dados completos do lead via API do Facebook
+                        # 2. Integrar com o Kommo CRM
+                        # 3. Enviar notificações
+                        
+                        response_data = {
+                            "status": "processed",
+                            "leadgen_id": leadgen_id,
+                            "page_id": page_id,
+                            "form_id": form_id,
+                            "adgroup_id": adgroup_id,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        
+                        return response_data
+        
+        # Para outros tipos de webhook
+        return {
+            "status": "received",
+            "message": "Webhook received successfully",
+            "data": data,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"Error processing Facebook webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing webhook: {str(e)}")
+
+@router.get("/webhook")
+async def verify_facebook_webhook(
+    hub_mode: str = Query(alias="hub.mode"),
+    hub_challenge: str = Query(alias="hub.challenge"),
+    hub_verify_token: str = Query(alias="hub.verify_token")
+):
+    """
+    Endpoint de verificação do webhook do Facebook
+    
+    O Facebook chama este endpoint para verificar se o webhook é válido
+    """
+    try:
+        # Token de verificação deve ser configurado no Facebook e aqui
+        VERIFY_TOKEN = settings.FACEBOOK_WEBHOOK_VERIFY_TOKEN if hasattr(settings, 'FACEBOOK_WEBHOOK_VERIFY_TOKEN') else "your_verify_token"
+        
+        if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:
+            print("Facebook webhook verified successfully")
+            return int(hub_challenge)
+        else:
+            print(f"Facebook webhook verification failed. Mode: {hub_mode}, Token: {hub_verify_token}")
+            raise HTTPException(status_code=403, detail="Webhook verification failed")
+            
+    except Exception as e:
+        print(f"Error verifying Facebook webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error verifying webhook: {str(e)}")
+
 @router.get("/adsets/{adset_id}/insights")
 async def get_adset_insights(
     adset_id: str,
@@ -191,6 +363,92 @@ async def get_adset_insights(
         return insights
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/webhook")
+async def facebook_webhook(data: dict):
+    """
+    Webhook endpoint para receber notificações do Facebook
+    
+    Este endpoint pode ser usado para:
+    - Receber notificações de novos leads
+    - Atualizações de campanhas
+    - Eventos de conversão
+    """
+    try:
+        # Log do webhook recebido
+        print(f"Facebook webhook received: {data}")
+        
+        # Verificar se é uma notificação de lead
+        if data.get("object") == "page":
+            entries = data.get("entry", [])
+            
+            for entry in entries:
+                changes = entry.get("changes", [])
+                
+                for change in changes:
+                    if change.get("field") == "leadgen":
+                        # Processar novo lead
+                        lead_data = change.get("value", {})
+                        leadgen_id = lead_data.get("leadgen_id")
+                        page_id = lead_data.get("page_id")
+                        form_id = lead_data.get("form_id")
+                        adgroup_id = lead_data.get("adgroup_id")
+                        
+                        print(f"New lead received: {leadgen_id} from form {form_id}")
+                        
+                        # Aqui você pode implementar a lógica para:
+                        # 1. Buscar os dados completos do lead via API do Facebook
+                        # 2. Integrar com o Kommo CRM
+                        # 3. Enviar notificações
+                        
+                        response_data = {
+                            "status": "processed",
+                            "leadgen_id": leadgen_id,
+                            "page_id": page_id,
+                            "form_id": form_id,
+                            "adgroup_id": adgroup_id,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        
+                        return response_data
+        
+        # Para outros tipos de webhook
+        return {
+            "status": "received",
+            "message": "Webhook received successfully",
+            "data": data,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"Error processing Facebook webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing webhook: {str(e)}")
+
+@router.get("/webhook")
+async def verify_facebook_webhook(
+    hub_mode: str = Query(alias="hub.mode"),
+    hub_challenge: str = Query(alias="hub.challenge"),
+    hub_verify_token: str = Query(alias="hub.verify_token")
+):
+    """
+    Endpoint de verificação do webhook do Facebook
+    
+    O Facebook chama este endpoint para verificar se o webhook é válido
+    """
+    try:
+        # Token de verificação deve ser configurado no Facebook e aqui
+        VERIFY_TOKEN = settings.FACEBOOK_WEBHOOK_VERIFY_TOKEN if hasattr(settings, 'FACEBOOK_WEBHOOK_VERIFY_TOKEN') else "your_verify_token"
+        
+        if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:
+            print("Facebook webhook verified successfully")
+            return int(hub_challenge)
+        else:
+            print(f"Facebook webhook verification failed. Mode: {hub_mode}, Token: {hub_verify_token}")
+            raise HTTPException(status_code=403, detail="Webhook verification failed")
+            
+    except Exception as e:
+        print(f"Error verifying Facebook webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error verifying webhook: {str(e)}")
 
 @router.get("/ads/{ad_id}/insights")
 async def get_ad_insights(

@@ -173,3 +173,23 @@ class FacebookAPI:
             'fields': 'id,name,status,objective,created_time,updated_time'
         })
         return response.get('data', [])
+    
+    def get_adsets(self, campaign_id: str) -> List[Dict[str, Any]]:
+        """Get all ad sets for a campaign"""
+        fields_to_request = [
+            'id',
+            'name',
+            'status',
+            'daily_budget',
+            'lifetime_budget',
+            'bid_strategy',
+            'created_time',
+            'start_time',
+            'end_time',
+            'objective'
+        ]
+        
+        response = self._make_request(f"{campaign_id}/adsets", {
+            'fields': ','.join(fields_to_request)
+        })
+        return response.get('data', [])
