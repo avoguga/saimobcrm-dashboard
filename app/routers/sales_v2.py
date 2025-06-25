@@ -315,11 +315,33 @@ async def get_leads_by_user_chart(
             'limit': 250
         }
         
+        # Buscar leads de vendas
         try:
-            leads_data = kommo_api.get_leads(leads_params)
+            leads_vendas_data = kommo_api.get_leads(leads_vendas_params)
         except Exception as e:
-            logger.error(f"Erro ao buscar leads: {e}")
-            leads_data = {"_embedded": {"leads": []}}
+            logger.error(f"Erro ao buscar leads de vendas: {e}")
+            leads_vendas_data = {"_embedded": {"leads": []}}
+            
+        # Buscar leads de remarketing
+        try:
+            leads_remarketing_data = kommo_api.get_leads(leads_remarketing_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads de remarketing: {e}")
+            leads_remarketing_data = {"_embedded": {"leads": []}}
+        
+        # Combinar leads de ambos os pipelines
+        all_leads = []
+        if leads_vendas_data and "_embedded" in leads_vendas_data:
+            vendas_leads = leads_vendas_data["_embedded"].get("leads", [])
+            if isinstance(vendas_leads, list):
+                all_leads.extend(vendas_leads)
+                
+        if leads_remarketing_data and "_embedded" in leads_remarketing_data:
+            remarketing_leads = leads_remarketing_data["_embedded"].get("leads", [])
+            if isinstance(remarketing_leads, list):
+                all_leads.extend(remarketing_leads)
+        
+        leads_data = {"_embedded": {"leads": all_leads}}
             
         try:
             tasks_data = kommo_api.get_tasks(tasks_params)
@@ -412,6 +434,7 @@ async def get_leads_by_user_chart(
                             "value": 0,
                             "active": 0,
                             "meetingsHeld": 0,  # Campo que o frontend usa
+                            "meetings": 0,      # Fallback para compatibilidade
                             "sales": 0,
                             "lost": 0
                         }
@@ -443,14 +466,29 @@ async def get_leads_by_user_chart(
                     
                     # Reuniões realizadas: do mapa de tarefas
                     if lead_id in meetings_by_lead:
-                        leads_by_user[final_corretor]["meetingsHeld"] += meetings_by_lead[lead_id]
+                        meetings_count = meetings_by_lead[lead_id]
+                        leads_by_user[final_corretor]["meetingsHeld"] += meetings_count
+                        leads_by_user[final_corretor]["meetings"] += meetings_count  # Fallback
         
         # Converter para lista e ordenar
         leads_by_user_list = list(leads_by_user.values())
         leads_by_user_list.sort(key=lambda x: x["value"], reverse=True)
         
+        # Criar estrutura analyticsTeam esperada pelo frontend
+        user_performance = []
+        for user_data in leads_by_user_list:
+            user_performance.append({
+                "user_name": user_data["name"],
+                "new_leads": user_data["value"],
+                "activities": user_data["meetingsHeld"],
+                "won_deals": user_data["sales"]
+            })
+        
         return {
             "leadsByUser": leads_by_user_list,
+            "analyticsTeam": {
+                "user_performance": user_performance
+            },
             "_metadata": {
                 "period_days": days,
                 "corretor_filter": corretor,
