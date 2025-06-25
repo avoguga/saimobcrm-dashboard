@@ -966,6 +966,7 @@ async def get_detailed_tables(
         reunioes_detalhes = []
         propostas_detalhes = []
         vendas_detalhes = []
+        leads_detalhes = []  # NOVA lista para todos os leads
         
         # NOVO: Buscar tarefas de reunião realizadas COM filtro de data
         logger.info("Buscando tarefas de reunião realizadas...")
@@ -1165,12 +1166,84 @@ async def get_detailed_tables(
                     "Valor da Venda": valor_formatado
                 })
         
+        # NOVO: Processar todos os leads para leadsDetalhes
+        logger.info("Processando todos os leads para leadsDetalhes...")
+        for lead in all_leads:
+            if not lead:
+                continue
+                
+            lead_name = lead.get("name", "")
+            created_at = lead.get("created_at")
+            status_id = lead.get("status_id")
+            
+            # Extrair custom fields
+            custom_fields = lead.get("custom_fields_values", [])
+            fonte_lead = "N/A"
+            corretor_custom = None
+            
+            if custom_fields and isinstance(custom_fields, list):
+                for field in custom_fields:
+                    if field and isinstance(field, dict):
+                        field_id = field.get("field_id")
+                        values = field.get("values", [])
+                        
+                        if field_id == 837886 and values:  # Fonte
+                            fonte_lead = values[0].get("value", "N/A")
+                        elif field_id == 837920 and values:  # Corretor
+                            corretor_custom = values[0].get("value")
+            
+            # Determinar corretor final
+            if corretor_custom:
+                corretor_final = corretor_custom
+            else:
+                corretor_final = "N/A"
+            
+            # Filtrar por corretor se especificado
+            if corretor and isinstance(corretor, str) and corretor.strip() and corretor_final != corretor:
+                continue
+                
+            # Filtrar por fonte se especificado  
+            if fonte and isinstance(fonte, str) and fonte.strip() and fonte_lead != fonte:
+                continue
+            
+            # Mapear status_id para nome do status
+            status_name = "Ativo"  # Padrão
+            if status_id == 142:
+                status_name = "Venda Concluída"
+            elif status_id == 143:
+                status_name = "Perdido"
+            elif status_id == STATUS_PROPOSTA:
+                status_name = "Em Proposta"
+            elif status_id == STATUS_CONTRATO_ASSINADO:
+                status_name = "Contrato Assinado"
+            elif status_id in [80689711, 80689715, 80689719, 80689723, 80689727]:
+                status_name = "Em Negociação"
+            
+            # Formatar data de criação
+            if created_at:
+                data_criacao_formatada = datetime.fromtimestamp(created_at).strftime("%Y-%m-%d")
+            else:
+                data_criacao_formatada = "N/A"
+            
+            # Adicionar à lista de leads detalhes com chaves EXATAS conforme solicitado
+            leads_detalhes.append({
+                "Data de Criação": data_criacao_formatada,
+                "Nome do Lead": lead_name,
+                "Corretor": corretor_final,
+                "Fonte": fonte_lead,
+                "Status": status_name
+            })
+        
+        # Ordenar leads por data de criação (mais recentes primeiro)
+        leads_detalhes.sort(key=lambda x: x["Data de Criação"], reverse=True)
+        
         # Ordenar as listas por data (mais recentes primeiro)
         reunioes_detalhes.sort(key=lambda x: datetime.strptime(x["Data da Reunião"], "%d/%m/%Y %H:%M"), reverse=True)
         propostas_detalhes.sort(key=lambda x: datetime.strptime(x["Data da Proposta"], "%d/%m/%Y %H:%M"), reverse=True)
         vendas_detalhes.sort(key=lambda x: datetime.strptime(x["Data da Venda"], "%d/%m/%Y %H:%M"), reverse=True)
         
         # Calcular totais
+        total_leads = len(leads_detalhes)  # NOVO
         total_reunioes = len(reunioes_detalhes)
         total_propostas = len(propostas_detalhes)
         total_vendas = len(vendas_detalhes)
@@ -1181,10 +1254,12 @@ async def get_detailed_tables(
         
         # Montar resposta
         response = {
+            "leadsDetalhes": leads_detalhes,  # NOVO
             "reunioesDetalhes": reunioes_detalhes,
             "propostasDetalhes": propostas_detalhes,
             "vendasDetalhes": vendas_detalhes,
             "summary": {
+                "total_leads": total_leads,  # NOVO
                 "total_reunioes": total_reunioes,
                 "total_propostas": total_propostas,
                 "total_vendas": total_vendas,
