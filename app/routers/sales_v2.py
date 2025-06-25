@@ -362,7 +362,7 @@ async def get_leads_by_user_chart(
             if isinstance(users_list, list):
                 for user in users_list:
                     if user and isinstance(user, dict):
-                        users_map[user.get("id")] = user.get("name", "Desconhecido")
+                        users_map[user.get("id")] = user.get("name", "Usuário Sem Nome")
         
         # Criar mapa de reuniões realizadas por lead
         meetings_by_lead = {}

@@ -275,7 +275,7 @@ async def get_leads_by_user_chart(
                     continue
                 
                 # Determinar corretor final
-                final_corretor = corretor_lead or users_map.get(lead.get("responsible_user_id"), "Desconhecido")
+                final_corretor = corretor_lead or users_map.get(lead.get("responsible_user_id"), "Usuário Sem Nome")
                 
                 # Inicializar contador se não existir
                 if final_corretor not in leads_by_user:
