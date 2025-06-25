@@ -913,16 +913,30 @@ async def get_detailed_tables(
         
         logger.info(f"Buscando leads do Funil de Vendas (pipeline {PIPELINE_VENDAS})")
         
-        # Buscar leads APENAS do Funil de Vendas COM filtro de data
-        leads_params = {
-            "filter[pipeline_id]": PIPELINE_VENDAS,  # Filtrar por pipeline na API
-            "filter[updated_at][from]": start_timestamp,  # Filtro de data de início
-            "filter[updated_at][to]": end_timestamp,      # Filtro de data de fim
+        # IDs dos pipelines necessários
+        PIPELINE_REMARKETING = 11059911  # ID do Remarketing
+        
+        # Buscar leads de AMBOS os pipelines (Vendas + Remarketing)
+        # Como a API não suporta múltiplos pipeline_ids em um request, fazemos 2 requests
+        leads_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
+            "filter[updated_at][from]": start_timestamp,
+            "filter[updated_at][to]": end_timestamp,
             "limit": limit,
             "with": "contacts,tags,custom_fields_values"
         }
         
-        leads_data = safe_get_data(kommo_api.get_leads, leads_params)
+        leads_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
+            "filter[updated_at][from]": start_timestamp,
+            "filter[updated_at][to]": end_timestamp,
+            "limit": limit,
+            "with": "contacts,tags,custom_fields_values"
+        }
+        
+        # Buscar leads de ambos os pipelines
+        leads_vendas_data = safe_get_data(kommo_api.get_leads, leads_vendas_params)
+        leads_remarketing_data = safe_get_data(kommo_api.get_leads, leads_remarketing_params)
         users_data = safe_get_data(kommo_api.get_users)
         
         # Criar mapa de usuários
@@ -931,10 +945,20 @@ async def get_detailed_tables(
             for user in users_data["_embedded"].get("users", []):
                 users_map[user["id"]] = user["name"]
         
-        # Processar todos os leads
+        # Combinar leads de ambos os pipelines
         all_leads = []
-        if leads_data and "_embedded" in leads_data:
-            all_leads = leads_data["_embedded"].get("leads", [])
+        
+        # Adicionar leads do Funil de Vendas
+        if leads_vendas_data and "_embedded" in leads_vendas_data:
+            leads_vendas = leads_vendas_data["_embedded"].get("leads", [])
+            all_leads.extend(leads_vendas)
+            logger.info(f"Leads do Funil de Vendas: {len(leads_vendas)}")
+        
+        # Adicionar leads do Remarketing
+        if leads_remarketing_data and "_embedded" in leads_remarketing_data:
+            leads_remarketing = leads_remarketing_data["_embedded"].get("leads", [])
+            all_leads.extend(leads_remarketing)
+            logger.info(f"Leads do Remarketing: {len(leads_remarketing)}")
         
         logger.info(f"Encontrados {len(all_leads)} leads totais")
         
@@ -1184,7 +1208,10 @@ async def get_detailed_tables(
                     "corretor": 837920,
                     "data_fechamento": CUSTOM_FIELD_DATA_FECHAMENTO
                 },
-                "pipeline_vendas": PIPELINE_VENDAS
+                "pipelines_utilizados": {
+                    "funil_vendas": PIPELINE_VENDAS,
+                    "remarketing": PIPELINE_REMARKETING
+                }
             }
         }
         

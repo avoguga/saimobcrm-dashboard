@@ -50,6 +50,7 @@ async def get_sales_kpis(
         
         # IDs importantes
         PIPELINE_VENDAS = 10516987
+        PIPELINE_REMARKETING = 11059911
         STATUS_PROPOSTA = 80689735
         STATUS_CONTRATO_ASSINADO = 80689759
         STATUS_VENDA_FINAL = 142
@@ -282,15 +283,24 @@ async def get_leads_by_user_chart(
         
         # IDs importantes
         PIPELINE_VENDAS = 10516987
+        PIPELINE_REMARKETING = 11059911
         STATUS_PROPOSTA = 80689735
         STATUS_CONTRATO_ASSINADO = 80689759
         STATUS_VENDA_FINAL = 142
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126
         
-        # Buscar leads APENAS do Funil de Vendas
-        leads_params = {
-            "filter[pipeline_id]": PIPELINE_VENDAS,  # Filtrar por pipeline
-            "filter[updated_at][from]": start_time,   # Mudança: usar updated_at
+        # Buscar leads de AMBOS os pipelines (Vendas + Remarketing)
+        leads_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
+            "filter[updated_at][from]": start_time,
+            "filter[updated_at][to]": end_time,
+            "limit": 250,
+            "with": "custom_fields_values"
+        }
+        
+        leads_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
+            "filter[updated_at][from]": start_time,
             "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
@@ -503,15 +513,24 @@ async def get_conversion_rates(
         
         # IDs importantes
         PIPELINE_VENDAS = 10516987
+        PIPELINE_REMARKETING = 11059911
         STATUS_PROPOSTA = 80689735
         STATUS_CONTRATO_ASSINADO = 80689759
         STATUS_VENDA_FINAL = 142
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126
         
-        # Buscar leads APENAS do Funil de Vendas
-        leads_params = {
-            "filter[pipeline_id]": PIPELINE_VENDAS,  # Filtrar por pipeline
-            "filter[updated_at][from]": start_time,   # Mudança: usar updated_at
+        # Buscar leads de AMBOS os pipelines (Vendas + Remarketing)
+        leads_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
+            "filter[updated_at][from]": start_time,
+            "filter[updated_at][to]": end_time,
+            "limit": 250,
+            "with": "custom_fields_values"
+        }
+        
+        leads_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
+            "filter[updated_at][from]": start_time,
             "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
@@ -715,15 +734,24 @@ async def get_pipeline_status(
         
         # IDs importantes
         PIPELINE_VENDAS = 10516987
+        PIPELINE_REMARKETING = 11059911
         STATUS_PROPOSTA = 80689735
         STATUS_CONTRATO_ASSINADO = 80689759
         STATUS_VENDA_FINAL = 142
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126
         
-        # Buscar leads APENAS do Funil de Vendas
-        leads_params = {
-            "filter[pipeline_id]": PIPELINE_VENDAS,  # Filtrar por pipeline
-            "filter[updated_at][from]": start_time,   # Mudança: usar updated_at
+        # Buscar leads de AMBOS os pipelines (Vendas + Remarketing)
+        leads_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
+            "filter[updated_at][from]": start_time,
+            "filter[updated_at][to]": end_time,
+            "limit": 250,
+            "with": "custom_fields_values"
+        }
+        
+        leads_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
+            "filter[updated_at][from]": start_time,
             "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
