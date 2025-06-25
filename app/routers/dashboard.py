@@ -864,6 +864,10 @@ async def get_sales_dashboard_complete(
 async def get_detailed_tables(
     corretor: Optional[str] = Query(None, description="Nome do corretor para filtrar dados"),
     fonte: Optional[str] = Query(None, description="Fonte para filtrar dados"),
+    start_date: Optional[str] = Query(None, description="Data de início (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Data de fim (YYYY-MM-DD)"),
+    days: int = Query(30, description="Período em dias (usado se start_date/end_date não fornecidos)"),
+    limit: int = Query(250, description="Limite de registros por página"),
 ):
     """
     Endpoint que retorna dados detalhados para 3 tabelas:
@@ -884,11 +888,37 @@ async def get_detailed_tables(
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126  # ID do campo "Data Fechamento"
         
         # ABORDAGEM SIMPLIFICADA: Buscar TODOS os leads sem filtro
-        logger.info("Buscando TODOS os leads sem filtro de data")
+        # Calcular filtros de data
+        import time
         
-        # Buscar TODOS os leads sem nenhum filtro
+        if start_date and end_date:
+            # Usar datas específicas
+            try:
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+                end_dt = end_dt.replace(hour=23, minute=59, second=59)
+                start_timestamp = int(start_dt.timestamp())
+                end_timestamp = int(end_dt.timestamp())
+                logger.info(f"Filtro por período: {start_date} a {end_date}")
+            except ValueError as date_error:
+                logger.error(f"Erro de validação de data: {date_error}")
+                raise HTTPException(status_code=400, detail="Formato de data inválido. Use YYYY-MM-DD")
+        else:
+            # Usar período em dias
+            end_timestamp = int(time.time())
+            start_timestamp = end_timestamp - (days * 24 * 60 * 60)
+            start_dt = datetime.fromtimestamp(start_timestamp)
+            end_dt = datetime.fromtimestamp(end_timestamp)
+            logger.info(f"Filtro por {days} dias: {start_dt.strftime('%Y-%m-%d')} a {end_dt.strftime('%Y-%m-%d')}")
+        
+        logger.info(f"Buscando leads do Funil de Vendas (pipeline {PIPELINE_VENDAS})")
+        
+        # Buscar leads APENAS do Funil de Vendas COM filtro de data
         leads_params = {
-            "limit": 250,
+            "filter[pipeline_id]": PIPELINE_VENDAS,  # Filtrar por pipeline na API
+            "filter[updated_at][from]": start_timestamp,  # Filtro de data de início
+            "filter[updated_at][to]": end_timestamp,      # Filtro de data de fim
+            "limit": limit,
             "with": "contacts,tags,custom_fields_values"
         }
         
@@ -913,12 +943,14 @@ async def get_detailed_tables(
         propostas_detalhes = []
         vendas_detalhes = []
         
-        # NOVO: Buscar tarefas de reunião realizadas
+        # NOVO: Buscar tarefas de reunião realizadas COM filtro de data
         logger.info("Buscando tarefas de reunião realizadas...")
         tasks_params = {
             'filter[task_type]': 2,  # Tipo reunião
             'filter[is_completed]': 1,  # Apenas concluídas
-            'limit': 250
+            'filter[updated_at][from]': start_timestamp,  # Filtro de data
+            'filter[updated_at][to]': end_timestamp,      # Filtro de data
+            'limit': limit
         }
         
         tasks_data = safe_get_data(kommo_api.get_tasks, tasks_params)
@@ -942,9 +974,7 @@ async def get_detailed_tables(
             if not lead:
                 continue
                 
-            # Verificar se o lead é do Funil de Vendas (pipeline_id = 10516987)
-            if lead.get('pipeline_id') != PIPELINE_VENDAS:
-                continue
+            # Lead já é do Funil de Vendas (filtrado na API)
                 
             # Extrair dados do lead
             lead_name = lead.get("name", "")
@@ -975,11 +1005,11 @@ async def get_detailed_tables(
                         elif field_id == 837920 and values:  # Corretor
                             corretor_custom = values[0].get("value")
             
-            # Determinar corretor final
+            # Determinar corretor final - apenas do custom field
             if corretor_custom:
                 corretor_final = corretor_custom
             else:
-                corretor_final = users_map.get(responsible_user_id, "N/A")
+                corretor_final = "N/A"  # Sem fallback para responsible_user_id
             
             # Filtrar por corretor se especificado
             if corretor and isinstance(corretor, str) and corretor.strip() and corretor_final != corretor:
@@ -1004,9 +1034,7 @@ async def get_detailed_tables(
             if not lead:
                 continue
                 
-            # IMPORTANTE: Verificar se o lead é do Funil de Vendas
-            if lead.get('pipeline_id') != PIPELINE_VENDAS:
-                continue
+            # Não precisa mais verificar pipeline - já filtrado na API
                 
             lead_id = lead.get("id")
             lead_name = lead.get("name", "")
@@ -1071,11 +1099,11 @@ async def get_detailed_tables(
                 continue
             
             
-            # Determinar corretor final
+            # Determinar corretor final - apenas do custom field
             if corretor_custom:
                 corretor_final = corretor_custom
             else:
-                corretor_final = users_map.get(responsible_user_id, "N/A")
+                corretor_final = "N/A"  # Sem fallback para responsible_user_id
             
             # Filtrar por corretor se especificado
             if corretor and isinstance(corretor, str) and corretor.strip() and corretor_final != corretor:
@@ -1139,10 +1167,11 @@ async def get_detailed_tables(
                 "valor_total_vendas": valor_total_vendas
             },
             "_metadata": {
-                "periodo_dias": "todos",
-                "data_inicio": "Sem filtro",
-                "data_fim": "Sem filtro",
-                "filtro_tipo": "buscar_todos_sem_filtro",
+                "periodo_dias": days if not (start_date and end_date) else "periodo_customizado",
+                "data_inicio": start_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                "data_fim": end_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                "filtro_tipo": "filtro_por_data_implementado",
+                "limit_registros": limit,
                 "corretor_filter": corretor if isinstance(corretor, str) else None,
                 "fonte_filter": fonte if isinstance(fonte, str) else None,
                 "status_ids_utilizados": {

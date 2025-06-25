@@ -48,18 +48,27 @@ async def get_sales_kpis(
         previous_start_time = start_time - period_duration
         previous_end_time = start_time
         
-        # Buscar leads do período atual
+        # IDs importantes
+        PIPELINE_VENDAS = 10516987
+        STATUS_PROPOSTA = 80689735
+        STATUS_CONTRATO_ASSINADO = 80689759
+        STATUS_VENDA_FINAL = 142
+        CUSTOM_FIELD_DATA_FECHAMENTO = 858126
+        
+        # Buscar leads do período atual APENAS do Funil de Vendas
         current_leads_params = {
-            "filter[created_at][from]": start_time,
-            "filter[created_at][to]": end_time,
+            "filter[pipeline_id]": PIPELINE_VENDAS,  # Filtrar por pipeline
+            "filter[updated_at][from]": start_time,   # Mudança: usar updated_at
+            "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
         
-        # Buscar leads do período anterior
+        # Buscar leads do período anterior APENAS do Funil de Vendas
         previous_leads_params = {
-            "filter[created_at][from]": previous_start_time,
-            "filter[created_at][to]": previous_end_time,
+            "filter[pipeline_id]": PIPELINE_VENDAS,  # Filtrar por pipeline
+            "filter[updated_at][from]": previous_start_time,
+            "filter[updated_at][to]": previous_end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
@@ -137,14 +146,38 @@ async def get_sales_kpis(
         current_leads = process_leads(current_leads_data)
         previous_leads = process_leads(previous_leads_data)
         
+        # Função para verificar se venda tem data válida
+        def has_valid_sale_date(lead):
+            """Verifica se a venda tem Data Fechamento ou closed_at válido"""
+            # Priorizar Data Fechamento (custom field)
+            data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
+            if data_fechamento:
+                return True
+            # Fallback para closed_at
+            closed_at = lead.get("closed_at")
+            if closed_at:
+                return True
+            # Se não tiver nenhuma data válida, NÃO é venda válida
+            return False
+        
         # Calcular métricas do período atual
         total_leads = len(current_leads)
         active_leads = len([lead for lead in current_leads if lead.get("status_id") not in [142, 143]])
-        won_leads = len([lead for lead in current_leads if lead.get("status_id") == 142])
+        
+        # Vendas: apenas status de venda + data válida
+        won_leads_with_date = [
+            lead for lead in current_leads 
+            if lead.get("status_id") in [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO] and has_valid_sale_date(lead)
+        ]
+        won_leads = len(won_leads_with_date)
+        
         lost_leads = len([lead for lead in current_leads if lead.get("status_id") == 143])
         
-        # Calcular revenue e average deal size
-        total_revenue = sum((lead.get("price") or 0) for lead in current_leads if lead.get("status_id") == 142)
+        # Propostas: apenas status de proposta
+        proposal_leads = len([lead for lead in current_leads if lead.get("status_id") == STATUS_PROPOSTA])
+        
+        # Calcular revenue e average deal size (apenas vendas com data válida)
+        total_revenue = sum((lead.get("price") or 0) for lead in won_leads_with_date)
         average_deal_size = (total_revenue / won_leads) if won_leads > 0 else 0
         
         # Calcular win rate
@@ -154,10 +187,18 @@ async def get_sales_kpis(
         # Calcular métricas do período anterior
         previous_total_leads = len(previous_leads)
         previous_active_leads = len([lead for lead in previous_leads if lead.get("status_id") not in [142, 143]])
-        previous_won_leads = len([lead for lead in previous_leads if lead.get("status_id") == 142])
-        previous_lost_leads = len([lead for lead in previous_leads if lead.get("status_id") == 143])
         
-        previous_total_revenue = sum((lead.get("price") or 0) for lead in previous_leads if lead.get("status_id") == 142)
+        # Vendas anteriores: apenas status de venda + data válida
+        previous_won_leads_with_date = [
+            lead for lead in previous_leads 
+            if lead.get("status_id") in [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO] and has_valid_sale_date(lead)
+        ]
+        previous_won_leads = len(previous_won_leads_with_date)
+        
+        previous_lost_leads = len([lead for lead in previous_leads if lead.get("status_id") == 143])
+        previous_proposal_leads = len([lead for lead in previous_leads if lead.get("status_id") == STATUS_PROPOSTA])
+        
+        previous_total_revenue = sum((lead.get("price") or 0) for lead in previous_won_leads_with_date)
         previous_average_deal_size = (previous_total_revenue / previous_won_leads) if previous_won_leads > 0 else 0
         
         previous_total_closed = previous_won_leads + previous_lost_leads
@@ -176,13 +217,25 @@ async def get_sales_kpis(
             "previousWonLeads": previous_won_leads,
             "previousWinRate": round(previous_win_rate, 1),
             "previousAverageDealSize": round(previous_average_deal_size, 2),
+            # NOVO: Campo que o frontend usa
+            "proposalStats": {
+                "total": proposal_leads,
+                "previous": previous_proposal_leads,
+                "growth": ((proposal_leads - previous_proposal_leads) / previous_proposal_leads * 100) if previous_proposal_leads > 0 else 0
+            },
             "_metadata": {
                 "period_days": days,
                 "corretor_filter": corretor,
                 "fonte_filter": fonte,
                 "generated_at": datetime.now().isoformat(),
                 "optimized": True,
-                "endpoint_version": "v2"
+                "endpoint_version": "v2",
+                "pipeline_filter": PIPELINE_VENDAS,
+                "status_ids_used": {
+                    "proposta": STATUS_PROPOSTA,
+                    "vendas": [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO]
+                },
+                "data_fechamento_field": CUSTOM_FIELD_DATA_FECHAMENTO
             }
         }
         
@@ -227,12 +280,29 @@ async def get_leads_by_user_chart(
             end_time = int(time.time())
             start_time = end_time - (days * 24 * 60 * 60)
         
-        # Buscar leads
+        # IDs importantes
+        PIPELINE_VENDAS = 10516987
+        STATUS_PROPOSTA = 80689735
+        STATUS_CONTRATO_ASSINADO = 80689759
+        STATUS_VENDA_FINAL = 142
+        CUSTOM_FIELD_DATA_FECHAMENTO = 858126
+        
+        # Buscar leads APENAS do Funil de Vendas
         leads_params = {
-            "filter[created_at][from]": start_time,
-            "filter[created_at][to]": end_time,
+            "filter[pipeline_id]": PIPELINE_VENDAS,  # Filtrar por pipeline
+            "filter[updated_at][from]": start_time,   # Mudança: usar updated_at
+            "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
+        }
+        
+        # Buscar tarefas de reunião concluídas
+        tasks_params = {
+            'filter[task_type]': 2,  # Tipo reunião
+            'filter[is_completed]': 1,  # Apenas concluídas
+            'filter[updated_at][from]': start_time,
+            'filter[updated_at][to]': end_time,
+            'limit': 250
         }
         
         try:
@@ -240,6 +310,12 @@ async def get_leads_by_user_chart(
         except Exception as e:
             logger.error(f"Erro ao buscar leads: {e}")
             leads_data = {"_embedded": {"leads": []}}
+            
+        try:
+            tasks_data = kommo_api.get_tasks(tasks_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar tarefas: {e}")
+            tasks_data = {"_embedded": {"tasks": []}}
             
         try:
             users_data = kommo_api.get_users()
@@ -255,6 +331,18 @@ async def get_leads_by_user_chart(
                 for user in users_list:
                     if user and isinstance(user, dict):
                         users_map[user.get("id")] = user.get("name", "Desconhecido")
+        
+        # Criar mapa de reuniões realizadas por lead
+        meetings_by_lead = {}
+        if tasks_data and "_embedded" in tasks_data:
+            tasks_list = tasks_data["_embedded"].get("tasks", [])
+            if isinstance(tasks_list, list):
+                for task in tasks_list:
+                    if (task and isinstance(task, dict) and 
+                        task.get('entity_type') == 'leads'):
+                        lead_id = task.get('entity_id')
+                        if lead_id:
+                            meetings_by_lead[lead_id] = meetings_by_lead.get(lead_id, 0) + 1
         
         # Função segura para extrair valor de custom fields
         def get_custom_field_value(lead, field_id):
@@ -300,8 +388,12 @@ async def get_leads_by_user_chart(
                     if fonte and fonte_lead != fonte:
                         continue
                     
-                    # Determinar corretor final
-                    final_corretor = corretor_lead or users_map.get(lead.get("responsible_user_id"), "Desconhecido")
+                    # Determinar corretor final - apenas custom field
+                    final_corretor = corretor_lead or "N/A"
+                    
+                    # Pular se não tiver corretor definido
+                    if final_corretor == "N/A":
+                        continue
                     
                     # Inicializar contador se não existir
                     if final_corretor not in leads_by_user:
@@ -309,7 +401,7 @@ async def get_leads_by_user_chart(
                             "name": final_corretor,
                             "value": 0,
                             "active": 0,
-                            "meetings": 0,
+                            "meetingsHeld": 0,  # Campo que o frontend usa
                             "sales": 0,
                             "lost": 0
                         }
@@ -317,16 +409,31 @@ async def get_leads_by_user_chart(
                     # Incrementar contadores
                     leads_by_user[final_corretor]["value"] += 1
                     
+                    # Verificar se tem Data Fechamento para vendas
+                    def has_valid_sale_date(lead):
+                        data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
+                        if data_fechamento:
+                            return True
+                        closed_at = lead.get("closed_at")
+                        if closed_at:
+                            return True
+                        return False
+                    
                     status_id = lead.get("status_id")
-                    if status_id == 142:  # Won
+                    lead_id = lead.get("id")
+                    
+                    # Vendas: apenas com data válida
+                    if (status_id in [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO] and 
+                        has_valid_sale_date(lead)):
                         leads_by_user[final_corretor]["sales"] += 1
                     elif status_id == 143:  # Lost
                         leads_by_user[final_corretor]["lost"] += 1
-                    elif status_id in [80689731, 80689727]:  # Reunião/Agendamento
-                        leads_by_user[final_corretor]["meetings"] += 1
-                        leads_by_user[final_corretor]["active"] += 1
                     else:  # Active
                         leads_by_user[final_corretor]["active"] += 1
+                    
+                    # Reuniões realizadas: do mapa de tarefas
+                    if lead_id in meetings_by_lead:
+                        leads_by_user[final_corretor]["meetingsHeld"] += meetings_by_lead[lead_id]
         
         # Converter para lista e ordenar
         leads_by_user_list = list(leads_by_user.values())
@@ -341,7 +448,15 @@ async def get_leads_by_user_chart(
                 "generated_at": datetime.now().isoformat(),
                 "total_users": len(leads_by_user_list),
                 "optimized": True,
-                "endpoint_version": "v2"
+                "endpoint_version": "v2",
+                "pipeline_filter": PIPELINE_VENDAS,
+                "meetings_source": "tasks_completed",
+                "sales_validation": "data_fechamento_required",
+                "status_ids_used": {
+                    "vendas": [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO]
+                },
+                "total_meetings_found": sum(meetings_by_lead.values()),
+                "total_leads_processed": sum(user["value"] for user in leads_by_user_list)
             }
         }
         
@@ -386,12 +501,29 @@ async def get_conversion_rates(
             end_time = int(time.time())
             start_time = end_time - (days * 24 * 60 * 60)
         
-        # Buscar leads
+        # IDs importantes
+        PIPELINE_VENDAS = 10516987
+        STATUS_PROPOSTA = 80689735
+        STATUS_CONTRATO_ASSINADO = 80689759
+        STATUS_VENDA_FINAL = 142
+        CUSTOM_FIELD_DATA_FECHAMENTO = 858126
+        
+        # Buscar leads APENAS do Funil de Vendas
         leads_params = {
-            "filter[created_at][from]": start_time,
-            "filter[created_at][to]": end_time,
+            "filter[pipeline_id]": PIPELINE_VENDAS,  # Filtrar por pipeline
+            "filter[updated_at][from]": start_time,   # Mudança: usar updated_at
+            "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
+        }
+        
+        # Buscar tarefas de reunião concluídas
+        tasks_params = {
+            'filter[task_type]': 2,  # Tipo reunião
+            'filter[is_completed]': 1,  # Apenas concluídas
+            'filter[updated_at][from]': start_time,
+            'filter[updated_at][to]': end_time,
+            'limit': 250
         }
         
         try:
@@ -399,6 +531,12 @@ async def get_conversion_rates(
         except Exception as e:
             logger.error(f"Erro ao buscar leads: {e}")
             leads_data = {"_embedded": {"leads": []}}
+            
+        try:
+            tasks_data = kommo_api.get_tasks(tasks_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar tarefas: {e}")
+            tasks_data = {"_embedded": {"tasks": []}}
         
         # Função segura para extrair valor de custom fields
         def get_custom_field_value(lead, field_id):
@@ -424,6 +562,18 @@ async def get_conversion_rates(
                 logger.error(f"Erro ao extrair custom field {field_id}: {e}")
                 return None
         
+        # Criar mapa de reuniões realizadas por lead
+        meetings_by_lead = {}
+        if tasks_data and "_embedded" in tasks_data:
+            tasks_list = tasks_data["_embedded"].get("tasks", [])
+            if isinstance(tasks_list, list):
+                for task in tasks_list:
+                    if (task and isinstance(task, dict) and 
+                        task.get('entity_type') == 'leads'):
+                        lead_id = task.get('entity_id')
+                        if lead_id:
+                            meetings_by_lead[lead_id] = meetings_by_lead.get(lead_id, 0) + 1
+        
         # Processar leads com filtros
         filtered_leads = []
         
@@ -444,13 +594,38 @@ async def get_conversion_rates(
                     if fonte and fonte_lead != fonte:
                         continue
                     
+                    # Pular leads sem corretor (se não estiver filtrando por corretor específico)
+                    if not corretor and not corretor_lead:
+                        continue
+                    
                     filtered_leads.append(lead)
         
-        # Calcular métricas de conversão
+        # Função para verificar se venda tem data válida
+        def has_valid_sale_date(lead):
+            """Verifica se a venda tem Data Fechamento ou closed_at válido"""
+            data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
+            if data_fechamento:
+                return True
+            closed_at = lead.get("closed_at")
+            if closed_at:
+                return True
+            return False
+        
+        # Calcular métricas de conversão com nova lógica
         total_leads = len(filtered_leads)
-        meetings_leads = len([lead for lead in filtered_leads if lead.get("status_id") in [80689731, 80689727, 80645875]])
-        proposals_leads = len([lead for lead in filtered_leads if lead.get("status_id") == 80689735])
-        sales_leads = len([lead for lead in filtered_leads if lead.get("status_id") == 142])
+        
+        # Reuniões: contar leads que tiveram reunião realizada (do mapa de tarefas)
+        meetings_leads = len([lead for lead in filtered_leads if lead.get("id") in meetings_by_lead])
+        
+        # Propostas: apenas status de proposta
+        proposals_leads = len([lead for lead in filtered_leads if lead.get("status_id") == STATUS_PROPOSTA])
+        
+        # Vendas: apenas status de venda + data válida
+        sales_leads = len([
+            lead for lead in filtered_leads 
+            if (lead.get("status_id") in [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO] and 
+                has_valid_sale_date(lead))
+        ])
         
         # Calcular taxas de conversão
         meetings_rate = (meetings_leads / total_leads * 100) if total_leads > 0 else 0
@@ -479,7 +654,21 @@ async def get_conversion_rates(
                 "generated_at": datetime.now().isoformat(),
                 "total_leads_analyzed": total_leads,
                 "optimized": True,
-                "endpoint_version": "v2"
+                "endpoint_version": "v2",
+                "pipeline_filter": PIPELINE_VENDAS,
+                "meetings_source": "tasks_completed",
+                "sales_validation": "data_fechamento_required",
+                "status_ids_used": {
+                    "proposta": STATUS_PROPOSTA,
+                    "vendas": [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO]
+                },
+                "breakdown": {
+                    "total_leads": total_leads,
+                    "meetings_leads": meetings_leads,
+                    "proposals_leads": proposals_leads,
+                    "sales_leads": sales_leads,
+                    "total_meetings_found": sum(meetings_by_lead.values())
+                }
             }
         }
         
@@ -524,10 +713,18 @@ async def get_pipeline_status(
             end_time = int(time.time())
             start_time = end_time - (days * 24 * 60 * 60)
         
-        # Buscar leads e pipeline data
+        # IDs importantes
+        PIPELINE_VENDAS = 10516987
+        STATUS_PROPOSTA = 80689735
+        STATUS_CONTRATO_ASSINADO = 80689759
+        STATUS_VENDA_FINAL = 142
+        CUSTOM_FIELD_DATA_FECHAMENTO = 858126
+        
+        # Buscar leads APENAS do Funil de Vendas
         leads_params = {
-            "filter[created_at][from]": start_time,
-            "filter[created_at][to]": end_time,
+            "filter[pipeline_id]": PIPELINE_VENDAS,  # Filtrar por pipeline
+            "filter[updated_at][from]": start_time,   # Mudança: usar updated_at
+            "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
@@ -544,13 +741,14 @@ async def get_pipeline_status(
             logger.error(f"Erro ao buscar pipelines: {e}")
             pipelines_data = {"_embedded": {"pipelines": []}}
         
-        # Mapear status IDs para nomes
+        # Mapear status IDs para nomes (foco no Funil de Vendas)
         status_map = {}
         if pipelines_data and "_embedded" in pipelines_data:
             pipelines_list = pipelines_data["_embedded"].get("pipelines", [])
             if isinstance(pipelines_list, list):
                 for pipeline in pipelines_list:
-                    if pipeline and isinstance(pipeline, dict):
+                    if (pipeline and isinstance(pipeline, dict) and 
+                        pipeline.get("id") == PIPELINE_VENDAS):  # Apenas Funil de Vendas
                         embedded_statuses = pipeline.get("_embedded", {})
                         if isinstance(embedded_statuses, dict):
                             statuses = embedded_statuses.get("statuses", [])
@@ -561,6 +759,7 @@ async def get_pipeline_status(
                                         status_name = status.get("name", f"Status {status_id}")
                                         if status_id:
                                             status_map[status_id] = status_name
+                        break  # Encontrou o pipeline, pode parar
         
         # Função segura para extrair valor de custom fields
         def get_custom_field_value(lead, field_id):
@@ -586,6 +785,17 @@ async def get_pipeline_status(
                 logger.error(f"Erro ao extrair custom field {field_id}: {e}")
                 return None
         
+        # Função para verificar se venda tem data válida
+        def has_valid_sale_date(lead):
+            """Verifica se a venda tem Data Fechamento ou closed_at válido"""
+            data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
+            if data_fechamento:
+                return True
+            closed_at = lead.get("closed_at")
+            if closed_at:
+                return True
+            return False
+        
         # Processar leads com filtros
         pipeline_status = {}
         total_in_pipeline = 0
@@ -607,27 +817,43 @@ async def get_pipeline_status(
                     if fonte and fonte_lead != fonte:
                         continue
                     
-                    # Contar apenas leads ativos (não won/lost)
+                    # Pular leads sem corretor (se não estiver filtrando por corretor específico)
+                    if not corretor and not corretor_lead:
+                        continue
+                    
                     status_id = lead.get("status_id")
-                    if status_id not in [142, 143]:  # Não é won nem lost
-                        status_name = status_map.get(status_id, f"Status {status_id}")
-                        
-                        # Agrupar status similares
-                        if "negociac" in status_name.lower() or "proposta" in status_name.lower():
-                            grouped_status = "Leads em Negociação"
-                        elif "remarketing" in status_name.lower() or "reativa" in status_name.lower():
-                            grouped_status = "Leads em Remarketing"
-                        elif "reativad" in status_name.lower():
-                            grouped_status = "Leads Reativados"
-                        elif "reunião" in status_name.lower() or "agend" in status_name.lower():
-                            grouped_status = "Leads com Reunião"
-                        elif "contato" in status_name.lower():
-                            grouped_status = "Leads em Contato"
+                    status_name = status_map.get(status_id, f"Status {status_id}")
+                    
+                    # Agrupar usando status específicos do Funil de Vendas
+                    if status_id == STATUS_PROPOSTA:
+                        grouped_status = "Proposta"
+                    elif status_id in [STATUS_CONTRATO_ASSINADO, STATUS_VENDA_FINAL]:
+                        # Verificar se venda tem data válida
+                        if has_valid_sale_date(lead):
+                            grouped_status = "Venda Concluída"
                         else:
-                            grouped_status = status_name
-                        
-                        pipeline_status[grouped_status] = pipeline_status.get(grouped_status, 0) + 1
-                        total_in_pipeline += 1
+                            grouped_status = "Venda sem Data"
+                    elif status_id == 143:  # Closed - lost
+                        grouped_status = "Lead Perdido"
+                    elif "agend" in status_name.lower():
+                        grouped_status = "Agendamento"
+                    elif "reunião" in status_name.lower():
+                        grouped_status = "Reunião Realizada"
+                    elif "atendimento" in status_name.lower():
+                        grouped_status = "Atendimento"
+                    elif "contato" in status_name.lower():
+                        grouped_status = "Contato Feito"
+                    elif "follow" in status_name.lower():
+                        grouped_status = "Follow-up"
+                    elif "novo" in status_name.lower():
+                        grouped_status = "Lead Novo"
+                    elif "acompanhamento" in status_name.lower():
+                        grouped_status = "Acompanhamento"
+                    else:
+                        grouped_status = status_name
+                    
+                    pipeline_status[grouped_status] = pipeline_status.get(grouped_status, 0) + 1
+                    total_in_pipeline += 1
         
         # Converter para formato de resposta
         pipeline_status_list = [
@@ -645,7 +871,19 @@ async def get_pipeline_status(
                 "generated_at": datetime.now().isoformat(),
                 "status_groups": len(pipeline_status_list),
                 "optimized": True,
-                "endpoint_version": "v2"
+                "endpoint_version": "v2",
+                "pipeline_filter": PIPELINE_VENDAS,
+                "sales_validation": "data_fechamento_required",
+                "status_ids_used": {
+                    "proposta": STATUS_PROPOSTA,
+                    "vendas": [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO],
+                    "perdido": 143
+                },
+                "breakdown": {
+                    "leads_processed": total_in_pipeline,
+                    "unique_statuses": len(status_map),
+                    "grouped_categories": len(pipeline_status_list)
+                }
             }
         }
         
