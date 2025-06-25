@@ -378,64 +378,86 @@ async def get_corretores_list(fonte: Optional[str] = Query(None, description="Fo
     Retorna lista de todos os corretores disponíveis no sistema
     """
     try:
-        from app.routers.leads import get_all_leads_with_custom_fields
+        from app.services.kommo_api import KommoAPI
+        api = KommoAPI()
         
-        # Buscar todos os leads
-        all_leads = get_all_leads_with_custom_fields()
-        
-        if not all_leads:
-            return {
-                "corretores": [],
-                "total_corretores": 0,
-                "message": "Não foi possível obter leads da API"
-            }
-        
-        # Extrair corretores únicos com contagem de leads
+        # Buscar leads com paginação progressiva
         corretores_data = {}
+        page = 1
+        total_processed = 0
         
-        for lead in all_leads:
-            if not lead:
-                continue
-            custom_fields = lead.get("custom_fields_values", [])
-            if not custom_fields:
-                continue
-                
-            # Extrair fonte e corretor
-            fonte_lead = "N/A"
-            corretor = None
+        while True:
+            params = {
+                'limit': 250,
+                'page': page,
+                'with': 'custom_fields'
+            }
             
-            for field in custom_fields:
-                if not field:
+            data = api.get_leads(params)
+            
+            if not data or not data.get("_embedded"):
+                break
+                
+            leads = data.get("_embedded", {}).get("leads", [])
+            if not leads:
+                break
+            
+            # Processar leads da página atual
+            for lead in leads:
+                if not lead:
                     continue
-                field_id = field.get("field_id")
-                values = field.get("values", [])
+                    
+                custom_fields = lead.get("custom_fields_values", [])
+                if not custom_fields:
+                    continue
+                    
+                # Extrair fonte e corretor
+                fonte_lead = "N/A"
+                corretor = None
                 
-                if field_id == 837886 and values:  # Fonte
-                    fonte_lead = values[0].get("value", "N/A")
-                elif field_id == 837920 and values:  # Corretor
-                    value = values[0].get("value") if values[0] else None
-                    corretor = value
+                for field in custom_fields:
+                    if not field:
+                        continue
+                    field_id = field.get("field_id")
+                    values = field.get("values", [])
+                    
+                    if field_id == 837886 and values:  # Fonte
+                        fonte_lead = values[0].get("value", "N/A")
+                    elif field_id == 837920 and values:  # Corretor
+                        value = values[0].get("value") if values[0] else None
+                        corretor = value
+                
+                # Filtrar por fonte se especificado
+                if fonte and isinstance(fonte, str) and fonte.strip() and fonte_lead != fonte:
+                    continue
+                    
+                if corretor:
+                    if corretor not in corretores_data:
+                        corretores_data[corretor] = {
+                            "name": corretor,
+                            "total_leads": 0,
+                            "active_leads": 0,
+                            "won_leads": 0
+                        }
+                    
+                    corretores_data[corretor]["total_leads"] += 1
+                    
+                    status_id = lead.get("status_id")
+                    if status_id == 142:  # won
+                        corretores_data[corretor]["won_leads"] += 1
+                    elif status_id not in [142, 143]:  # active
+                        corretores_data[corretor]["active_leads"] += 1
             
-            # Filtrar por fonte se especificado
-            if fonte and isinstance(fonte, str) and fonte.strip() and fonte_lead != fonte:
-                continue
+            total_processed += len(leads)
+            
+            # Verificar se há próxima página
+            if not data.get("_links", {}).get("next"):
+                break
                 
-            if corretor:
-                if corretor not in corretores_data:
-                    corretores_data[corretor] = {
-                        "name": corretor,
-                        "total_leads": 0,
-                        "active_leads": 0,
-                        "won_leads": 0
-                    }
-                
-                corretores_data[corretor]["total_leads"] += 1
-                
-                status_id = lead.get("status_id")
-                if status_id == 142:  # won
-                    corretores_data[corretor]["won_leads"] += 1
-                elif status_id not in [142, 143]:  # active
-                    corretores_data[corretor]["active_leads"] += 1
+            page += 1
+            
+            # Log de progresso
+            print(f"Processadas {page} páginas, {total_processed} leads, {len(corretores_data)} corretores encontrados")
         
         # Converter para lista e ordenar
         corretores_list = list(corretores_data.values())
@@ -443,7 +465,9 @@ async def get_corretores_list(fonte: Optional[str] = Query(None, description="Fo
         
         return {
             "corretores": corretores_list,
-            "total_corretores": len(corretores_list)
+            "total_corretores": len(corretores_list),
+            "total_leads_processed": total_processed,
+            "pages_processed": page
         }
         
     except Exception as e:
