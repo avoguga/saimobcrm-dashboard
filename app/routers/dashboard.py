@@ -1022,16 +1022,15 @@ async def get_detailed_tables(
             # Reunião é considerada verdadeira se:
             # 1. is_completed = true (já verificado na query)
             # 2. completed_at existe (data em que foi marcada como concluída)
-            completed_at = task.get('completed_at')
-            if not completed_at:
-                # Se não tem completed_at, não consideramos como reunião realizada
+            # Para reuniões realizadas, usar a data de criação da tarefa
+            created_at = task.get('created_at')
+            if not created_at:
+                # Se não tem created_at, pular
                 continue
             
-            # Usar a data em que a reunião foi marcada como concluída
-            # Isso representa quando a reunião realmente aconteceu
-            data_reuniao = completed_at
+            data_reuniao = created_at
             
-            # Validação adicional: verificar se completed_at está dentro do período
+            # Validação adicional: verificar se created_at está dentro do período
             if data_reuniao < start_timestamp or data_reuniao > end_timestamp:
                 continue
                 
