@@ -1021,7 +1021,7 @@ async def get_detailed_tables(
             # VALIDAÇÃO: Verificar se a reunião realmente aconteceu
             # Reunião é considerada verdadeira se:
             # 1. is_completed = true (já verificado na query)
-            # 2. completed_at existe (data em que foi marcada como concluída)
+            # 2. created_at existe (data de criação da tarefa)
             # Para reuniões realizadas, usar a data de criação da tarefa
             created_at = task.get('created_at')
             if not created_at:
@@ -1592,6 +1592,114 @@ async def get_sales_comparison(
                 total_revenue = 0
                 conversion_rate = 0
             
+            # Calcular reuniões realizadas no período e leadsByUser
+            meetings_held = 0
+            leads_by_user_list = []
+            
+            try:
+                # Buscar tarefas de reunião realizadas
+                tasks_params = {
+                    'filter[task_type]': 2,  # Tipo reunião
+                    'filter[is_completed]': 1,  # Apenas concluídas
+                    'filter[created_at][from]': start_timestamp,
+                    'filter[created_at][to]': end_timestamp,
+                    'limit': 250
+                }
+                
+                tasks_data = safe_get_data(kommo_api.get_tasks, tasks_params)
+                
+                # Criar mapa de leads para verificação
+                leads_map = {lead.get("id"): lead for lead in all_leads if lead and lead.get("id")}
+                
+                # Criar mapa de reuniões realizadas por lead
+                meetings_by_lead = {}
+                if tasks_data and "_embedded" in tasks_data:
+                    tasks_list = tasks_data["_embedded"].get("tasks", [])
+                    if isinstance(tasks_list, list):
+                        for task in tasks_list:
+                            if (task and isinstance(task, dict) and 
+                                task.get('entity_type') == 'leads'):
+                                lead_id = task.get('entity_id')
+                                # Verificar se o lead existe nos leads filtrados
+                                if lead_id and lead_id in leads_map:
+                                    meetings_by_lead[lead_id] = meetings_by_lead.get(lead_id, 0) + 1
+                                    meetings_held += 1
+                
+                # Função para extrair valor de custom fields
+                def get_custom_field_value(lead, field_id):
+                    try:
+                        custom_fields = lead.get("custom_fields_values")
+                        if not custom_fields or not isinstance(custom_fields, list):
+                            return None
+                            
+                        for field in custom_fields:
+                            if not field or not isinstance(field, dict):
+                                continue
+                            if field.get("field_id") == field_id:
+                                values = field.get("values")
+                                if values and isinstance(values, list) and len(values) > 0:
+                                    first_value = values[0]
+                                    if isinstance(first_value, dict):
+                                        return first_value.get("value")
+                                    elif isinstance(first_value, str):
+                                        return first_value
+                        return None
+                    except Exception as e:
+                        logger.error(f"Erro ao extrair custom field {field_id}: {e}")
+                        return None
+                
+                # Criar leadsByUser com dados de meetings
+                leads_by_user = {}
+                
+                for lead in all_leads:
+                    if not lead or not isinstance(lead, dict):
+                        continue
+                    
+                    # Extrair corretor do custom field
+                    corretor_lead = get_custom_field_value(lead, 837920)  # ID do campo Corretor
+                    final_corretor = corretor_lead or "Vazio"
+                    
+                    # Inicializar contador se não existir
+                    if final_corretor not in leads_by_user:
+                        leads_by_user[final_corretor] = {
+                            "name": final_corretor,
+                            "value": 0,
+                            "active": 0,
+                            "meetingsHeld": 0,  # Campo que o frontend usa para o gráfico
+                            "meetings": 0,      # Fallback para compatibilidade
+                            "sales": 0,
+                            "lost": 0
+                        }
+                    
+                    # Incrementar contadores
+                    leads_by_user[final_corretor]["value"] += 1
+                    
+                    status_id = lead.get("status_id")
+                    lead_id = lead.get("id")
+                    
+                    # Contar status
+                    if status_id == 142:  # Won
+                        leads_by_user[final_corretor]["sales"] += 1
+                    elif status_id == 143:  # Lost
+                        leads_by_user[final_corretor]["lost"] += 1
+                    else:  # Active
+                        leads_by_user[final_corretor]["active"] += 1
+                    
+                    # Reuniões realizadas: do mapa de tarefas
+                    if lead_id in meetings_by_lead:
+                        meetings_count = meetings_by_lead[lead_id]
+                        leads_by_user[final_corretor]["meetingsHeld"] += meetings_count
+                        leads_by_user[final_corretor]["meetings"] += meetings_count  # Fallback
+
+                # Converter para lista e ordenar por total de leads
+                leads_by_user_list = list(leads_by_user.values())
+                leads_by_user_list.sort(key=lambda x: x["value"], reverse=True)
+                            
+            except Exception as meetings_error:
+                logger.error(f"Erro ao calcular reuniões e leadsByUser: {meetings_error}")
+                meetings_held = 0
+                leads_by_user_list = []
+            
             return {
                 "totalLeads": total_leads,
                 "activeLeads": active_leads,
@@ -1600,7 +1708,9 @@ async def get_sales_comparison(
                 "winRate": round(win_rate, 1),
                 "averageDealSize": round(average_deal_size, 2),
                 "totalRevenue": round(total_revenue, 2),
-                "conversionRate": round(conversion_rate, 1)
+                "conversionRate": round(conversion_rate, 1),
+                "meetingsHeld": meetings_held,
+                "leadsByUser": leads_by_user_list
             }
         
         # Obter dados dos dois períodos
@@ -1640,7 +1750,8 @@ async def get_sales_comparison(
             "winRate": calculate_comparison(current_period_data["winRate"], previous_period_data["winRate"], True),
             "averageDealSize": calculate_comparison(current_period_data["averageDealSize"], previous_period_data["averageDealSize"]),
             "totalRevenue": calculate_comparison(current_period_data["totalRevenue"], previous_period_data["totalRevenue"]),
-            "conversionRate": calculate_comparison(current_period_data["conversionRate"], previous_period_data["conversionRate"], True)
+            "conversionRate": calculate_comparison(current_period_data["conversionRate"], previous_period_data["conversionRate"], True),
+            "meetingsHeld": calculate_comparison(current_period_data["meetingsHeld"], previous_period_data["meetingsHeld"])
         }
         
         # Montar resposta final

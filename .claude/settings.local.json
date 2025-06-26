@@ -12,7 +12,8 @@
       "Bash(./venv/Scripts/python.exe:*)",
       "Bash(chmod:*)",
       "Bash(bash:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(find:*)"
     ],
     "deny": []
   }
