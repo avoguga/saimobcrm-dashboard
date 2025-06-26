@@ -933,16 +933,16 @@ async def get_detailed_tables(
         # Como a API não suporta múltiplos pipeline_ids em um request, fazemos 2 requests
         leads_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
-            "filter[updated_at][from]": start_timestamp,
-            "filter[updated_at][to]": end_timestamp,
+            "filter[created_at][from]": start_timestamp,  # MUDANÇA: usar created_at
+            "filter[created_at][to]": end_timestamp,
             "limit": limit,
             "with": "contacts,tags,custom_fields_values"
         }
         
         leads_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
-            "filter[updated_at][from]": start_timestamp,
-            "filter[updated_at][to]": end_timestamp,
+            "filter[created_at][from]": start_timestamp,  # MUDANÇA: usar created_at
+            "filter[created_at][to]": end_timestamp,
             "limit": limit,
             "with": "contacts,tags,custom_fields_values"
         }
@@ -986,8 +986,8 @@ async def get_detailed_tables(
         tasks_params = {
             'filter[task_type]': 2,  # Tipo reunião
             'filter[is_completed]': 1,  # Apenas concluídas
-            'filter[updated_at][from]': start_timestamp,  # Filtro de data
-            'filter[updated_at][to]': end_timestamp,      # Filtro de data
+            'filter[created_at][from]': start_timestamp,  # MUDANÇA: usar created_at
+            'filter[created_at][to]': end_timestamp,      # Filtro de data
             'limit': limit
         }
         
@@ -1126,17 +1126,17 @@ async def get_detailed_tables(
             
             # Determinar data relevante baseada no tipo de status
             if status_categoria == "venda":
-                # Para vendas, priorizar Data Fechamento (custom field)
+                # Para vendas, APENAS usar Data Fechamento (custom field)
                 if data_fechamento_custom:
                     try:
                         # Converter timestamp string para int se necessário
                         data_relevante = int(data_fechamento_custom) if isinstance(data_fechamento_custom, str) else data_fechamento_custom
                     except:
-                        # Se falhar, usar closed_at como fallback
-                        data_relevante = lead.get("closed_at")
+                        # Se falhar na conversão, pular este lead
+                        data_relevante = None
                 else:
-                    # Se não tiver Data Fechamento, usar closed_at
-                    data_relevante = lead.get("closed_at")
+                    # Se não tiver Data Fechamento, pular este lead
+                    data_relevante = None
             elif status_categoria == "proposta":
                 # Para propostas, SEMPRE usar updated_at (última atualização)
                 data_relevante = updated_at
@@ -1144,7 +1144,7 @@ async def get_detailed_tables(
                 # Fallback para outros casos
                 data_relevante = updated_at or created_at
             
-            # Se for venda e não tiver data válida, pular
+            # Se for venda e não tiver Data Fechamento válida, pular
             if status_categoria == "venda" and not data_relevante:
                 continue
             
