@@ -56,35 +56,81 @@ async def get_sales_kpis(
         STATUS_VENDA_FINAL = 142
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126
         
-        # Buscar leads do período atual APENAS do Funil de Vendas
-        current_leads_params = {
-            "filter[pipeline_id]": PIPELINE_VENDAS,  # Filtrar por pipeline
-            "filter[updated_at][from]": start_time,   # Mudança: usar updated_at
-            "filter[updated_at][to]": end_time,
+        # LÓGICA DOS MODAIS: Buscar de AMBOS os pipelines (Vendas + Remarketing)
+        current_leads_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
+            "filter[created_at][from]": start_time,   # MODAL: usar created_at
+            "filter[created_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
         
-        # Buscar leads do período anterior APENAS do Funil de Vendas
-        previous_leads_params = {
-            "filter[pipeline_id]": PIPELINE_VENDAS,  # Filtrar por pipeline
-            "filter[updated_at][from]": previous_start_time,
-            "filter[updated_at][to]": previous_end_time,
+        current_leads_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
+            "filter[created_at][from]": start_time,
+            "filter[created_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
         
+        previous_leads_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
+            "filter[created_at][from]": previous_start_time,
+            "filter[created_at][to]": previous_end_time,
+            "limit": 250,
+            "with": "custom_fields_values"
+        }
+        
+        previous_leads_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
+            "filter[created_at][from]": previous_start_time,
+            "filter[created_at][to]": previous_end_time,
+            "limit": 250,
+            "with": "custom_fields_values"
+        }
+        
+        # Buscar leads do período atual de ambos os pipelines
         try:
-            current_leads_data = kommo_api.get_leads(current_leads_params)
+            current_vendas_data = kommo_api.get_leads(current_leads_vendas_params)
         except Exception as e:
-            logger.error(f"Erro ao buscar leads do período atual: {e}")
-            current_leads_data = {"_embedded": {"leads": []}}
+            logger.error(f"Erro ao buscar leads vendas atuais: {e}")
+            current_vendas_data = {"_embedded": {"leads": []}}
             
         try:
-            previous_leads_data = kommo_api.get_leads(previous_leads_params)
+            current_remarketing_data = kommo_api.get_leads(current_leads_remarketing_params)
         except Exception as e:
-            logger.error(f"Erro ao buscar leads do período anterior: {e}")
-            previous_leads_data = {"_embedded": {"leads": []}}
+            logger.error(f"Erro ao buscar leads remarketing atuais: {e}")
+            current_remarketing_data = {"_embedded": {"leads": []}}
+            
+        # Buscar leads do período anterior de ambos os pipelines
+        try:
+            previous_vendas_data = kommo_api.get_leads(previous_leads_vendas_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads vendas anteriores: {e}")
+            previous_vendas_data = {"_embedded": {"leads": []}}
+            
+        try:
+            previous_remarketing_data = kommo_api.get_leads(previous_leads_remarketing_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads remarketing anteriores: {e}")
+            previous_remarketing_data = {"_embedded": {"leads": []}}
+        
+        # Combinar leads de ambos os pipelines
+        current_all_leads = []
+        if current_vendas_data and "_embedded" in current_vendas_data:
+            current_all_leads.extend(current_vendas_data["_embedded"].get("leads", []))
+        if current_remarketing_data and "_embedded" in current_remarketing_data:
+            current_all_leads.extend(current_remarketing_data["_embedded"].get("leads", []))
+            
+        previous_all_leads = []
+        if previous_vendas_data and "_embedded" in previous_vendas_data:
+            previous_all_leads.extend(previous_vendas_data["_embedded"].get("leads", []))
+        if previous_remarketing_data and "_embedded" in previous_remarketing_data:
+            previous_all_leads.extend(previous_remarketing_data["_embedded"].get("leads", []))
+        
+        # Criar estruturas de dados compatíveis
+        current_leads_data = {"_embedded": {"leads": current_all_leads}}
+        previous_leads_data = {"_embedded": {"leads": previous_all_leads}}
         
         # Função segura para extrair valor de custom fields
         def get_custom_field_value(lead, field_id):
@@ -164,18 +210,14 @@ async def get_sales_kpis(
         current_leads = process_leads(current_leads_data)
         previous_leads = process_leads(previous_leads_data)
         
-        # Função para verificar se venda tem data válida
+        # Função para verificar se venda tem data válida (LÓGICA DOS MODAIS)
         def has_valid_sale_date(lead):
-            """Verifica se a venda tem Data Fechamento ou closed_at válido"""
-            # Priorizar Data Fechamento (custom field)
+            """Verifica se a venda tem Data Fechamento válido - SEM fallback para closed_at"""
+            # APENAS Data Fechamento (custom field) - sem fallback para closed_at
             data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
             if data_fechamento:
                 return True
-            # Fallback para closed_at
-            closed_at = lead.get("closed_at")
-            if closed_at:
-                return True
-            # Se não tiver nenhuma data válida, NÃO é venda válida
+            # Se não tiver Data Fechamento, NÃO é venda válida
             return False
         
         # Calcular métricas do período atual
@@ -309,16 +351,16 @@ async def get_leads_by_user_chart(
         # Buscar leads de AMBOS os pipelines (Vendas + Remarketing)
         leads_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
-            "filter[updated_at][from]": start_time,
-            "filter[updated_at][to]": end_time,
+            "filter[created_at][from]": start_time,   # MODAL: usar created_at
+            "filter[created_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
         
         leads_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
-            "filter[updated_at][from]": start_time,
-            "filter[updated_at][to]": end_time,
+            "filter[created_at][from]": start_time,   # MODAL: usar created_at
+            "filter[created_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
@@ -457,9 +499,6 @@ async def get_leads_by_user_chart(
                     # Determinar corretor final - apenas custom field
                     final_corretor = corretor_lead or "N/A"
                     
-                    # Pular se não tiver corretor definido
-                    if final_corretor == "N/A":
-                        continue
                     
                     # Inicializar contador se não existir
                     if final_corretor not in leads_by_user:
@@ -476,14 +515,12 @@ async def get_leads_by_user_chart(
                     # Incrementar contadores
                     leads_by_user[final_corretor]["value"] += 1
                     
-                    # Verificar se tem Data Fechamento para vendas
+                    # Verificar se tem Data Fechamento para vendas (LÓGICA DOS MODAIS)
                     def has_valid_sale_date(lead):
                         data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
                         if data_fechamento:
                             return True
-                        closed_at = lead.get("closed_at")
-                        if closed_at:
-                            return True
+                        # SEM fallback para closed_at - seguindo lógica dos modais
                         return False
                     
                     status_id = lead.get("status_id")
@@ -594,16 +631,16 @@ async def get_conversion_rates(
         # Buscar leads de AMBOS os pipelines (Vendas + Remarketing)
         leads_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
-            "filter[updated_at][from]": start_time,
-            "filter[updated_at][to]": end_time,
+            "filter[created_at][from]": start_time,   # MODAL: usar created_at
+            "filter[created_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
         
         leads_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
-            "filter[updated_at][from]": start_time,
-            "filter[updated_at][to]": end_time,
+            "filter[created_at][from]": start_time,   # MODAL: usar created_at
+            "filter[created_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
@@ -724,21 +761,16 @@ async def get_conversion_rates(
                             if fonte_lead != fonte:
                                 continue
                     
-                    # Pular leads sem corretor (se não estiver filtrando por corretor específico)
-                    if not corretor and not corretor_lead:
-                        continue
                     
                     filtered_leads.append(lead)
         
-        # Função para verificar se venda tem data válida
+        # Função para verificar se venda tem data válida (LÓGICA DOS MODAIS)
         def has_valid_sale_date(lead):
-            """Verifica se a venda tem Data Fechamento ou closed_at válido"""
+            """Verifica se a venda tem Data Fechamento válido - SEM fallback para closed_at"""
             data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
             if data_fechamento:
                 return True
-            closed_at = lead.get("closed_at")
-            if closed_at:
-                return True
+            # SEM fallback para closed_at - seguindo lógica dos modais
             return False
         
         # Calcular métricas de conversão com nova lógica
@@ -854,16 +886,16 @@ async def get_pipeline_status(
         # Buscar leads de AMBOS os pipelines (Vendas + Remarketing)
         leads_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
-            "filter[updated_at][from]": start_time,
-            "filter[updated_at][to]": end_time,
+            "filter[created_at][from]": start_time,   # MODAL: usar created_at
+            "filter[created_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
         
         leads_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
-            "filter[updated_at][from]": start_time,
-            "filter[updated_at][to]": end_time,
+            "filter[created_at][from]": start_time,   # MODAL: usar created_at
+            "filter[created_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
@@ -946,15 +978,13 @@ async def get_pipeline_status(
                 logger.error(f"Erro ao extrair custom field {field_id}: {e}")
                 return None
         
-        # Função para verificar se venda tem data válida
+        # Função para verificar se venda tem data válida (LÓGICA DOS MODAIS)
         def has_valid_sale_date(lead):
-            """Verifica se a venda tem Data Fechamento ou closed_at válido"""
+            """Verifica se a venda tem Data Fechamento válido - SEM fallback para closed_at"""
             data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
             if data_fechamento:
                 return True
-            closed_at = lead.get("closed_at")
-            if closed_at:
-                return True
+            # SEM fallback para closed_at - seguindo lógica dos modais
             return False
         
         # Processar leads com filtros
@@ -995,9 +1025,6 @@ async def get_pipeline_status(
                             if fonte_lead != fonte:
                                 continue
                     
-                    # Pular leads sem corretor (se não estiver filtrando por corretor específico)
-                    if not corretor and not corretor_lead:
-                        continue
                     
                     status_id = lead.get("status_id")
                     status_name = status_map.get(status_id, f"Status {status_id}")
@@ -1111,8 +1138,8 @@ async def debug_sources_data(
         # Buscar leads
         leads_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,
-            "filter[updated_at][from]": start_time,
-            "filter[updated_at][to]": end_time,
+            "filter[created_at][from]": start_time,   # MODAL: usar created_at
+            "filter[created_at][to]": end_time,
             "limit": 50,  # Apenas alguns para debug
             "with": "custom_fields_values"
         }

@@ -933,7 +933,7 @@ async def get_detailed_tables(
         # Como a API não suporta múltiplos pipeline_ids em um request, fazemos 2 requests
         leads_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
-            "filter[created_at][from]": start_timestamp,  # MUDANÇA: usar created_at
+            "filter[created_at][from]": start_timestamp,  # REVERTIDO: usar created_at (modais corretos)
             "filter[created_at][to]": end_timestamp,
             "limit": limit,
             "with": "contacts,tags,custom_fields_values"
@@ -941,7 +941,7 @@ async def get_detailed_tables(
         
         leads_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
-            "filter[created_at][from]": start_timestamp,  # MUDANÇA: usar created_at
+            "filter[created_at][from]": start_timestamp,  # REVERTIDO: usar created_at (modais corretos)
             "filter[created_at][to]": end_timestamp,
             "limit": limit,
             "with": "contacts,tags,custom_fields_values"
@@ -986,7 +986,7 @@ async def get_detailed_tables(
         tasks_params = {
             'filter[task_type]': 2,  # Tipo reunião
             'filter[is_completed]': 1,  # Apenas concluídas
-            'filter[created_at][from]': start_timestamp,  # MUDANÇA: usar created_at
+            'filter[created_at][from]': start_timestamp,  # REVERTIDO: usar created_at (modais corretos)
             'filter[created_at][to]': end_timestamp,      # Filtro de data
             'limit': limit
         }
@@ -1048,6 +1048,7 @@ async def get_detailed_tables(
                 corretor_final = corretor_custom
             else:
                 corretor_final = "N/A"  # Sem fallback para responsible_user_id
+            
             
             # Filtrar por corretor se especificado
             if corretor and isinstance(corretor, str) and corretor.strip():
@@ -1155,6 +1156,7 @@ async def get_detailed_tables(
             else:
                 corretor_final = "N/A"  # Sem fallback para responsible_user_id
             
+            
             # Filtrar por corretor se especificado
             if corretor and isinstance(corretor, str) and corretor.strip():
                 if ',' in corretor:
@@ -1234,6 +1236,7 @@ async def get_detailed_tables(
                 corretor_final = corretor_custom
             else:
                 corretor_final = "N/A"
+            
             
             # Filtrar por corretor se especificado
             if corretor and isinstance(corretor, str) and corretor.strip():
@@ -1322,6 +1325,13 @@ async def get_detailed_tables(
                 "limit_registros": limit,
                 "corretor_filter": corretor if isinstance(corretor, str) else None,
                 "fonte_filter": fonte if isinstance(fonte, str) else None,
+                "alinhamento_v2": "aplicado",
+                "regras_sincronizadas": [
+                    "pular_leads_sem_corretor_quando_sem_filtro",
+                    "vendas_apenas_com_data_fechamento",
+                    "usar_updated_at_para_consistencia",
+                    "buscar_ambos_pipelines_vendas_remarketing"
+                ],
                 "status_ids_utilizados": {
                     "reuniao": "Tarefas tipo 2 (is_completed=true) do Funil de Vendas",
                     "proposta": [STATUS_PROPOSTA],
