@@ -369,8 +369,8 @@ async def get_leads_by_user_chart(
         tasks_params = {
             'filter[task_type]': 2,  # Tipo reunião
             'filter[is_completed]': 1,  # Apenas concluídas
-            'filter[updated_at][from]': start_time,
-            'filter[updated_at][to]': end_time,
+            'filter[created_at][from]': start_time,  # MODAL: usar created_at
+            'filter[created_at][to]': end_time,
             'limit': 250
         }
         
@@ -423,7 +423,13 @@ async def get_leads_by_user_chart(
                     if user and isinstance(user, dict):
                         users_map[user.get("id")] = user.get("name", "Usuário Sem Nome")
         
-        # Criar mapa de reuniões realizadas por lead
+        # Criar mapa de leads (LÓGICA DOS MODAIS)
+        leads_map = {}
+        for lead in all_leads:
+            if lead and lead.get("id"):
+                leads_map[lead.get("id")] = lead
+        
+        # Criar mapa de reuniões realizadas por lead (LÓGICA DOS MODAIS)
         meetings_by_lead = {}
         if tasks_data and "_embedded" in tasks_data:
             tasks_list = tasks_data["_embedded"].get("tasks", [])
@@ -432,7 +438,8 @@ async def get_leads_by_user_chart(
                     if (task and isinstance(task, dict) and 
                         task.get('entity_type') == 'leads'):
                         lead_id = task.get('entity_id')
-                        if lead_id:
+                        # MODAL: Verificar se o lead existe nos pipelines filtrados
+                        if lead_id and lead_id in leads_map:
                             meetings_by_lead[lead_id] = meetings_by_lead.get(lead_id, 0) + 1
         
         # Função segura para extrair valor de custom fields
@@ -649,8 +656,8 @@ async def get_conversion_rates(
         tasks_params = {
             'filter[task_type]': 2,  # Tipo reunião
             'filter[is_completed]': 1,  # Apenas concluídas
-            'filter[updated_at][from]': start_time,
-            'filter[updated_at][to]': end_time,
+            'filter[created_at][from]': start_time,  # MODAL: usar created_at
+            'filter[created_at][to]': end_time,
             'limit': 250
         }
         
@@ -712,7 +719,13 @@ async def get_conversion_rates(
                 logger.error(f"Erro ao extrair custom field {field_id}: {e}")
                 return None
         
-        # Criar mapa de reuniões realizadas por lead
+        # Criar mapa de leads (LÓGICA DOS MODAIS)
+        leads_map = {}
+        for lead in all_leads:
+            if lead and lead.get("id"):
+                leads_map[lead.get("id")] = lead
+        
+        # Criar mapa de reuniões realizadas por lead (LÓGICA DOS MODAIS)
         meetings_by_lead = {}
         if tasks_data and "_embedded" in tasks_data:
             tasks_list = tasks_data["_embedded"].get("tasks", [])
@@ -721,7 +734,8 @@ async def get_conversion_rates(
                     if (task and isinstance(task, dict) and 
                         task.get('entity_type') == 'leads'):
                         lead_id = task.get('entity_id')
-                        if lead_id:
+                        # MODAL: Verificar se o lead existe nos pipelines filtrados
+                        if lead_id and lead_id in leads_map:
                             meetings_by_lead[lead_id] = meetings_by_lead.get(lead_id, 0) + 1
         
         # Processar leads com filtros
