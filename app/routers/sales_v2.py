@@ -133,11 +133,28 @@ async def get_sales_kpis(
                 corretor_lead = get_custom_field_value(lead, 837920)  # Corretor
                 fonte_lead = get_custom_field_value(lead, 837886)     # Fonte
                 
-                # Aplicar filtros
-                if corretor and corretor_lead != corretor:
-                    continue
-                if fonte and fonte_lead != fonte:
-                    continue
+                # Aplicar filtros - suporta múltiplos valores separados por vírgula
+                if corretor:
+                    # Se corretor contém vírgula, é multi-select
+                    if ',' in corretor:
+                        corretores_list = [c.strip() for c in corretor.split(',')]
+                        if corretor_lead not in corretores_list:
+                            continue
+                    else:
+                        # Filtro único
+                        if corretor_lead != corretor:
+                            continue
+                
+                if fonte:
+                    # Se fonte contém vírgula, é multi-select
+                    if ',' in fonte:
+                        fontes_list = [f.strip() for f in fonte.split(',')]
+                        if fonte_lead not in fontes_list:
+                            continue
+                    else:
+                        # Filtro único
+                        if fonte_lead != fonte:
+                            continue
                 
                 filtered_leads.append(lead)
             
@@ -414,11 +431,28 @@ async def get_leads_by_user_chart(
                     corretor_lead = get_custom_field_value(lead, 837920)  # Corretor
                     fonte_lead = get_custom_field_value(lead, 837886)     # Fonte
                     
-                    # Aplicar filtros
-                    if corretor and corretor_lead != corretor:
-                        continue
-                    if fonte and fonte_lead != fonte:
-                        continue
+                    # Aplicar filtros - suporta múltiplos valores separados por vírgula
+                    if corretor:
+                        # Se corretor contém vírgula, é multi-select
+                        if ',' in corretor:
+                            corretores_list = [c.strip() for c in corretor.split(',')]
+                            if corretor_lead not in corretores_list:
+                                continue
+                        else:
+                            # Filtro único
+                            if corretor_lead != corretor:
+                                continue
+                    
+                    if fonte:
+                        # Se fonte contém vírgula, é multi-select
+                        if ',' in fonte:
+                            fontes_list = [f.strip() for f in fonte.split(',')]
+                            if fonte_lead not in fontes_list:
+                                continue
+                        else:
+                            # Filtro único
+                            if fonte_lead != fonte:
+                                continue
                     
                     # Determinar corretor final - apenas custom field
                     final_corretor = corretor_lead or "N/A"
@@ -583,12 +617,34 @@ async def get_conversion_rates(
             'limit': 250
         }
         
+        # Buscar leads de vendas
         try:
-            leads_data = kommo_api.get_leads(leads_params)
+            leads_vendas_data = kommo_api.get_leads(leads_vendas_params)
         except Exception as e:
-            logger.error(f"Erro ao buscar leads: {e}")
-            leads_data = {"_embedded": {"leads": []}}
+            logger.error(f"Erro ao buscar leads de vendas: {e}")
+            leads_vendas_data = {"_embedded": {"leads": []}}
             
+        # Buscar leads de remarketing
+        try:
+            leads_remarketing_data = kommo_api.get_leads(leads_remarketing_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads de remarketing: {e}")
+            leads_remarketing_data = {"_embedded": {"leads": []}}
+        
+        # Combinar leads de ambos os pipelines
+        all_leads = []
+        if leads_vendas_data and "_embedded" in leads_vendas_data:
+            vendas_leads = leads_vendas_data["_embedded"].get("leads", [])
+            if isinstance(vendas_leads, list):
+                all_leads.extend(vendas_leads)
+                
+        if leads_remarketing_data and "_embedded" in leads_remarketing_data:
+            remarketing_leads = leads_remarketing_data["_embedded"].get("leads", [])
+            if isinstance(remarketing_leads, list):
+                all_leads.extend(remarketing_leads)
+        
+        leads_data = {"_embedded": {"leads": all_leads}}
+        
         try:
             tasks_data = kommo_api.get_tasks(tasks_params)
         except Exception as e:
@@ -645,11 +701,28 @@ async def get_conversion_rates(
                     corretor_lead = get_custom_field_value(lead, 837920)  # Corretor
                     fonte_lead = get_custom_field_value(lead, 837886)     # Fonte
                     
-                    # Aplicar filtros
-                    if corretor and corretor_lead != corretor:
-                        continue
-                    if fonte and fonte_lead != fonte:
-                        continue
+                    # Aplicar filtros - suporta múltiplos valores separados por vírgula
+                    if corretor:
+                        # Se corretor contém vírgula, é multi-select
+                        if ',' in corretor:
+                            corretores_list = [c.strip() for c in corretor.split(',')]
+                            if corretor_lead not in corretores_list:
+                                continue
+                        else:
+                            # Filtro único
+                            if corretor_lead != corretor:
+                                continue
+                    
+                    if fonte:
+                        # Se fonte contém vírgula, é multi-select
+                        if ',' in fonte:
+                            fontes_list = [f.strip() for f in fonte.split(',')]
+                            if fonte_lead not in fontes_list:
+                                continue
+                        else:
+                            # Filtro único
+                            if fonte_lead != fonte:
+                                continue
                     
                     # Pular leads sem corretor (se não estiver filtrando por corretor específico)
                     if not corretor and not corretor_lead:
@@ -795,12 +868,34 @@ async def get_pipeline_status(
             "with": "custom_fields_values"
         }
         
+        # Buscar leads de vendas
         try:
-            leads_data = kommo_api.get_leads(leads_params)
+            leads_vendas_data = kommo_api.get_leads(leads_vendas_params)
         except Exception as e:
-            logger.error(f"Erro ao buscar leads: {e}")
-            leads_data = {"_embedded": {"leads": []}}
+            logger.error(f"Erro ao buscar leads de vendas: {e}")
+            leads_vendas_data = {"_embedded": {"leads": []}}
             
+        # Buscar leads de remarketing
+        try:
+            leads_remarketing_data = kommo_api.get_leads(leads_remarketing_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads de remarketing: {e}")
+            leads_remarketing_data = {"_embedded": {"leads": []}}
+        
+        # Combinar leads de ambos os pipelines
+        all_leads = []
+        if leads_vendas_data and "_embedded" in leads_vendas_data:
+            vendas_leads = leads_vendas_data["_embedded"].get("leads", [])
+            if isinstance(vendas_leads, list):
+                all_leads.extend(vendas_leads)
+                
+        if leads_remarketing_data and "_embedded" in leads_remarketing_data:
+            remarketing_leads = leads_remarketing_data["_embedded"].get("leads", [])
+            if isinstance(remarketing_leads, list):
+                all_leads.extend(remarketing_leads)
+        
+        leads_data = {"_embedded": {"leads": all_leads}}
+        
         try:
             pipelines_data = kommo_api.get_pipelines()
         except Exception as e:
@@ -877,11 +972,28 @@ async def get_pipeline_status(
                     corretor_lead = get_custom_field_value(lead, 837920)  # Corretor
                     fonte_lead = get_custom_field_value(lead, 837886)     # Fonte
                     
-                    # Aplicar filtros
-                    if corretor and corretor_lead != corretor:
-                        continue
-                    if fonte and fonte_lead != fonte:
-                        continue
+                    # Aplicar filtros - suporta múltiplos valores separados por vírgula
+                    if corretor:
+                        # Se corretor contém vírgula, é multi-select
+                        if ',' in corretor:
+                            corretores_list = [c.strip() for c in corretor.split(',')]
+                            if corretor_lead not in corretores_list:
+                                continue
+                        else:
+                            # Filtro único
+                            if corretor_lead != corretor:
+                                continue
+                    
+                    if fonte:
+                        # Se fonte contém vírgula, é multi-select
+                        if ',' in fonte:
+                            fontes_list = [f.strip() for f in fonte.split(',')]
+                            if fonte_lead not in fontes_list:
+                                continue
+                        else:
+                            # Filtro único
+                            if fonte_lead != fonte:
+                                continue
                     
                     # Pular leads sem corretor (se não estiver filtrando por corretor específico)
                     if not corretor and not corretor_lead:
@@ -957,5 +1069,148 @@ async def get_pipeline_status(
         raise
     except Exception as e:
         logger.error(f"Erro ao gerar status do pipeline: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+
+
+@router.get("/debug/sources")
+async def debug_sources_data(
+    days: int = Query(30, description="Período em dias para análise"),
+    fonte: Optional[str] = Query(None, description="Fonte para debug"),
+    start_date: Optional[str] = Query(None, description="Data de início (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Data de fim (YYYY-MM-DD)")
+):
+    """
+    Endpoint de debug para verificar quais fontes existem nos dados
+    """
+    try:
+        logger.info(f"DEBUG: Buscando fontes para debug, filtro: {fonte}")
+        
+        from app.services.kommo_api import KommoAPI
+        kommo_api = KommoAPI()
+        
+        # Calcular parâmetros de tempo
+        import time
+        
+        if start_date and end_date:
+            try:
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+                end_dt = end_dt.replace(hour=23, minute=59, second=59)
+                start_time = int(start_dt.timestamp())
+                end_time = int(end_dt.timestamp())
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de data inválido. Use YYYY-MM-DD")
+        else:
+            end_time = int(time.time())
+            start_time = end_time - (days * 24 * 60 * 60)
+        
+        # IDs importantes
+        PIPELINE_VENDAS = 10516987
+        
+        # Buscar leads
+        leads_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,
+            "filter[updated_at][from]": start_time,
+            "filter[updated_at][to]": end_time,
+            "limit": 50,  # Apenas alguns para debug
+            "with": "custom_fields_values"
+        }
+        
+        try:
+            leads_data = kommo_api.get_leads(leads_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads: {e}")
+            leads_data = {"_embedded": {"leads": []}}
+        
+        # Função para extrair valor de custom fields
+        def get_custom_field_value(lead, field_id):
+            try:
+                custom_fields = lead.get("custom_fields_values")
+                if not custom_fields or not isinstance(custom_fields, list):
+                    return None
+                    
+                for field in custom_fields:
+                    if not field or not isinstance(field, dict):
+                        continue
+                    if field.get("field_id") == field_id:
+                        values = field.get("values")
+                        if values and isinstance(values, list) and len(values) > 0:
+                            first_value = values[0]
+                            if isinstance(first_value, dict):
+                                return first_value.get("value")
+                            elif isinstance(first_value, str):
+                                return first_value
+                return None
+            except Exception as e:
+                logger.error(f"Erro ao extrair custom field {field_id}: {e}")
+                return None
+        
+        # Analisar dados
+        sources_found = {}
+        total_leads = 0
+        leads_with_source = 0
+        leads_without_source = 0
+        
+        if leads_data and "_embedded" in leads_data:
+            leads_list = leads_data["_embedded"].get("leads", [])
+            if isinstance(leads_list, list):
+                total_leads = len(leads_list)
+                
+                for lead in leads_list:
+                    if not lead or not isinstance(lead, dict):
+                        continue
+                    
+                    fonte_lead = get_custom_field_value(lead, 837886)  # Fonte
+                    
+                    if fonte_lead:
+                        leads_with_source += 1
+                        sources_found[fonte_lead] = sources_found.get(fonte_lead, 0) + 1
+                    else:
+                        leads_without_source += 1
+        
+        # Se fonte foi especificada, testar filtro
+        filtro_resultado = None
+        if fonte:
+            if ',' in fonte:
+                fontes_list = [f.strip() for f in fonte.split(',')]
+                filtro_resultado = {
+                    "tipo": "multi-select",
+                    "fontes_solicitadas": fontes_list,
+                    "fontes_encontradas": list(sources_found.keys()),
+                    "matches": [f for f in fontes_list if f in sources_found],
+                    "total_leads_que_passariam": sum(sources_found.get(f, 0) for f in fontes_list)
+                }
+            else:
+                filtro_resultado = {
+                    "tipo": "single",
+                    "fonte_solicitada": fonte,
+                    "fonte_existe": fonte in sources_found,
+                    "total_leads_que_passariam": sources_found.get(fonte, 0)
+                }
+        
+        return {
+            "debug_info": {
+                "period_days": days,
+                "start_date": start_date,
+                "end_date": end_date,
+                "filter_fonte": fonte,
+                "pipeline_id": PIPELINE_VENDAS,
+                "total_leads_analisados": total_leads,
+                "leads_com_fonte": leads_with_source,
+                "leads_sem_fonte": leads_without_source
+            },
+            "sources_encontradas": sources_found,
+            "filtro_teste": filtro_resultado,
+            "sugestoes": {
+                "fontes_disponiveis": list(sources_found.keys()),
+                "total_por_fonte": sources_found
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro no debug de fontes: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")

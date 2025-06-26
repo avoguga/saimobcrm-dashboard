@@ -108,8 +108,14 @@ async def get_marketing_dashboard_complete(
                                     fonte_name = values[0].get("value")
                                     break
                     
-                    if fonte_name == fonte:
-                        filtered_leads.append(lead)
+                    # Suporta múltiplas fontes separadas por vírgula
+                    if fonte and ',' in fonte:
+                        fontes_list = [f.strip() for f in fonte.split(',')]
+                        if fonte_name in fontes_list:
+                            filtered_leads.append(lead)
+                    else:
+                        if fonte_name == fonte:
+                            filtered_leads.append(lead)
                 
                 total_leads = len(filtered_leads)
             else:
@@ -471,9 +477,16 @@ async def get_sales_dashboard_complete(
                             values = field.get("values", [])
                             if values and len(values) > 0:
                                 value = values[0].get("value") if values[0] else None
-                                if value == corretor_name:
-                                    filtered_leads.append(lead)
-                                    break
+                                # Suporta múltiplos corretores separados por vírgula
+                                if corretor_name and ',' in corretor_name:
+                                    corretores_list = [c.strip() for c in corretor_name.split(',')]
+                                    if value in corretores_list:
+                                        filtered_leads.append(lead)
+                                        break
+                                else:
+                                    if value == corretor_name:
+                                        filtered_leads.append(lead)
+                                        break
             
             return filtered_leads
         
@@ -1037,12 +1050,24 @@ async def get_detailed_tables(
                 corretor_final = "N/A"  # Sem fallback para responsible_user_id
             
             # Filtrar por corretor se especificado
-            if corretor and isinstance(corretor, str) and corretor.strip() and corretor_final != corretor:
-                continue
+            if corretor and isinstance(corretor, str) and corretor.strip():
+                if ',' in corretor:
+                    corretores_list = [c.strip() for c in corretor.split(',')]
+                    if corretor_final not in corretores_list:
+                        continue
+                else:
+                    if corretor_final != corretor:
+                        continue
                 
-            # Filtrar por fonte se especificado  
-            if fonte and isinstance(fonte, str) and fonte.strip() and fonte_lead != fonte:
-                continue
+            # Filtrar por fonte se especificado - suporta múltiplos valores separados por vírgula
+            if fonte and isinstance(fonte, str) and fonte.strip():
+                if ',' in fonte:
+                    fontes_list = [f.strip() for f in fonte.split(',')]
+                    if fonte_lead not in fontes_list:
+                        continue
+                else:
+                    if fonte_lead != fonte:
+                        continue
             
             # Formatar data
             data_formatada = datetime.fromtimestamp(data_reuniao).strftime("%d/%m/%Y %H:%M")
@@ -1131,12 +1156,24 @@ async def get_detailed_tables(
                 corretor_final = "N/A"  # Sem fallback para responsible_user_id
             
             # Filtrar por corretor se especificado
-            if corretor and isinstance(corretor, str) and corretor.strip() and corretor_final != corretor:
-                continue
+            if corretor and isinstance(corretor, str) and corretor.strip():
+                if ',' in corretor:
+                    corretores_list = [c.strip() for c in corretor.split(',')]
+                    if corretor_final not in corretores_list:
+                        continue
+                else:
+                    if corretor_final != corretor:
+                        continue
                 
-            # Filtrar por fonte se especificado  
-            if fonte and isinstance(fonte, str) and fonte.strip() and fonte_lead != fonte:
-                continue
+            # Filtrar por fonte se especificado - suporta múltiplos valores separados por vírgula
+            if fonte and isinstance(fonte, str) and fonte.strip():
+                if ',' in fonte:
+                    fontes_list = [f.strip() for f in fonte.split(',')]
+                    if fonte_lead not in fontes_list:
+                        continue
+                else:
+                    if fonte_lead != fonte:
+                        continue
             
             # Formatar data (usar a data mais relevante)
             data_formatada = datetime.fromtimestamp(data_relevante).strftime("%d/%m/%Y %H:%M")
@@ -1199,12 +1236,24 @@ async def get_detailed_tables(
                 corretor_final = "N/A"
             
             # Filtrar por corretor se especificado
-            if corretor and isinstance(corretor, str) and corretor.strip() and corretor_final != corretor:
-                continue
+            if corretor and isinstance(corretor, str) and corretor.strip():
+                if ',' in corretor:
+                    corretores_list = [c.strip() for c in corretor.split(',')]
+                    if corretor_final not in corretores_list:
+                        continue
+                else:
+                    if corretor_final != corretor:
+                        continue
                 
-            # Filtrar por fonte se especificado  
-            if fonte and isinstance(fonte, str) and fonte.strip() and fonte_lead != fonte:
-                continue
+            # Filtrar por fonte se especificado - suporta múltiplos valores separados por vírgula
+            if fonte and isinstance(fonte, str) and fonte.strip():
+                if ',' in fonte:
+                    fontes_list = [f.strip() for f in fonte.split(',')]
+                    if fonte_lead not in fontes_list:
+                        continue
+                else:
+                    if fonte_lead != fonte:
+                        continue
             
             # Mapear status_id para nome do status
             status_name = "Ativo"  # Padrão
@@ -1414,9 +1463,16 @@ async def get_sales_comparison(
                                     first_value = values[0]
                                     if first_value and isinstance(first_value, dict):
                                         value = first_value.get("value")
-                                        if value == corretor:
-                                            filtered_leads.append(lead)
-                                            break
+                                        # Suporta múltiplos corretores separados por vírgula
+                                        if corretor and ',' in corretor:
+                                            corretores_list = [c.strip() for c in corretor.split(',')]
+                                            if value in corretores_list:
+                                                filtered_leads.append(lead)
+                                                break
+                                        else:
+                                            if value == corretor:
+                                                filtered_leads.append(lead)
+                                                break
                     all_leads = filtered_leads
                 except Exception as filter_error:
                     logger.error(f"Erro ao filtrar leads por corretor: {filter_error}")
@@ -1446,9 +1502,16 @@ async def get_sales_comparison(
                                     first_value = values[0]
                                     if first_value and isinstance(first_value, dict):
                                         value = first_value.get("value")
-                                        if value == fonte:
-                                            filtered_leads.append(lead)
-                                            break
+                                        # Suporta múltiplas fontes separadas por vírgula
+                                        if fonte and ',' in fonte:
+                                            fontes_list = [f.strip() for f in fonte.split(',')]
+                                            if value in fontes_list:
+                                                filtered_leads.append(lead)
+                                                break
+                                        else:
+                                            if value == fonte:
+                                                filtered_leads.append(lead)
+                                                break
                     all_leads = filtered_leads
                 except Exception as filter_error:
                     logger.error(f"Erro ao filtrar leads por fonte: {filter_error}")

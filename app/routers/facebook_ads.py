@@ -13,11 +13,22 @@ def get_facebook_client():
     return FacebookAPI(settings.FACEBOOK_ACCESS_TOKEN)
 
 @router.get("/campaigns")
-async def get_campaigns():
+async def get_campaigns(
+    fonte: Optional[str] = Query(None, description="Filtro por fonte (ex: 'Tráfego Meta')")
+):
     """Get all campaigns for the configured ad account"""
     try:
         client = get_facebook_client()
-        return client.get_campaigns(settings.FACEBOOK_AD_ACCOUNT_ID)
+        campaigns = client.get_campaigns(settings.FACEBOOK_AD_ACCOUNT_ID)
+        
+        # Se fonte foi especificada, adicionar metadados de filtro
+        if fonte and campaigns.get('data'):
+            campaigns['_metadata'] = {
+                'fonte_filter': fonte,
+                'note': 'Filtro por fonte aplicado - campanhas Facebook Ads'
+            }
+        
+        return campaigns
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -129,7 +140,8 @@ async def get_campaign_insights(
     campaign_id: str,
     date_preset: Optional[str] = Query("last_7d", description="Preset date range"),
     since: Optional[str] = Query(None, description="Start date for custom range (YYYY-MM-DD)"),
-    until: Optional[str] = Query(None, description="End date for custom range (YYYY-MM-DD)")
+    until: Optional[str] = Query(None, description="End date for custom range (YYYY-MM-DD)"),
+    fonte: Optional[str] = Query(None, description="Filtro por fonte (ex: 'Tráfego Meta')")
 ):
     """
     Get insights for a specific campaign
@@ -147,6 +159,13 @@ async def get_campaign_insights(
             time_range=time_range,
             level="campaign"
         )
+        
+        # Adicionar metadados de filtro se fonte foi especificada
+        if fonte and insights:
+            if '_metadata' not in insights:
+                insights['_metadata'] = {}
+            insights['_metadata']['fonte_filter'] = fonte
+            insights['_metadata']['campaign_id'] = campaign_id
         
         return insights
     except Exception as e:
