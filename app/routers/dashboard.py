@@ -1018,13 +1018,21 @@ async def get_detailed_tables(
             lead_name = lead.get("name", "")
             responsible_user_id = lead.get("responsible_user_id")
             
-            # Usar a data da reunião (complete_till é quando a reunião estava agendada)
-            # Se a reunião foi concluída (is_completed=true), essa é a data que ela aconteceu
-            data_reuniao = task.get('complete_till')
-            if not data_reuniao:
-                # Fallback para updated_at se não tiver complete_till
-                data_reuniao = task.get('updated_at')
-            if not data_reuniao:
+            # VALIDAÇÃO: Verificar se a reunião realmente aconteceu
+            # Reunião é considerada verdadeira se:
+            # 1. is_completed = true (já verificado na query)
+            # 2. completed_at existe (data em que foi marcada como concluída)
+            completed_at = task.get('completed_at')
+            if not completed_at:
+                # Se não tem completed_at, não consideramos como reunião realizada
+                continue
+            
+            # Usar a data em que a reunião foi marcada como concluída
+            # Isso representa quando a reunião realmente aconteceu
+            data_reuniao = completed_at
+            
+            # Validação adicional: verificar se completed_at está dentro do período
+            if data_reuniao < start_timestamp or data_reuniao > end_timestamp:
                 continue
                 
             # Extrair custom fields do lead
@@ -1070,14 +1078,20 @@ async def get_detailed_tables(
                     if fonte_lead != fonte:
                         continue
             
-            # Formatar data
+            # Formatar data com a data real de conclusão
             data_formatada = datetime.fromtimestamp(data_reuniao).strftime("%d/%m/%Y %H:%M")
             
+            # Adicionar informação sobre quando a reunião estava agendada originalmente
+            data_agendada = task.get('complete_till')
+            data_agendada_formatada = datetime.fromtimestamp(data_agendada).strftime("%d/%m/%Y %H:%M") if data_agendada else "N/A"
+            
             reunioes_detalhes.append({
-                "Data da Reunião": data_formatada,
+                "Data da Reunião": data_formatada,  # Data em que foi marcada como concluída
+                "Data Agendada": data_agendada_formatada,  # Data original do agendamento
                 "Nome do Lead": lead_name,
                 "Corretor": corretor_final,
-                "Fonte": fonte_lead
+                "Fonte": fonte_lead,
+                "Status": "Realizada"  # Confirmação visual de que a reunião aconteceu
             })
         
         # Processar cada lead para propostas e vendas
@@ -1330,7 +1344,8 @@ async def get_detailed_tables(
                     "pular_leads_sem_corretor_quando_sem_filtro",
                     "vendas_apenas_com_data_fechamento",
                     "usar_updated_at_para_consistencia",
-                    "buscar_ambos_pipelines_vendas_remarketing"
+                    "buscar_ambos_pipelines_vendas_remarketing",
+                    "validacao_reuniao_verdadeira_com_completed_at"
                 ],
                 "status_ids_utilizados": {
                     "reuniao": "Tarefas tipo 2 (is_completed=true) do Funil de Vendas",
