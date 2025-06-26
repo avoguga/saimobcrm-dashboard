@@ -1047,7 +1047,7 @@ async def get_detailed_tables(
             if corretor_custom:
                 corretor_final = corretor_custom
             else:
-                corretor_final = "N/A"  # Sem fallback para responsible_user_id
+                corretor_final = "Vazio"  # Sem fallback para responsible_user_id
             
             
             # Filtrar por corretor se especificado
@@ -1154,7 +1154,7 @@ async def get_detailed_tables(
             if corretor_custom:
                 corretor_final = corretor_custom
             else:
-                corretor_final = "N/A"  # Sem fallback para responsible_user_id
+                corretor_final = "Vazio"  # Sem fallback para responsible_user_id
             
             
             # Filtrar por corretor se especificado
@@ -1235,7 +1235,7 @@ async def get_detailed_tables(
             if corretor_custom:
                 corretor_final = corretor_custom
             else:
-                corretor_final = "N/A"
+                corretor_final = "Vazio"
             
             
             # Filtrar por corretor se especificado

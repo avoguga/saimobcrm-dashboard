@@ -504,7 +504,7 @@ async def get_leads_by_user_chart(
                                 continue
                     
                     # Determinar corretor final - apenas custom field
-                    final_corretor = corretor_lead or "N/A"
+                    final_corretor = corretor_lead or "Vazio"
                     
                     
                     # Inicializar contador se não existir
