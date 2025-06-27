@@ -546,6 +546,23 @@ async def get_leads_by_user_chart(
             "limit": 250,
             "with": "custom_fields_values"  # REVERTER: voltar ao parâmetro original
         }
+        
+        # ADICIONAR: Buscar leads ANTIGOS para mapear reuniões (reuniões podem estar em leads criados antes do período)
+        leads_antigos_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,
+            "filter[created_at][from]": start_time - (180 * 24 * 60 * 60),  # 6 meses atrás
+            "filter[created_at][to]": start_time - 1,  # Até 1 segundo antes do período
+            "limit": 250,
+            "with": "custom_fields_values"
+        }
+        
+        leads_antigos_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,
+            "filter[created_at][from]": start_time - (180 * 24 * 60 * 60),  # 6 meses atrás
+            "filter[created_at][to]": start_time - 1,  # Até 1 segundo antes do período
+            "limit": 250,
+            "with": "custom_fields_values"
+        }
 
         # Buscar tarefas de reunião concluídas
         tasks_params = {
@@ -621,6 +638,33 @@ async def get_leads_by_user_chart(
                     if user and isinstance(user, dict):
                         users_map[user.get("id")] = user.get("name", "Usuário Sem Nome")
         
+        # Buscar leads ANTIGOS para mapear reuniões
+        try:
+            leads_antigos_vendas_data = kommo_api.get_leads(leads_antigos_vendas_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads antigos vendas: {e}")
+            leads_antigos_vendas_data = {"_embedded": {"leads": []}}
+            
+        try:
+            leads_antigos_remarketing_data = kommo_api.get_leads(leads_antigos_remarketing_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads antigos remarketing: {e}")
+            leads_antigos_remarketing_data = {"_embedded": {"leads": []}}
+        
+        # Processar leads antigos
+        all_leads_antigos = []
+        if leads_antigos_vendas_data and "_embedded" in leads_antigos_vendas_data:
+            antigos_vendas = leads_antigos_vendas_data["_embedded"].get("leads", [])
+            if isinstance(antigos_vendas, list):
+                all_leads_antigos.extend(antigos_vendas)
+                
+        if leads_antigos_remarketing_data and "_embedded" in leads_antigos_remarketing_data:
+            antigos_remarketing = leads_antigos_remarketing_data["_embedded"].get("leads", [])
+            if isinstance(antigos_remarketing, list):
+                all_leads_antigos.extend(antigos_remarketing)
+                
+        logger.info(f"[charts/leads-by-user] Leads antigos encontrados: {len(all_leads_antigos)}")
+        
         # ADICIONAR: Buscar propostas e vendas para completar o mapa de leads (igual detailed-tables)
         all_propostas = []
         if propostas_data and "_embedded" in propostas_data:
@@ -630,15 +674,19 @@ async def get_leads_by_user_chart(
         if vendas_data and "_embedded" in vendas_data:
             all_vendas = vendas_data["_embedded"].get("leads", [])
         
-        # Criar mapa de leads COMPLETO - incluir TODOS os leads para reuniões
-        all_leads_combined = all_propostas + all_vendas + all_leads
+        # Criar mapa de leads COMPLETO - incluir TODOS os leads para reuniões (incluindo antigos)
+        all_leads_combined = all_propostas + all_vendas + all_leads + all_leads_antigos
         leads_map = {}
         for lead in all_leads_combined:
             if lead and lead.get("id"):
                 leads_map[lead.get("id")] = lead
+                
+        logger.info(f"[charts/leads-by-user] Mapa de leads criado: {len(leads_map)} leads únicos (propostas={len(all_propostas)}, vendas={len(all_vendas)}, novos={len(all_leads)}, antigos={len(all_leads_antigos)})")
         
         # Criar mapa de reuniões realizadas por lead
         meetings_by_lead = {}
+        missing_leads = []  # Para debug
+        
         if tasks_data and "_embedded" in tasks_data:
             tasks_list = tasks_data["_embedded"].get("tasks", [])
             if isinstance(tasks_list, list):
@@ -657,6 +705,14 @@ async def get_leads_by_user_chart(
                         # Verificar se o lead existe no mapa
                         if lead_id and lead_id in leads_map:
                             meetings_by_lead[lead_id] = meetings_by_lead.get(lead_id, 0) + 1
+                        elif lead_id:
+                            missing_leads.append(lead_id)
+                            
+        # Log para debug
+        total_meetings = sum(meetings_by_lead.values())
+        logger.info(f"[charts/leads-by-user] Reuniões encontradas: {total_meetings} de {len(tasks_list) if 'tasks_list' in locals() else 0} tasks")
+        if missing_leads:
+            logger.warning(f"[charts/leads-by-user] {len(missing_leads)} reuniões ignoradas - leads não encontrados: {missing_leads[:10]}")
         
         # Função segura para extrair valor de custom fields
         def get_custom_field_value(lead, field_id):
@@ -768,6 +824,60 @@ async def get_leads_by_user_chart(
                         meetings_count = meetings_by_lead[lead_id]
                         leads_by_user[final_corretor]["meetingsHeld"] += meetings_count
                         leads_by_user[final_corretor]["meetings"] += meetings_count  # Fallback
+        
+        # IMPORTANTE: Processar reuniões de leads que NÃO estão em leads_data
+        # (reuniões podem estar em leads criados antes do período)
+        for lead_id, meetings_count in meetings_by_lead.items():
+            # Se já processamos este lead, pular
+            if any(lead.get("id") == lead_id for lead in leads_list if lead):
+                continue
+                
+            # Buscar o lead no mapa completo
+            lead = leads_map.get(lead_id)
+            if not lead:
+                continue
+                
+            # Extrair corretor do lead
+            corretor_lead = get_custom_field_value(lead, 837920)
+            
+            # Aplicar filtros se houver
+            if corretor:
+                if ',' in corretor:
+                    corretores_list = [c.strip() for c in corretor.split(',')]
+                    if corretor_lead not in corretores_list:
+                        continue
+                else:
+                    if corretor_lead != corretor:
+                        continue
+            
+            if fonte:
+                fonte_lead = get_custom_field_value(lead, 837886)
+                if ',' in fonte:
+                    fontes_list = [f.strip() for f in fonte.split(',')]
+                    if fonte_lead not in fontes_list:
+                        continue
+                else:
+                    if fonte_lead != fonte:
+                        continue
+            
+            # Determinar corretor final
+            final_corretor = corretor_lead or "Desconhecido"
+            
+            # Adicionar reuniões ao corretor correto
+            if final_corretor in leads_by_user:
+                leads_by_user[final_corretor]["meetingsHeld"] += meetings_count
+                leads_by_user[final_corretor]["meetings"] += meetings_count
+            else:
+                # Corretor não estava no leads_data, criar entrada só para as reuniões
+                leads_by_user[final_corretor] = {
+                    "name": final_corretor,
+                    "value": 0,
+                    "active": 0,
+                    "meetingsHeld": meetings_count,
+                    "meetings": meetings_count,
+                    "sales": 0,
+                    "lost": 0
+                }
         
         # Converter para lista e ordenar
         leads_by_user_list = list(leads_by_user.values())
