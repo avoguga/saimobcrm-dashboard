@@ -1240,7 +1240,6 @@ async def get_detailed_tables(
                         data_timestamp = int(data_fechamento_custom)
                     else:
                         # Tentar formato YYYY-MM-DD
-                        from datetime import datetime
                         data_dt = datetime.strptime(data_fechamento_custom, '%Y-%m-%d')
                         data_timestamp = int(data_dt.timestamp())
                 else:

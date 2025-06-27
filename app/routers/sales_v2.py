@@ -238,7 +238,6 @@ async def get_sales_kpis(
             
             # Verificar se a data de fechamento está no período especificado (PO)
             try:
-                from datetime import datetime
                 # Assumindo formato timestamp ou data string
                 if isinstance(data_fechamento, (int, float)):
                     fechamento_timestamp = int(data_fechamento)
@@ -288,7 +287,6 @@ async def get_sales_kpis(
                 return False
             
             try:
-                from datetime import datetime
                 if isinstance(data_fechamento, (int, float)):
                     fechamento_timestamp = int(data_fechamento)
                 elif isinstance(data_fechamento, str):
@@ -588,7 +586,6 @@ async def get_leads_by_user_chart(
                             return False
                         
                         try:
-                            from datetime import datetime
                             if isinstance(data_fechamento, (int, float)):
                                 fechamento_timestamp = int(data_fechamento)
                             elif isinstance(data_fechamento, str):
@@ -858,7 +855,6 @@ async def get_conversion_rates(
                 return False
             
             try:
-                from datetime import datetime
                 if isinstance(data_fechamento, (int, float)):
                     fechamento_timestamp = int(data_fechamento)
                 elif isinstance(data_fechamento, str):
@@ -1085,7 +1081,6 @@ async def get_pipeline_status(
                 return False
             
             try:
-                from datetime import datetime
                 if isinstance(data_fechamento, (int, float)):
                     fechamento_timestamp = int(data_fechamento)
                 elif isinstance(data_fechamento, str):
