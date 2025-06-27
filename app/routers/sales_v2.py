@@ -976,59 +976,8 @@ async def get_leads_by_user_chart(
                         leads_by_user[final_corretor]["meetingsHeld"] += meetings_count
                         leads_by_user[final_corretor]["meetings"] += meetings_count  # Fallback
         
-        # IMPORTANTE: Processar reuniões de leads que NÃO estão em leads_data
-        # (reuniões podem estar em leads criados antes do período)
-        for lead_id, meetings_count in meetings_by_lead.items():
-            # Se já processamos este lead, pular
-            if any(lead.get("id") == lead_id for lead in leads_list if lead):
-                continue
-                
-            # Buscar o lead no mapa completo
-            lead = leads_map.get(lead_id)
-            if not lead:
-                continue
-                
-            # Extrair corretor do lead
-            corretor_lead = get_custom_field_value(lead, 837920)
-            
-            # Aplicar filtros se houver
-            if corretor:
-                if ',' in corretor:
-                    corretores_list = [c.strip() for c in corretor.split(',')]
-                    if corretor_lead not in corretores_list:
-                        continue
-                else:
-                    if corretor_lead != corretor:
-                        continue
-            
-            if fonte:
-                fonte_lead = get_custom_field_value(lead, 837886)
-                if ',' in fonte:
-                    fontes_list = [f.strip() for f in fonte.split(',')]
-                    if fonte_lead not in fontes_list:
-                        continue
-                else:
-                    if fonte_lead != fonte:
-                        continue
-            
-            # Determinar corretor final
-            final_corretor = corretor_lead or "Desconhecido"
-            
-            # Adicionar reuniões ao corretor correto
-            if final_corretor in leads_by_user:
-                leads_by_user[final_corretor]["meetingsHeld"] += meetings_count
-                leads_by_user[final_corretor]["meetings"] += meetings_count
-            else:
-                # Corretor não estava no leads_data, criar entrada só para as reuniões
-                leads_by_user[final_corretor] = {
-                    "name": final_corretor,
-                    "value": 0,
-                    "active": 0,
-                    "meetingsHeld": meetings_count,
-                    "meetings": meetings_count,
-                    "sales": 0,
-                    "lost": 0
-                }
+        # REMOVIDO: Lógica extra que contava meetings de leads fora do período
+        # Para alinhar com detailed-tables, só contamos meetings de leads do período atual
         
         # Converter para lista e ordenar
         leads_by_user_list = list(leads_by_user.values())
@@ -1100,7 +1049,7 @@ async def get_leads_by_user_chart(
                 "status_ids_used": {
                     "vendas": [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO]
                 },
-                "total_meetings_found": sum(meetings_by_lead.values()),
+                "total_meetings_found": sum(user["meetingsHeld"] for user in leads_by_user_list),
                 "total_leads_processed": sum(user["value"] for user in leads_by_user_list)
             }
         }
