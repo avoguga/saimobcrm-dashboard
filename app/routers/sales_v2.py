@@ -621,8 +621,7 @@ async def get_leads_by_user_chart(
                     if user and isinstance(user, dict):
                         users_map[user.get("id")] = user.get("name", "Usuário Sem Nome")
         
-        # Criar mapa de leads COMPLETO (igual detailed-tables)
-        # Combinar TODOS os leads: normais + propostas + vendas
+        # ADICIONAR: Buscar propostas e vendas para completar o mapa de leads (igual detailed-tables)
         all_propostas = []
         if propostas_data and "_embedded" in propostas_data:
             all_propostas = propostas_data["_embedded"].get("leads", [])
@@ -631,13 +630,34 @@ async def get_leads_by_user_chart(
         if vendas_data and "_embedded" in vendas_data:
             all_vendas = vendas_data["_embedded"].get("leads", [])
         
-        # Criar mapa combinado (igual detailed-tables linha 1084-1089)
+        # Criar mapa de leads COMPLETO - incluir TODOS os leads para reuniões
         all_leads_combined = all_propostas + all_vendas + all_leads
         leads_map = {}
         for lead in all_leads_combined:
             if lead and lead.get("id"):
                 leads_map[lead.get("id")] = lead
-                
+        
+        # Criar mapa de reuniões realizadas por lead
+        meetings_by_lead = {}
+        if tasks_data and "_embedded" in tasks_data:
+            tasks_list = tasks_data["_embedded"].get("tasks", [])
+            if isinstance(tasks_list, list):
+                for task in tasks_list:
+                    if (task and isinstance(task, dict) and 
+                        task.get('entity_type') == 'leads'):
+                        lead_id = task.get('entity_id')
+                        
+                        # Validação de data (igual detailed-tables)
+                        created_at = task.get('created_at')
+                        if not created_at:
+                            continue
+                        if created_at < start_time or created_at > end_time:
+                            continue
+                        
+                        # Verificar se o lead existe no mapa
+                        if lead_id and lead_id in leads_map:
+                            meetings_by_lead[lead_id] = meetings_by_lead.get(lead_id, 0) + 1
+        
         # Função segura para extrair valor de custom fields
         def get_custom_field_value(lead, field_id):
             """Extrai valor de custom field de forma segura"""
@@ -654,52 +674,7 @@ async def get_leads_by_user_chart(
             except Exception as e:
                 logger.error(f"Erro ao extrair custom field {field_id}: {e}")
                 return None
-        
-        # Log para debug das reuniões
-        logger.info(f"[charts/leads-by-user] Leads combinados: normais={len(all_leads)}, propostas={len(all_propostas)}, vendas={len(all_vendas)}, total_mapa={len(leads_map)}")
-        
-        # Criar mapa de reuniões realizadas por lead (LÓGICA DOS MODAIS)
-        meetings_by_lead = {}
-        meetings_debug = []  # Para debugar
-        
-        if tasks_data and "_embedded" in tasks_data:
-            tasks_list = tasks_data["_embedded"].get("tasks", [])
-            if isinstance(tasks_list, list):
-                for task in tasks_list:
-                    if (task and isinstance(task, dict) and 
-                        task.get('entity_type') == 'leads'):
-                        lead_id = task.get('entity_id')
-                        
-                        # ADICIONAR: Validação dupla de data (igual detailed-tables linha 1121)
-                        created_at = task.get('created_at')
-                        if not created_at:
-                            meetings_debug.append(f"Task {task.get('id')}: sem created_at")
-                            continue
-                        if created_at < start_time or created_at > end_time:
-                            meetings_debug.append(f"Task {task.get('id')}: data fora do período ({created_at})")
-                            continue
-                        
-                        # MODAL: Verificar se o lead existe nos pipelines filtrados
-                        if lead_id and lead_id in leads_map:
-                            meetings_by_lead[lead_id] = meetings_by_lead.get(lead_id, 0) + 1
-                            lead = leads_map[lead_id]
-                            corretor = get_custom_field_value(lead, 837920)
-                            meetings_debug.append(f"Reunião válida: lead {lead_id}, corretor '{corretor}', task {task.get('id')}")
-                        elif lead_id:
-                            meetings_debug.append(f"Lead {lead_id} não encontrado no mapa de leads (task {task.get('id')})")
-                            
-        # Log para debug das reuniões encontradas
-        total_meetings = sum(meetings_by_lead.values())
-        logger.info(f"[charts/leads-by-user] Reuniões mapeadas: {len(meetings_by_lead)} leads com reuniões, total_reuniões={total_meetings}")
-        
-        # Log adicional: contar total de tasks processadas vs filtradas
-        total_tasks = len(tasks_list) if 'tasks_list' in locals() and tasks_list else 0
-        logger.info(f"[charts/leads-by-user] Tasks: total_api={total_tasks}, reunioes_validas={total_meetings}, periodo={start_time}-{end_time}")
-        
-        # Log de debug das reuniões (primeiras 10)
-        if meetings_debug:
-            logger.info(f"[charts/leads-by-user] Debug reuniões (primeiras 10): {meetings_debug[:10]}")
-        
+
         # Processar leads
         leads_by_user = {}
         
