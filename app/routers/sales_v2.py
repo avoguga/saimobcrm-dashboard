@@ -88,8 +88,8 @@ async def get_sales_kpis(
         
         current_leads_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
-            "filter[updated_at][from]": start_time,
-            "filter[updated_at][to]": end_time,
+            "filter[created_at][from]": start_time,  # Usar created_at para leads, igual ao dashboard
+            "filter[created_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
@@ -145,7 +145,7 @@ async def get_sales_kpis(
         
         previous_leads_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,
-            "filter[created_at][from]": previous_start_time,  # Usar created_at para leads
+            "filter[created_at][from]": previous_start_time,  # Usar created_at para leads, igual ao dashboard
             "filter[created_at][to]": previous_end_time,
             "limit": 250,
             "with": "custom_fields_values"
