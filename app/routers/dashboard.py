@@ -899,6 +899,30 @@ async def get_detailed_tables(
         STATUS_VENDA_FINAL = 142  # "Closed - won" / "Venda ganha"
         PIPELINE_VENDAS = 10516987  # ID do Funil de Vendas
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126  # ID do campo "Data Fechamento"
+        CUSTOM_FIELD_ESTADO = 800236  # Campo ESTADO
+        
+        # Função auxiliar para extrair valores de custom fields
+        def get_custom_field_value(lead, field_id):
+            """Extrai valor de um custom field específico"""
+            try:
+                custom_fields = lead.get("custom_fields_values", [])
+                if not custom_fields:
+                    return None
+                for field in custom_fields:
+                    if not field:
+                        continue
+                    if field.get("field_id") == field_id:
+                        values = field.get("values")
+                        if values and isinstance(values, list) and len(values) > 0:
+                            first_value = values[0]
+                            if isinstance(first_value, dict):
+                                return first_value.get("value")
+                            elif isinstance(first_value, str):
+                                return first_value
+                return None
+            except Exception as e:
+                logger.error(f"Erro ao extrair custom field {field_id}: {e}")
+                return None
         
         # ABORDAGEM SIMPLIFICADA: Buscar TODOS os leads sem filtro
         # Calcular filtros de data
@@ -937,14 +961,12 @@ async def get_detailed_tables(
         # REUNIÕES: Já correto - buscar tasks por created_at
         # ================================================================
         
-        # PROPOSTAS: Buscar leads que evoluíram para proposta no período (updated_at)
+        # PROPOSTAS: Buscar TODOS os leads e filtrar por campo ESTADO = "Proposta Feita"
         propostas_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,
             "filter[updated_at][from]": start_timestamp,  # PO: usar updated_at para propostas
             "filter[updated_at][to]": end_timestamp,
-            "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
-            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
-            "limit": limit,
+            "limit": 500,  # Aumentar limite para não perder dados
             "with": "contacts,tags,custom_fields_values"
         }
         
@@ -952,9 +974,7 @@ async def get_detailed_tables(
             "filter[pipeline_id]": PIPELINE_REMARKETING,
             "filter[updated_at][from]": start_timestamp,  # PO: usar updated_at para propostas
             "filter[updated_at][to]": end_timestamp,
-            "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
-            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
-            "limit": limit,
+            "limit": 500,  # Aumentar limite para não perder dados
             "with": "contacts,tags,custom_fields_values"
         }
         
@@ -996,17 +1016,28 @@ async def get_detailed_tables(
             for user in users_data["_embedded"].get("users", []):
                 users_map[user["id"]] = user["name"]
         
-        # Combinar PROPOSTAS de ambos os pipelines
+        # Filtrar PROPOSTAS por campo ESTADO = "Proposta Feita"
         all_propostas = []
-        if propostas_vendas_data and "_embedded" in propostas_vendas_data:
-            propostas = propostas_vendas_data["_embedded"].get("leads", [])
-            all_propostas.extend(propostas)
-            logger.info(f"Propostas do Funil de Vendas: {len(propostas)}")
         
+        # Filtrar propostas do VENDAS por campo ESTADO
+        if propostas_vendas_data and "_embedded" in propostas_vendas_data:
+            vendas_leads = propostas_vendas_data["_embedded"].get("leads", [])
+            propostas_vendas_filtradas = []
+            for lead in vendas_leads:
+                if lead and get_custom_field_value(lead, CUSTOM_FIELD_ESTADO) == "Proposta Feita":
+                    propostas_vendas_filtradas.append(lead)
+            all_propostas.extend(propostas_vendas_filtradas)
+            logger.info(f"Propostas do Funil de Vendas (ESTADO='Proposta Feita'): {len(propostas_vendas_filtradas)} de {len(vendas_leads)} leads")
+        
+        # Filtrar propostas do REMARKETING por campo ESTADO
         if propostas_remarketing_data and "_embedded" in propostas_remarketing_data:
-            propostas = propostas_remarketing_data["_embedded"].get("leads", [])
-            all_propostas.extend(propostas)
-            logger.info(f"Propostas do Remarketing: {len(propostas)}")
+            remarketing_leads = propostas_remarketing_data["_embedded"].get("leads", [])
+            propostas_remarketing_filtradas = []
+            for lead in remarketing_leads:
+                if lead and get_custom_field_value(lead, CUSTOM_FIELD_ESTADO) == "Proposta Feita":
+                    propostas_remarketing_filtradas.append(lead)
+            all_propostas.extend(propostas_remarketing_filtradas)
+            logger.info(f"Propostas do Remarketing (ESTADO='Proposta Feita'): {len(propostas_remarketing_filtradas)} de {len(remarketing_leads)} leads")
         
         # Combinar VENDAS de ambos os pipelines
         all_vendas = []
@@ -1068,8 +1099,8 @@ async def get_detailed_tables(
         tasks_params = {
             'filter[task_type]': 2,  # Tipo reunião
             'filter[is_completed]': 1,  # Apenas concluídas
-            'filter[created_at][from]': start_timestamp,  # REVERTIDO: usar created_at (modais corretos)
-            'filter[created_at][to]': end_timestamp,      # Filtro de data
+            'filter[complete_till][from]': start_timestamp,  # PO: usar complete_till para reuniões
+            'filter[complete_till][to]': end_timestamp,      # Filtro de data
             'limit': limit
         }
         
@@ -1108,16 +1139,16 @@ async def get_detailed_tables(
             # VALIDAÇÃO: Verificar se a reunião realmente aconteceu
             # Reunião é considerada verdadeira se:
             # 1. is_completed = true (já verificado na query)
-            # 2. created_at existe (data de criação da tarefa)
-            # Para reuniões realizadas, usar a data de criação da tarefa
-            created_at = task.get('created_at')
-            if not created_at:
-                # Se não tem created_at, pular
+            # 2. complete_till existe (data de agendamento da reunião)
+            # PO: usar complete_till para filtrar reuniões no período
+            complete_till = task.get('complete_till')
+            if not complete_till:
+                # Se não tem complete_till, pular
                 continue
             
-            data_reuniao = created_at
+            data_reuniao = complete_till
             
-            # Validação adicional: verificar se created_at está dentro do período
+            # Validação adicional: verificar se complete_till está dentro do período
             if data_reuniao < start_timestamp or data_reuniao > end_timestamp:
                 continue
                 

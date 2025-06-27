@@ -36,8 +36,8 @@ async def get_all_meetings(
             filtered_tasks = []
             
             for task in tasks:
-                # Para reuniões realizadas, usar created_at (data da criação da tarefa)
-                task_date = task.get('created_at', 0)
+                # PO: usar complete_till (data de agendamento da reunião)
+                task_date = task.get('complete_till', 0)
                 if task_date >= cutoff_timestamp:
                     filtered_tasks.append(task)
             
@@ -205,8 +205,8 @@ async def get_meeting_stats(
             users_dict = {user['id']: user['name'] for user in users}
         
         for task in tasks:
-            # Para reuniões, usar created_at (data da criação da tarefa)
-            task_date = task.get('created_at', 0)
+            # PO: usar complete_till (data de agendamento da reunião)
+            task_date = task.get('complete_till', 0)
             
             # Filtrar por período
             if task_date < cutoff_timestamp:
@@ -348,9 +348,9 @@ async def get_completed_meetings_by_user(
             cutoff_date = datetime.now() - timedelta(days=days)
             
             for task in tasks:
-                # Verificar se a tarefa está no período desejado usando created_at
-                if task.get('created_at'):
-                    created_date = datetime.fromtimestamp(task['created_at'])
+                # PO: usar complete_till para filtrar reuniões
+                if task.get('complete_till'):
+                    created_date = datetime.fromtimestamp(task['complete_till'])
                     if created_date < cutoff_date:
                         continue
                 
@@ -531,10 +531,10 @@ async def get_meetings_completed_by_corretor(
         cutoff_date = datetime.now() - timedelta(days=days)
         cutoff_timestamp = int(cutoff_date.timestamp())
         
-        # Para reuniões realizadas, filtrar por created_at (data da criação da tarefa)
+        # PO: usar complete_till para filtrar reuniões
         period_meetings = [
             meeting for meeting in all_meetings 
-            if meeting.get('created_at', 0) >= cutoff_timestamp
+            if meeting.get('complete_till', 0) >= cutoff_timestamp
         ]
         
         if include_all:
@@ -627,11 +627,11 @@ async def get_meeting_stats_by_corretor(
         cutoff_date = datetime.now() - timedelta(days=days)
         cutoff_timestamp = int(cutoff_date.timestamp())
         
-        # Separar reuniões por status - usar created_at para reuniões realizadas
+        # PO: usar complete_till para filtrar reuniões
         completed_meetings = [
             meeting for meeting in all_meetings 
             if (meeting.get('is_completed') and 
-                meeting.get('created_at', 0) >= cutoff_timestamp)
+                meeting.get('complete_till', 0) >= cutoff_timestamp)
         ]
         
         scheduled_meetings = [

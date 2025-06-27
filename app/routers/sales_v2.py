@@ -55,6 +55,7 @@ async def get_sales_kpis(
         STATUS_CONTRATO_ASSINADO = 80689759
         STATUS_VENDA_FINAL = 142
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126
+        CUSTOM_FIELD_ESTADO = 800236  # Campo ESTADO
         
         # ============================================================================
         # IMPLEMENTAÇÃO CONFORME ESPECIFICAÇÃO DO PO - SEPARAÇÃO COMPLETA
@@ -64,15 +65,22 @@ async def get_sales_kpis(
         # REUNIÕES: Filtrar por created_at da task (já implementado corretamente)
         # ============================================================================
         
-        # PROPOSTAS: Buscar leads que evoluíram para proposta no período
+        # PROPOSTAS: Buscar TODOS os leads e filtrar por campo ESTADO = "Proposta Feita"
         current_propostas_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
             "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
             "filter[updated_at][to]": end_time,
-            "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
-            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
-            "limit": 250,
-            "with": "custom_fields_values"
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
+            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro que detailed-tables
+        }
+        
+        # ADICIONAR: propostas do REMARKETING para período atual
+        current_propostas_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,
+            "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
+            "filter[updated_at][to]": end_time,
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
+            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro que detailed-tables
         }
         
         # VENDAS: Buscar leads com status de venda + filtro temporal amplo para performance
@@ -82,7 +90,7 @@ async def get_sales_kpis(
             "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
             "filter[updated_at][from]": start_time - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
             "filter[updated_at][to]": end_time,
-            "limit": 250,
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
             "with": "custom_fields_values"
         }
         
@@ -90,7 +98,7 @@ async def get_sales_kpis(
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
             "filter[created_at][from]": start_time,  # Usar created_at para leads, igual ao dashboard
             "filter[created_at][to]": end_time,
-            "limit": 250,
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
             "with": "custom_fields_values"
         }
         
@@ -99,10 +107,8 @@ async def get_sales_kpis(
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
             "filter[updated_at][from]": previous_start_time,
             "filter[updated_at][to]": previous_end_time,
-            "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
-            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
-            "limit": 250,
-            "with": "custom_fields_values"
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
+            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro que detailed-tables
         }
         
         # VENDAS ANTERIORES
@@ -112,7 +118,7 @@ async def get_sales_kpis(
             "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
             "filter[updated_at][from]": previous_start_time - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
             "filter[updated_at][to]": previous_end_time,
-            "limit": 250,
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
             "with": "custom_fields_values"
         }
         
@@ -120,10 +126,8 @@ async def get_sales_kpis(
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
             "filter[updated_at][from]": previous_start_time,
             "filter[updated_at][to]": previous_end_time,
-            "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
-            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
-            "limit": 250,
-            "with": "custom_fields_values"
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
+            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro que detailed-tables
         }
         
         # LEADS PARA SEÇÃO GERAL (todos os leads criados no período)
@@ -131,7 +135,7 @@ async def get_sales_kpis(
             "filter[pipeline_id]": PIPELINE_VENDAS,
             "filter[created_at][from]": start_time,  # Usar created_at para leads
             "filter[created_at][to]": end_time,
-            "limit": 250,
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
             "with": "custom_fields_values"
         }
         
@@ -139,7 +143,7 @@ async def get_sales_kpis(
             "filter[pipeline_id]": PIPELINE_VENDAS,
             "filter[created_at][from]": previous_start_time,  # Usar created_at para leads
             "filter[created_at][to]": previous_end_time,
-            "limit": 250,
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
             "with": "custom_fields_values"
         }
         
@@ -147,7 +151,7 @@ async def get_sales_kpis(
             "filter[pipeline_id]": PIPELINE_REMARKETING,
             "filter[created_at][from]": previous_start_time,  # Usar created_at para leads, igual ao dashboard
             "filter[created_at][to]": previous_end_time,
-            "limit": 250,
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
             "with": "custom_fields_values"
         }
         
@@ -157,6 +161,13 @@ async def get_sales_kpis(
         except Exception as e:
             logger.error(f"Erro ao buscar propostas vendas atuais: {e}")
             current_propostas_vendas_data = {"_embedded": {"leads": []}}
+            
+        # ADICIONAR: propostas do REMARKETING para período atual
+        try:
+            current_propostas_remarketing_data = kommo_api.get_leads(current_propostas_remarketing_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar propostas remarketing atuais: {e}")
+            current_propostas_remarketing_data = {"_embedded": {"leads": []}}
             
         try:
             current_vendas_vendas_data = kommo_api.get_leads(current_vendas_vendas_params)
@@ -208,10 +219,22 @@ async def get_sales_kpis(
             logger.error(f"Erro ao buscar leads remarketing anteriores: {e}")
             previous_leads_remarketing_data = {"_embedded": {"leads": []}}
         
-        # Combinar PROPOSTAS de ambos os pipelines
+        # Combinar PROPOSTAS de ambos os pipelines - filtrar por campo ESTADO = "Proposta Feita"
         current_propostas_all = []
+        
+        # Filtrar propostas do VENDAS por campo ESTADO
         if current_propostas_vendas_data and "_embedded" in current_propostas_vendas_data:
-            current_propostas_all.extend(current_propostas_vendas_data["_embedded"].get("leads", []))
+            vendas_leads = current_propostas_vendas_data["_embedded"].get("leads", [])
+            for lead in vendas_leads:
+                if lead and get_custom_field_value(lead, CUSTOM_FIELD_ESTADO) == "Proposta Feita":
+                    current_propostas_all.append(lead)
+        
+        # Filtrar propostas do REMARKETING por campo ESTADO
+        if current_propostas_remarketing_data and "_embedded" in current_propostas_remarketing_data:
+            remarketing_leads = current_propostas_remarketing_data["_embedded"].get("leads", [])
+            for lead in remarketing_leads:
+                if lead and get_custom_field_value(lead, CUSTOM_FIELD_ESTADO) == "Proposta Feita":
+                    current_propostas_all.append(lead)
         
         # Combinar VENDAS (sem adicionar remarketing para vendas)
         current_vendas_all = []
@@ -239,12 +262,22 @@ async def get_sales_kpis(
         current_propostas_data = {"_embedded": {"leads": current_propostas_all}}
         current_sales_data = {"_embedded": {"leads": current_vendas_all}}
         
-        # Combinar propostas anteriores
+        # Combinar propostas anteriores - filtrar por campo ESTADO = "Proposta Feita"
         previous_propostas_all = []
+        
+        # Filtrar propostas anteriores do VENDAS por campo ESTADO
         if previous_propostas_vendas_data and "_embedded" in previous_propostas_vendas_data:
-            previous_propostas_all.extend(previous_propostas_vendas_data["_embedded"].get("leads", []))
+            vendas_leads = previous_propostas_vendas_data["_embedded"].get("leads", [])
+            for lead in vendas_leads:
+                if lead and get_custom_field_value(lead, CUSTOM_FIELD_ESTADO) == "Proposta Feita":
+                    previous_propostas_all.append(lead)
+        
+        # Filtrar propostas anteriores do REMARKETING por campo ESTADO
         if previous_propostas_remarketing_data and "_embedded" in previous_propostas_remarketing_data:
-            previous_propostas_all.extend(previous_propostas_remarketing_data["_embedded"].get("leads", []))
+            remarketing_leads = previous_propostas_remarketing_data["_embedded"].get("leads", [])
+            for lead in remarketing_leads:
+                if lead and get_custom_field_value(lead, CUSTOM_FIELD_ESTADO) == "Proposta Feita":
+                    previous_propostas_all.append(lead)
             
         # Combinar vendas anteriores  
         previous_vendas_all = []
@@ -372,8 +405,42 @@ async def get_sales_kpis(
         
         lost_leads = len([lead for lead in current_leads if lead.get("status_id") == 143])
         
-        # Propostas: apenas status de proposta
-        proposal_leads = len([lead for lead in current_leads if lead.get("status_id") == STATUS_PROPOSTA])
+        # Propostas: usar current_propostas_all que já tem ambos os pipelines (VENDAS + REMARKETING)
+        # Aplicar filtros de corretor e fonte nas propostas
+        filtered_propostas = []
+        for lead in current_propostas_all:
+            if not lead:
+                continue
+            
+            # Extrair corretor e fonte
+            corretor_lead = get_custom_field_value(lead, 837920)
+            fonte_lead = get_custom_field_value(lead, 837886)
+            
+            # Determinar corretor final - "Desconhecido" conforme PO (igual detailed-tables)
+            corretor_final = corretor_lead or "Desconhecido"
+            
+            # Aplicar filtros
+            if corretor and isinstance(corretor, str) and corretor.strip():
+                if ',' in corretor:
+                    corretores_list = [c.strip() for c in corretor.split(',')]
+                    if corretor_final not in corretores_list:
+                        continue
+                else:
+                    if corretor_final != corretor:
+                        continue
+            
+            if fonte and isinstance(fonte, str) and fonte.strip():
+                if ',' in fonte:
+                    fontes_list = [f.strip() for f in fonte.split(',')]
+                    if fonte_lead not in fontes_list:
+                        continue
+                else:
+                    if fonte_lead != fonte:
+                        continue
+            
+            filtered_propostas.append(lead)
+        
+        proposal_leads = len(filtered_propostas)
         
         # Calcular revenue e average deal size (apenas vendas com data válida)
         total_revenue = sum((lead.get("price") or 0) for lead in won_leads_with_date)
@@ -417,7 +484,42 @@ async def get_sales_kpis(
         previous_won_leads = len(previous_won_leads_with_date)
         
         previous_lost_leads = len([lead for lead in previous_leads if lead.get("status_id") == 143])
-        previous_proposal_leads = len([lead for lead in previous_leads if lead.get("status_id") == STATUS_PROPOSTA])
+        
+        # Propostas anteriores: usar previous_propostas_all que já tem ambos os pipelines
+        filtered_previous_propostas = []
+        for lead in previous_propostas_all:
+            if not lead:
+                continue
+            
+            # Extrair corretor e fonte
+            corretor_lead = get_custom_field_value(lead, 837920)
+            fonte_lead = get_custom_field_value(lead, 837886)
+            
+            # Determinar corretor final - "Desconhecido" conforme PO (igual detailed-tables)
+            corretor_final = corretor_lead or "Desconhecido"
+            
+            # Aplicar filtros
+            if corretor and isinstance(corretor, str) and corretor.strip():
+                if ',' in corretor:
+                    corretores_list = [c.strip() for c in corretor.split(',')]
+                    if corretor_final not in corretores_list:
+                        continue
+                else:
+                    if corretor_final != corretor:
+                        continue
+            
+            if fonte and isinstance(fonte, str) and fonte.strip():
+                if ',' in fonte:
+                    fontes_list = [f.strip() for f in fonte.split(',')]
+                    if fonte_lead not in fontes_list:
+                        continue
+                else:
+                    if fonte_lead != fonte:
+                        continue
+            
+            filtered_previous_propostas.append(lead)
+        
+        previous_proposal_leads = len(filtered_previous_propostas)
         
         previous_total_revenue = sum((lead.get("price") or 0) for lead in previous_won_leads_with_date)
         previous_average_deal_size = (previous_total_revenue / previous_won_leads) if previous_won_leads > 0 else 0
@@ -514,16 +616,16 @@ async def get_leads_by_user_chart(
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
             "filter[created_at][from]": start_time,   # CORREÇÃO: usar created_at para leads (igual detailed-tables)
             "filter[created_at][to]": end_time,
-            "limit": 250,
-            "with": "custom_fields_values"  # REVERTER: voltar ao parâmetro original
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
+            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro que detailed-tables
         }
         
         leads_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
             "filter[created_at][from]": start_time,   # CORREÇÃO: usar created_at para leads (igual detailed-tables)
             "filter[created_at][to]": end_time,
-            "limit": 250,
-            "with": "custom_fields_values"  # REVERTER: voltar ao parâmetro original
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
+            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro que detailed-tables
         }
         
         # ADICIONAR: Buscar propostas e vendas para completar o mapa de leads (igual detailed-tables)
@@ -533,8 +635,8 @@ async def get_leads_by_user_chart(
             "filter[updated_at][to]": end_time,
             "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
             "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
-            "limit": 250,
-            "with": "custom_fields_values"  # REVERTER: voltar ao parâmetro original
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
+            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro que detailed-tables
         }
         
         vendas_vendas_params = {
@@ -543,33 +645,38 @@ async def get_leads_by_user_chart(
             "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
             "filter[updated_at][from]": start_time - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
             "filter[updated_at][to]": end_time,
-            "limit": 250,
-            "with": "custom_fields_values"  # REVERTER: voltar ao parâmetro original
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
+            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro que detailed-tables
         }
         
-        # ADICIONAR: Buscar leads ANTIGOS para mapear reuniões (reuniões podem estar em leads criados antes do período)
-        leads_antigos_vendas_params = {
-            "filter[pipeline_id]": PIPELINE_VENDAS,
-            "filter[created_at][from]": start_time - (180 * 24 * 60 * 60),  # 6 meses atrás
-            "filter[created_at][to]": start_time - 1,  # Até 1 segundo antes do período
-            "limit": 250,
-            "with": "custom_fields_values"
-        }
-        
-        leads_antigos_remarketing_params = {
+        # CORREÇÃO: Adicionar propostas e vendas do REMARKETING (igual detailed-tables)
+        propostas_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,
-            "filter[created_at][from]": start_time - (180 * 24 * 60 * 60),  # 6 meses atrás
-            "filter[created_at][to]": start_time - 1,  # Até 1 segundo antes do período
-            "limit": 250,
-            "with": "custom_fields_values"
+            "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
+            "filter[updated_at][to]": end_time,
+            "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
+            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
+            "with": "contacts,tags,custom_fields_values"
         }
+        
+        vendas_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,
+            "filter[status_id][0]": STATUS_VENDA_FINAL,
+            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
+            "filter[updated_at][from]": start_time - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
+            "filter[updated_at][to]": end_time,
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
+            "with": "contacts,tags,custom_fields_values"
+        }
+        
 
         # Buscar tarefas de reunião concluídas
         tasks_params = {
             'filter[task_type]': 2,  # Tipo reunião
             'filter[is_completed]': 1,  # Apenas concluídas
-            'filter[created_at][from]': start_time,  # PO: usar created_at para reuniões
-            'filter[created_at][to]': end_time,
+            'filter[complete_till][from]': start_time,  # PO: usar complete_till para reuniões
+            'filter[complete_till][to]': end_time,
             'limit': 250
         }
         
@@ -601,16 +708,28 @@ async def get_leads_by_user_chart(
         
         # ADICIONAR: Buscar propostas e vendas para completar mapa de leads (igual detailed-tables)
         try:
-            propostas_data = kommo_api.get_leads(propostas_vendas_params)
+            propostas_vendas_data = kommo_api.get_leads(propostas_vendas_params)
         except Exception as e:
-            logger.error(f"Erro ao buscar propostas: {e}")
-            propostas_data = {"_embedded": {"leads": []}}
+            logger.error(f"Erro ao buscar propostas vendas: {e}")
+            propostas_vendas_data = {"_embedded": {"leads": []}}
             
         try:
-            vendas_data = kommo_api.get_leads(vendas_vendas_params)
+            propostas_remarketing_data = kommo_api.get_leads(propostas_remarketing_params)
         except Exception as e:
-            logger.error(f"Erro ao buscar vendas: {e}")
-            vendas_data = {"_embedded": {"leads": []}}
+            logger.error(f"Erro ao buscar propostas remarketing: {e}")
+            propostas_remarketing_data = {"_embedded": {"leads": []}}
+            
+        try:
+            vendas_vendas_data = kommo_api.get_leads(vendas_vendas_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar vendas vendas: {e}")
+            vendas_vendas_data = {"_embedded": {"leads": []}}
+            
+        try:
+            vendas_remarketing_data = kommo_api.get_leads(vendas_remarketing_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar vendas remarketing: {e}")
+            vendas_remarketing_data = {"_embedded": {"leads": []}}
         
         # Log para debug - comparar com detailed-tables
         logger.info(f"[charts/leads-by-user] Total leads encontrados: {len(all_leads)}")
@@ -638,81 +757,46 @@ async def get_leads_by_user_chart(
                     if user and isinstance(user, dict):
                         users_map[user.get("id")] = user.get("name", "Usuário Sem Nome")
         
-        # Buscar leads ANTIGOS para mapear reuniões
-        try:
-            leads_antigos_vendas_data = kommo_api.get_leads(leads_antigos_vendas_params)
-        except Exception as e:
-            logger.error(f"Erro ao buscar leads antigos vendas: {e}")
-            leads_antigos_vendas_data = {"_embedded": {"leads": []}}
-            
-        try:
-            leads_antigos_remarketing_data = kommo_api.get_leads(leads_antigos_remarketing_params)
-        except Exception as e:
-            logger.error(f"Erro ao buscar leads antigos remarketing: {e}")
-            leads_antigos_remarketing_data = {"_embedded": {"leads": []}}
-        
-        # Processar leads antigos
-        all_leads_antigos = []
-        if leads_antigos_vendas_data and "_embedded" in leads_antigos_vendas_data:
-            antigos_vendas = leads_antigos_vendas_data["_embedded"].get("leads", [])
-            if isinstance(antigos_vendas, list):
-                all_leads_antigos.extend(antigos_vendas)
-                
-        if leads_antigos_remarketing_data and "_embedded" in leads_antigos_remarketing_data:
-            antigos_remarketing = leads_antigos_remarketing_data["_embedded"].get("leads", [])
-            if isinstance(antigos_remarketing, list):
-                all_leads_antigos.extend(antigos_remarketing)
-                
-        logger.info(f"[charts/leads-by-user] Leads antigos encontrados: {len(all_leads_antigos)}")
+        # REMOVER lógica de leads antigos - usar apenas a mesma lógica do detailed-tables
         
         # ADICIONAR: Buscar propostas e vendas para completar o mapa de leads (igual detailed-tables)
+        # Combinar PROPOSTAS de ambos os pipelines
         all_propostas = []
-        if propostas_data and "_embedded" in propostas_data:
-            all_propostas = propostas_data["_embedded"].get("leads", [])
-            
-        all_vendas = []
-        if vendas_data and "_embedded" in vendas_data:
-            all_vendas = vendas_data["_embedded"].get("leads", [])
+        if propostas_vendas_data and "_embedded" in propostas_vendas_data:
+            propostas = propostas_vendas_data["_embedded"].get("leads", [])
+            all_propostas.extend(propostas)
+            logger.info(f"Propostas do Funil de Vendas: {len(propostas)}")
         
-        # Criar mapa de leads COMPLETO - incluir TODOS os leads para reuniões (incluindo antigos)
-        all_leads_combined = all_propostas + all_vendas + all_leads + all_leads_antigos
+        if propostas_remarketing_data and "_embedded" in propostas_remarketing_data:
+            propostas = propostas_remarketing_data["_embedded"].get("leads", [])
+            all_propostas.extend(propostas)
+            logger.info(f"Propostas do Remarketing: {len(propostas)}")
+            
+        # Combinar VENDAS de ambos os pipelines
+        all_vendas = []
+        if vendas_vendas_data and "_embedded" in vendas_vendas_data:
+            vendas = vendas_vendas_data["_embedded"].get("leads", [])
+            all_vendas.extend(vendas)
+            logger.info(f"Vendas do Funil de Vendas: {len(vendas)}")
+        
+        if vendas_remarketing_data and "_embedded" in vendas_remarketing_data:
+            vendas = vendas_remarketing_data["_embedded"].get("leads", [])
+            all_vendas.extend(vendas)
+            logger.info(f"Vendas do Remarketing: {len(vendas)}")
+        
+        logger.info(f"Encontradas {len(all_propostas)} propostas e {len(all_vendas)} vendas totais")
+        
+        # Criar mapa de leads COMPLETO - incluir TODOS os leads para reuniões (igual detailed-tables)
+        # CORREÇÃO: usar a mesma lógica do detailed-tables: all_propostas + all_vendas + all_leads_for_details
+        # all_leads já contém vendas+remarketing, então é nosso all_leads_for_details
+        all_leads_for_details = all_leads
+        all_leads_combined = all_propostas + all_vendas + all_leads_for_details
         leads_map = {}
         for lead in all_leads_combined:
             if lead and lead.get("id"):
                 leads_map[lead.get("id")] = lead
                 
-        logger.info(f"[charts/leads-by-user] Mapa de leads criado: {len(leads_map)} leads únicos (propostas={len(all_propostas)}, vendas={len(all_vendas)}, novos={len(all_leads)}, antigos={len(all_leads_antigos)})")
-        
-        # Criar mapa de reuniões realizadas por lead
-        meetings_by_lead = {}
-        missing_leads = []  # Para debug
-        
-        if tasks_data and "_embedded" in tasks_data:
-            tasks_list = tasks_data["_embedded"].get("tasks", [])
-            if isinstance(tasks_list, list):
-                for task in tasks_list:
-                    if (task and isinstance(task, dict) and 
-                        task.get('entity_type') == 'leads'):
-                        lead_id = task.get('entity_id')
-                        
-                        # Validação de data (igual detailed-tables)
-                        created_at = task.get('created_at')
-                        if not created_at:
-                            continue
-                        if created_at < start_time or created_at > end_time:
-                            continue
-                        
-                        # Verificar se o lead existe no mapa
-                        if lead_id and lead_id in leads_map:
-                            meetings_by_lead[lead_id] = meetings_by_lead.get(lead_id, 0) + 1
-                        elif lead_id:
-                            missing_leads.append(lead_id)
-                            
-        # Log para debug
-        total_meetings = sum(meetings_by_lead.values())
-        logger.info(f"[charts/leads-by-user] Reuniões encontradas: {total_meetings} de {len(tasks_list) if 'tasks_list' in locals() else 0} tasks")
-        if missing_leads:
-            logger.warning(f"[charts/leads-by-user] {len(missing_leads)} reuniões ignoradas - leads não encontrados: {missing_leads[:10]}")
+        logger.info(f"[charts/leads-by-user] Mapa de leads criado: {len(leads_map)} leads únicos (propostas={len(all_propostas)}, vendas={len(all_vendas)}, leads_for_details={len(all_leads_for_details)})")
         
         # Função segura para extrair valor de custom fields
         def get_custom_field_value(lead, field_id):
@@ -730,6 +814,73 @@ async def get_leads_by_user_chart(
             except Exception as e:
                 logger.error(f"Erro ao extrair custom field {field_id}: {e}")
                 return None
+        
+        # Criar mapa de reuniões realizadas por lead
+        meetings_by_lead = {}
+        missing_leads = []  # Para debug
+        
+        if tasks_data and "_embedded" in tasks_data:
+            tasks_list = tasks_data["_embedded"].get("tasks", [])
+            if isinstance(tasks_list, list):
+                for task in tasks_list:
+                    if (task and isinstance(task, dict) and 
+                        task.get('entity_type') == 'leads'):
+                        lead_id = task.get('entity_id')
+                        
+                        # Validação de data (igual detailed-tables)
+                        # PO: usar complete_till para filtrar reuniões
+                        complete_till = task.get('complete_till')
+                        if not complete_till:
+                            continue
+                        if complete_till < start_time or complete_till > end_time:
+                            continue
+                        
+                        # Verificar se o lead existe no mapa
+                        if lead_id and lead_id in leads_map:
+                            lead = leads_map[lead_id]
+                            
+                            # CORREÇÃO: Aplicar filtros POR REUNIÃO (igual detailed-tables)
+                            corretor_lead = get_custom_field_value(lead, 837920)
+                            fonte_lead = get_custom_field_value(lead, 837886) or "N/A"
+                            
+                            # Determinar corretor final - igual detailed-tables
+                            if corretor_lead:
+                                corretor_final = corretor_lead
+                            else:
+                                corretor_final = "Desconhecido"
+                            
+                            # Aplicar filtros de corretor se especificado
+                            if corretor and isinstance(corretor, str) and corretor.strip():
+                                if ',' in corretor:
+                                    corretores_list = [c.strip() for c in corretor.split(',')]
+                                    if corretor_final not in corretores_list:
+                                        continue
+                                else:
+                                    if corretor_final != corretor:
+                                        continue
+                            
+                            # Aplicar filtros de fonte se especificado
+                            if fonte and isinstance(fonte, str) and fonte.strip():
+                                if ',' in fonte:
+                                    fontes_list = [f.strip() for f in fonte.split(',')]
+                                    if fonte_lead not in fontes_list:
+                                        continue
+                                else:
+                                    if fonte_lead != fonte:
+                                        continue
+                            
+                            # Só contar se passou em todos os filtros
+                            meetings_by_lead[lead_id] = meetings_by_lead.get(lead_id, 0) + 1
+                        elif lead_id:
+                            missing_leads.append(lead_id)
+                            
+        # Log para debug
+        total_meetings = sum(meetings_by_lead.values())
+        logger.info(f"[charts/leads-by-user] Reuniões encontradas: {total_meetings} de {len(tasks_list) if 'tasks_list' in locals() else 0} tasks")
+        if missing_leads:
+            logger.warning(f"[charts/leads-by-user] {len(missing_leads)} reuniões ignoradas - leads não encontrados: {missing_leads[:10]}")
+        
+        # Função já definida acima
 
         # Processar leads
         leads_by_user = {}
@@ -746,7 +897,7 @@ async def get_leads_by_user_chart(
                     fonte_lead = get_custom_field_value(lead, 837886)     # Fonte
                     
                     # Aplicar filtros - suporta múltiplos valores separados por vírgula
-                    if corretor:
+                    if corretor and isinstance(corretor, str) and corretor.strip():
                         # Se corretor contém vírgula, é multi-select
                         if ',' in corretor:
                             corretores_list = [c.strip() for c in corretor.split(',')]
@@ -757,7 +908,7 @@ async def get_leads_by_user_chart(
                             if corretor_lead != corretor:
                                 continue
                     
-                    if fonte:
+                    if fonte and isinstance(fonte, str) and fonte.strip():
                         # Se fonte contém vírgula, é multi-select
                         if ',' in fonte:
                             fontes_list = [f.strip() for f in fonte.split(',')]
@@ -893,10 +1044,47 @@ async def get_leads_by_user_chart(
                 "won_deals": user_data["sales"]
             })
         
+        # Calcular proposalStats baseado nos dados já processados
+        # Contar propostas totais (status proposta + contrato assinado) após filtros
+        proposal_count = 0
+        for lead in all_propostas:
+            if not lead:
+                continue
+            
+            # Extrair corretor e fonte do lead
+            corretor_lead = get_custom_field_value(lead, 837920)
+            fonte_lead = get_custom_field_value(lead, 837886)
+            
+            # Aplicar filtros
+            if corretor and isinstance(corretor, str) and corretor.strip():
+                if ',' in corretor:
+                    corretores_list = [c.strip() for c in corretor.split(',')]
+                    if corretor_lead not in corretores_list:
+                        continue
+                else:
+                    if corretor_lead != corretor:
+                        continue
+            
+            if fonte and isinstance(fonte, str) and fonte.strip():
+                if ',' in fonte:
+                    fontes_list = [f.strip() for f in fonte.split(',')]
+                    if fonte_lead not in fontes_list:
+                        continue
+                else:
+                    if fonte_lead != fonte:
+                        continue
+            
+            proposal_count += 1
+        
         return {
             "leadsByUser": leads_by_user_list,
             "analyticsTeam": {
                 "user_performance": user_performance
+            },
+            "proposalStats": {
+                "total": proposal_count,
+                "inProposal": sum(1 for lead in all_propostas if lead and lead.get("status_id") == STATUS_PROPOSTA),
+                "contractSigned": sum(1 for lead in all_propostas if lead and lead.get("status_id") == STATUS_CONTRATO_ASSINADO)
             },
             "_metadata": {
                 "period_days": days,
@@ -971,7 +1159,7 @@ async def get_conversion_rates(
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
             "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
             "filter[updated_at][to]": end_time,
-            "limit": 250,
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
             "with": "custom_fields_values"
         }
         
@@ -979,7 +1167,7 @@ async def get_conversion_rates(
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
             "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
             "filter[updated_at][to]": end_time,
-            "limit": 250,
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
             "with": "custom_fields_values"
         }
         
@@ -989,7 +1177,7 @@ async def get_conversion_rates(
             'filter[is_completed]': 1,  # Apenas concluídas
             'filter[created_at][from]': start_time,  # PO: usar created_at para reuniões
             'filter[created_at][to]': end_time,
-            'limit': 250
+            'limit': 250  # Usar mesmo limite do detailed-tables
         }
         
         # Buscar leads de vendas
@@ -1084,7 +1272,7 @@ async def get_conversion_rates(
                     fonte_lead = get_custom_field_value(lead, 837886)     # Fonte
                     
                     # Aplicar filtros - suporta múltiplos valores separados por vírgula
-                    if corretor:
+                    if corretor and isinstance(corretor, str) and corretor.strip():
                         # Se corretor contém vírgula, é multi-select
                         if ',' in corretor:
                             corretores_list = [c.strip() for c in corretor.split(',')]
@@ -1095,7 +1283,7 @@ async def get_conversion_rates(
                             if corretor_lead != corretor:
                                 continue
                     
-                    if fonte:
+                    if fonte and isinstance(fonte, str) and fonte.strip():
                         # Se fonte contém vírgula, é multi-select
                         if ',' in fonte:
                             fontes_list = [f.strip() for f in fonte.split(',')]
@@ -1245,7 +1433,7 @@ async def get_pipeline_status(
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
             "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
             "filter[updated_at][to]": end_time,
-            "limit": 250,
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
             "with": "custom_fields_values"
         }
         
@@ -1253,7 +1441,7 @@ async def get_pipeline_status(
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
             "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
             "filter[updated_at][to]": end_time,
-            "limit": 250,
+            "limit": 500,  # AUMENTAR limite para evitar perder dados
             "with": "custom_fields_values"
         }
         
@@ -1372,7 +1560,7 @@ async def get_pipeline_status(
                     fonte_lead = get_custom_field_value(lead, 837886)     # Fonte
                     
                     # Aplicar filtros - suporta múltiplos valores separados por vírgula
-                    if corretor:
+                    if corretor and isinstance(corretor, str) and corretor.strip():
                         # Se corretor contém vírgula, é multi-select
                         if ',' in corretor:
                             corretores_list = [c.strip() for c in corretor.split(',')]
@@ -1383,7 +1571,7 @@ async def get_pipeline_status(
                             if corretor_lead != corretor:
                                 continue
                     
-                    if fonte:
+                    if fonte and isinstance(fonte, str) and fonte.strip():
                         # Se fonte contém vírgula, é multi-select
                         if ',' in fonte:
                             fontes_list = [f.strip() for f in fonte.split(',')]
