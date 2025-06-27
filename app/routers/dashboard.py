@@ -1559,24 +1559,51 @@ async def get_sales_comparison(
         
         # Função auxiliar para obter dados de um período específico
         def get_period_data(start_timestamp, end_timestamp):
-            leads_params = {
+            # CORREÇÃO: Usar os mesmos pipelines que o detailed-tables para consistência
+            PIPELINE_VENDAS = 10516987
+            PIPELINE_REMARKETING = 11059911
+            
+            # Buscar leads do pipeline de vendas
+            leads_vendas_params = {
+                "filter[pipeline_id]": PIPELINE_VENDAS,
                 "filter[created_at][from]": start_timestamp,
                 "filter[created_at][to]": end_timestamp,
-                "limit": 250
+                "limit": 250,
+                "with": "custom_fields_values"
             }
             
-            # Buscar leads do período
-            leads_data = safe_get_data(kommo_api.get_leads, leads_params)
+            # Buscar leads do pipeline de remarketing
+            leads_remarketing_params = {
+                "filter[pipeline_id]": PIPELINE_REMARKETING,
+                "filter[created_at][from]": start_timestamp,
+                "filter[created_at][to]": end_timestamp,
+                "limit": 250,
+                "with": "custom_fields_values"
+            }
             
-            # Processar leads com proteção
+            # Buscar dados de ambos os pipelines
+            leads_vendas_data = safe_get_data(kommo_api.get_leads, leads_vendas_params)
+            leads_remarketing_data = safe_get_data(kommo_api.get_leads, leads_remarketing_params)
+            
+            # Combinar leads de ambos os pipelines
             all_leads = []
             try:
-                if leads_data and isinstance(leads_data, dict) and "_embedded" in leads_data:
-                    embedded = leads_data["_embedded"]
-                    if embedded and isinstance(embedded, dict):
-                        leads_raw = embedded.get("leads", [])
-                        if leads_raw and isinstance(leads_raw, list):
-                            all_leads = [lead for lead in leads_raw if lead is not None]
+                # Processar leads do pipeline de vendas
+                if leads_vendas_data and isinstance(leads_vendas_data, dict) and "_embedded" in leads_vendas_data:
+                    embedded_vendas = leads_vendas_data["_embedded"]
+                    if embedded_vendas and isinstance(embedded_vendas, dict):
+                        leads_vendas_raw = embedded_vendas.get("leads", [])
+                        if leads_vendas_raw and isinstance(leads_vendas_raw, list):
+                            all_leads.extend([lead for lead in leads_vendas_raw if lead is not None])
+                
+                # Processar leads do pipeline de remarketing
+                if leads_remarketing_data and isinstance(leads_remarketing_data, dict) and "_embedded" in leads_remarketing_data:
+                    embedded_remarketing = leads_remarketing_data["_embedded"]
+                    if embedded_remarketing and isinstance(embedded_remarketing, dict):
+                        leads_remarketing_raw = embedded_remarketing.get("leads", [])
+                        if leads_remarketing_raw and isinstance(leads_remarketing_raw, list):
+                            all_leads.extend([lead for lead in leads_remarketing_raw if lead is not None])
+                            
             except Exception as e:
                 logger.error(f"Erro ao processar leads no período: {e}")
                 all_leads = []
@@ -1781,6 +1808,8 @@ async def get_sales_comparison(
                         leads_by_user[final_corretor] = {
                             "name": final_corretor,
                             "value": 0,
+                            "leadsCreated": 0,  # Alias para value - campo usado pelo frontend
+                            "leads": 0,         # Alias adicional para compatibilidade
                             "active": 0,
                             "meetingsHeld": 0,  # Campo que o frontend usa para o gráfico
                             "meetings": 0,      # Fallback para compatibilidade
@@ -1790,6 +1819,8 @@ async def get_sales_comparison(
                     
                     # Incrementar contadores
                     leads_by_user[final_corretor]["value"] += 1
+                    leads_by_user[final_corretor]["leadsCreated"] += 1  # Sincronizar alias
+                    leads_by_user[final_corretor]["leads"] += 1         # Sincronizar alias
                     
                     status_id = lead.get("status_id")
                     lead_id = lead.get("id")
