@@ -929,27 +929,58 @@ async def get_detailed_tables(
         # IDs dos pipelines necessários
         PIPELINE_REMARKETING = 11059911  # ID do Remarketing
         
-        # Buscar leads de AMBOS os pipelines (Vendas + Remarketing)
-        # Como a API não suporta múltiplos pipeline_ids em um request, fazemos 2 requests
-        leads_vendas_params = {
-            "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
-            "filter[created_at][from]": start_timestamp,  # REVERTIDO: usar created_at (modais corretos)
-            "filter[created_at][to]": end_timestamp,
+        # ================================================================
+        # SEPARAR PROPOSTAS E VENDAS CONFORME ESPECIFICAÇÃO DO PO
+        # ================================================================
+        # PROPOSTAS: Filtrar por updated_at + status proposta
+        # VENDAS: Buscar TODOS com status venda (filtrar por data_fechamento depois)
+        # REUNIÕES: Já correto - buscar tasks por created_at
+        # ================================================================
+        
+        # PROPOSTAS: Buscar leads que evoluíram para proposta no período (updated_at)
+        propostas_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,
+            "filter[updated_at][from]": start_timestamp,  # PO: usar updated_at para propostas
+            "filter[updated_at][to]": end_timestamp,
+            "filter[status_id]": STATUS_PROPOSTA,  # Apenas propostas
             "limit": limit,
             "with": "contacts,tags,custom_fields_values"
         }
         
-        leads_remarketing_params = {
-            "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
-            "filter[created_at][from]": start_timestamp,  # REVERTIDO: usar created_at (modais corretos)
-            "filter[created_at][to]": end_timestamp,
+        propostas_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,
+            "filter[updated_at][from]": start_timestamp,  # PO: usar updated_at para propostas
+            "filter[updated_at][to]": end_timestamp,
+            "filter[status_id]": STATUS_PROPOSTA,  # Apenas propostas
             "limit": limit,
             "with": "contacts,tags,custom_fields_values"
         }
         
-        # Buscar leads de ambos os pipelines
-        leads_vendas_data = safe_get_data(kommo_api.get_leads, leads_vendas_params)
-        leads_remarketing_data = safe_get_data(kommo_api.get_leads, leads_remarketing_params)
+        # VENDAS: Buscar TODOS os leads com status de venda (filtrar por data_fechamento depois)
+        vendas_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,
+            "filter[status_id][0]": STATUS_VENDA_FINAL,
+            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
+            "limit": limit,
+            "with": "contacts,tags,custom_fields_values"
+        }
+        
+        vendas_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,
+            "filter[status_id][0]": STATUS_VENDA_FINAL,
+            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
+            "limit": limit,
+            "with": "contacts,tags,custom_fields_values"
+        }
+        
+        # Buscar PROPOSTAS de ambos os pipelines
+        propostas_vendas_data = safe_get_data(kommo_api.get_leads, propostas_vendas_params)
+        propostas_remarketing_data = safe_get_data(kommo_api.get_leads, propostas_remarketing_params)
+        
+        # Buscar VENDAS de ambos os pipelines
+        vendas_vendas_data = safe_get_data(kommo_api.get_leads, vendas_vendas_params)
+        vendas_remarketing_data = safe_get_data(kommo_api.get_leads, vendas_remarketing_params)
+        
         users_data = safe_get_data(kommo_api.get_users)
         
         # Criar mapa de usuários
@@ -958,22 +989,31 @@ async def get_detailed_tables(
             for user in users_data["_embedded"].get("users", []):
                 users_map[user["id"]] = user["name"]
         
-        # Combinar leads de ambos os pipelines
-        all_leads = []
+        # Combinar PROPOSTAS de ambos os pipelines
+        all_propostas = []
+        if propostas_vendas_data and "_embedded" in propostas_vendas_data:
+            propostas = propostas_vendas_data["_embedded"].get("leads", [])
+            all_propostas.extend(propostas)
+            logger.info(f"Propostas do Funil de Vendas: {len(propostas)}")
         
-        # Adicionar leads do Funil de Vendas
-        if leads_vendas_data and "_embedded" in leads_vendas_data:
-            leads_vendas = leads_vendas_data["_embedded"].get("leads", [])
-            all_leads.extend(leads_vendas)
-            logger.info(f"Leads do Funil de Vendas: {len(leads_vendas)}")
+        if propostas_remarketing_data and "_embedded" in propostas_remarketing_data:
+            propostas = propostas_remarketing_data["_embedded"].get("leads", [])
+            all_propostas.extend(propostas)
+            logger.info(f"Propostas do Remarketing: {len(propostas)}")
         
-        # Adicionar leads do Remarketing
-        if leads_remarketing_data and "_embedded" in leads_remarketing_data:
-            leads_remarketing = leads_remarketing_data["_embedded"].get("leads", [])
-            all_leads.extend(leads_remarketing)
-            logger.info(f"Leads do Remarketing: {len(leads_remarketing)}")
+        # Combinar VENDAS de ambos os pipelines
+        all_vendas = []
+        if vendas_vendas_data and "_embedded" in vendas_vendas_data:
+            vendas = vendas_vendas_data["_embedded"].get("leads", [])
+            all_vendas.extend(vendas)
+            logger.info(f"Vendas do Funil de Vendas: {len(vendas)}")
         
-        logger.info(f"Encontrados {len(all_leads)} leads totais")
+        if vendas_remarketing_data and "_embedded" in vendas_remarketing_data:
+            vendas = vendas_remarketing_data["_embedded"].get("leads", [])
+            all_vendas.extend(vendas)
+            logger.info(f"Vendas do Remarketing: {len(vendas)}")
+        
+        logger.info(f"Encontradas {len(all_propostas)} propostas e {len(all_vendas)} vendas totais")
         
         # Listas para as tabelas
         reunioes_detalhes = []
@@ -998,7 +1038,8 @@ async def get_detailed_tables(
             reunioes_tasks = tasks_data.get('_embedded', {}).get('tasks', [])
             logger.info(f"Encontradas {len(reunioes_tasks)} tarefas de reunião concluídas")
         
-        # Criar mapa de lead_id para lead
+        # Criar mapa de lead_id para lead (combinar propostas e vendas para lookup de reuniões)
+        all_leads = all_propostas + all_vendas
         leads_map = {lead.get("id"): lead for lead in all_leads if lead}
         
         # Processar tarefas de reunião
@@ -1054,7 +1095,7 @@ async def get_detailed_tables(
             if corretor_custom:
                 corretor_final = corretor_custom
             else:
-                corretor_final = "Vazio"  # Sem fallback para responsible_user_id
+                corretor_final = "Desconhecido"  # Sem fallback para responsible_user_id
             
             
             # Filtrar por corretor se especificado
@@ -1093,33 +1134,83 @@ async def get_detailed_tables(
                 "Status": "Realizada"  # Confirmação visual de que a reunião aconteceu
             })
         
-        # Processar cada lead para propostas e vendas
-        for lead in all_leads:
+        # Processar PROPOSTAS (já filtradas por updated_at e status)
+        for lead in all_propostas:
             if not lead:
                 continue
-                
-            # Não precisa mais verificar pipeline - já filtrado na API
                 
             lead_id = lead.get("id")
             lead_name = lead.get("name", "")
             status_id = lead.get("status_id")
-            price = lead.get("price", 0)
-            responsible_user_id = lead.get("responsible_user_id")
-            updated_at = lead.get("updated_at")
-            created_at = lead.get("created_at")
+            updated_at = lead.get("updated_at")  # PO: usar updated_at para propostas
             
-            # Verificar se está em um dos status de interesse (apenas propostas e vendas agora)
-            status_categoria = None
-            if status_id == STATUS_PROPOSTA:
-                status_categoria = "proposta"
-            elif status_id in [STATUS_CONTRATO_ASSINADO, STATUS_VENDA_FINAL]:
-                status_categoria = "venda"
+            # Buscar custom fields para propostas
+            custom_fields = lead.get("custom_fields_values", [])
+            fonte_lead = "N/A"
+            corretor_custom = None
             
-            # Pular se não estiver em status de interesse
-            if not status_categoria:
+            if custom_fields and isinstance(custom_fields, list):
+                for field in custom_fields:
+                    if field and isinstance(field, dict):
+                        field_id = field.get("field_id")
+                        values = field.get("values", [])
+                        
+                        if field_id == 837886 and values:  # Fonte
+                            fonte_lead = values[0].get("value", "N/A")
+                        elif field_id == 837920 and values:  # Corretor
+                            corretor_custom = values[0].get("value")
+            
+            # Para propostas: SEMPRE usar updated_at (PO)
+            data_relevante = updated_at
+            
+            if not data_relevante:
                 continue
             
-            # Primeiro, buscar custom fields incluindo Data Fechamento
+            
+            # Determinar corretor final - "Desconhecido" conforme PO
+            corretor_final = corretor_custom or "Desconhecido"
+            
+            # Filtrar por corretor se especificado
+            if corretor and isinstance(corretor, str) and corretor.strip():
+                if ',' in corretor:
+                    corretores_list = [c.strip() for c in corretor.split(',')]
+                    if corretor_final not in corretores_list:
+                        continue
+                else:
+                    if corretor_final != corretor:
+                        continue
+                
+            # Filtrar por fonte se especificado
+            if fonte and isinstance(fonte, str) and fonte.strip():
+                if ',' in fonte:
+                    fontes_list = [f.strip() for f in fonte.split(',')]
+                    if fonte_lead not in fontes_list:
+                        continue
+                else:
+                    if fonte_lead != fonte:
+                        continue
+            
+            # Formatar data usando updated_at
+            data_formatada = datetime.fromtimestamp(data_relevante).strftime("%d/%m/%Y %H:%M")
+            
+            # Adicionar à lista de propostas
+            propostas_detalhes.append({
+                "Data da Proposta": data_formatada,  # PO: usando updated_at
+                "Nome do Lead": lead_name,
+                "Corretor": corretor_final,
+                "Fonte": fonte_lead
+            })
+        
+        # Processar VENDAS (filtrar por data_fechamento no período)
+        for lead in all_vendas:
+            if not lead:
+                continue
+                
+            lead_id = lead.get("id")
+            lead_name = lead.get("name", "")
+            price = lead.get("price", 0)
+            
+            # Buscar custom fields para vendas
             custom_fields = lead.get("custom_fields_values", [])
             fonte_lead = "N/A"
             corretor_custom = None
@@ -1138,37 +1229,33 @@ async def get_detailed_tables(
                         elif field_id == CUSTOM_FIELD_DATA_FECHAMENTO and values:  # Data Fechamento
                             data_fechamento_custom = values[0].get("value")
             
-            # Determinar data relevante baseada no tipo de status
-            if status_categoria == "venda":
-                # Para vendas, APENAS usar Data Fechamento (custom field)
-                if data_fechamento_custom:
-                    try:
-                        # Converter timestamp string para int se necessário
-                        data_relevante = int(data_fechamento_custom) if isinstance(data_fechamento_custom, str) else data_fechamento_custom
-                    except:
-                        # Se falhar na conversão, pular este lead
-                        data_relevante = None
+            # Para vendas: APENAS usar Data Fechamento (PO)
+            if not data_fechamento_custom:
+                continue  # Pular vendas sem data_fechamento
+            
+            # Verificar se data_fechamento está no período
+            try:
+                if isinstance(data_fechamento_custom, str):
+                    if data_fechamento_custom.isdigit():
+                        data_timestamp = int(data_fechamento_custom)
+                    else:
+                        # Tentar formato YYYY-MM-DD
+                        from datetime import datetime
+                        data_dt = datetime.strptime(data_fechamento_custom, '%Y-%m-%d')
+                        data_timestamp = int(data_dt.timestamp())
                 else:
-                    # Se não tiver Data Fechamento, pular este lead
-                    data_relevante = None
-            elif status_categoria == "proposta":
-                # Para propostas, SEMPRE usar updated_at (última atualização)
-                data_relevante = updated_at
-            else:
-                # Fallback para outros casos
-                data_relevante = updated_at or created_at
+                    data_timestamp = int(data_fechamento_custom)
+                
+                # Verificar se está no período
+                if data_timestamp < start_timestamp or data_timestamp > end_timestamp:
+                    continue  # Pular vendas fora do período
+                    
+            except Exception as e:
+                logger.warning(f"Erro ao processar data_fechamento {data_fechamento_custom}: {e}")
+                continue  # Pular vendas com data inválida
             
-            # Se for venda e não tiver Data Fechamento válida, pular
-            if status_categoria == "venda" and not data_relevante:
-                continue
-            
-            
-            # Determinar corretor final - apenas do custom field
-            if corretor_custom:
-                corretor_final = corretor_custom
-            else:
-                corretor_final = "Vazio"  # Sem fallback para responsible_user_id
-            
+            # Determinar corretor final
+            corretor_final = corretor_custom or "Desconhecido"
             
             # Filtrar por corretor se especificado
             if corretor and isinstance(corretor, str) and corretor.strip():
@@ -1180,7 +1267,7 @@ async def get_detailed_tables(
                     if corretor_final != corretor:
                         continue
                 
-            # Filtrar por fonte se especificado - suporta múltiplos valores separados por vírgula
+            # Filtrar por fonte se especificado
             if fonte and isinstance(fonte, str) and fonte.strip():
                 if ',' in fonte:
                     fontes_list = [f.strip() for f in fonte.split(',')]
@@ -1190,33 +1277,18 @@ async def get_detailed_tables(
                     if fonte_lead != fonte:
                         continue
             
-            # Formatar data (usar a data mais relevante)
-            data_formatada = datetime.fromtimestamp(data_relevante).strftime("%d/%m/%Y %H:%M")
+            # Formatar data usando data_fechamento
+            data_formatada = datetime.fromtimestamp(data_timestamp).strftime("%d/%m/%Y %H:%M")
+            valor_formatado = f"R$ {price:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
             
-            # Adicionar à lista apropriada baseado na categoria
-            if status_categoria == "reuniao":
-                reunioes_detalhes.append({
-                    "Data da Reunião": data_formatada,
-                    "Nome do Lead": lead_name,
-                    "Corretor": corretor_final,
-                    "Fonte": fonte_lead
-                })
-            elif status_categoria == "proposta":
-                propostas_detalhes.append({
-                    "Data da Proposta": data_formatada,  # Usando updated_at (última atualização)
-                    "Nome do Lead": lead_name,
-                    "Corretor": corretor_final,
-                    "Fonte": fonte_lead
-                })
-            elif status_categoria == "venda":
-                valor_formatado = f"R$ {price:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-                vendas_detalhes.append({
-                    "Data da Venda": data_formatada,
-                    "Nome do Lead": lead_name,
-                    "Corretor": corretor_final,
-                    "Fonte": fonte_lead,
-                    "Valor da Venda": valor_formatado
-                })
+            # Adicionar à lista de vendas
+            vendas_detalhes.append({
+                "Data da Venda": data_formatada,  # PO: usando data_fechamento
+                "Nome do Lead": lead_name,
+                "Corretor": corretor_final,
+                "Fonte": fonte_lead,
+                "Valor da Venda": valor_formatado
+            })
         
         # NOVO: Processar todos os leads para leadsDetalhes
         logger.info("Processando todos os leads para leadsDetalhes...")
@@ -1248,7 +1320,7 @@ async def get_detailed_tables(
             if corretor_custom:
                 corretor_final = corretor_custom
             else:
-                corretor_final = "Vazio"
+                corretor_final = "Desconhecido"
             
             
             # Filtrar por corretor se especificado

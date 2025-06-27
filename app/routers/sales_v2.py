@@ -60,13 +60,25 @@ async def get_sales_kpis(
         # IMPLEMENTAÇÃO CONFORME ESPECIFICAÇÃO DO PO - SEPARAÇÃO COMPLETA
         # ============================================================================
         # PROPOSTAS: Filtrar por updated_at + status_proposta (evolução para proposta)
-        # VENDAS: Filtrar por campo data_fechamento (custom field) para período
+        # VENDAS: Buscar TODOS com status venda + filtrar por data_fechamento no período
         # REUNIÕES: Filtrar por created_at da task (já implementado corretamente)
         # ============================================================================
-        current_leads_vendas_params = {
+        
+        # PROPOSTAS: Buscar leads que evoluíram para proposta no período
+        current_propostas_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
             "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
             "filter[updated_at][to]": end_time,
+            "filter[status_id]": STATUS_PROPOSTA,  # Apenas propostas
+            "limit": 250,
+            "with": "custom_fields_values"
+        }
+        
+        # VENDAS: Buscar TODOS os leads com status de venda (filtrar por data_fechamento depois)
+        current_vendas_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
+            "filter[status_id][0]": STATUS_VENDA_FINAL,
+            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
             "limit": 250,
             "with": "custom_fields_values"
         }
