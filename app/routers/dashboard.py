@@ -956,11 +956,14 @@ async def get_detailed_tables(
             "with": "contacts,tags,custom_fields_values"
         }
         
-        # VENDAS: Buscar TODOS os leads com status de venda (filtrar por data_fechamento depois)
+        # VENDAS: Buscar leads com status de venda + filtro temporal amplo para performance
+        # (ainda filtraremos por data_fechamento específica depois)
         vendas_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,
             "filter[status_id][0]": STATUS_VENDA_FINAL,
             "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
+            "filter[updated_at][from]": start_timestamp - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
+            "filter[updated_at][to]": end_timestamp,
             "limit": limit,
             "with": "contacts,tags,custom_fields_values"
         }
@@ -969,6 +972,8 @@ async def get_detailed_tables(
             "filter[pipeline_id]": PIPELINE_REMARKETING,
             "filter[status_id][0]": STATUS_VENDA_FINAL,
             "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
+            "filter[updated_at][from]": start_timestamp - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
+            "filter[updated_at][to]": end_timestamp,
             "limit": limit,
             "with": "contacts,tags,custom_fields_values"
         }

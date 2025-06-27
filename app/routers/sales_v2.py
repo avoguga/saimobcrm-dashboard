@@ -74,11 +74,13 @@ async def get_sales_kpis(
             "with": "custom_fields_values"
         }
         
-        # VENDAS: Buscar TODOS os leads com status de venda (filtrar por data_fechamento depois)
+        # VENDAS: Buscar leads com status de venda + filtro temporal amplo para performance
         current_vendas_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
             "filter[status_id][0]": STATUS_VENDA_FINAL,
             "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
+            "filter[updated_at][from]": start_time - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
+            "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
@@ -91,18 +93,32 @@ async def get_sales_kpis(
             "with": "custom_fields_values"
         }
         
-        previous_leads_vendas_params = {
+        # PROPOSTAS ANTERIORES
+        previous_propostas_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
             "filter[updated_at][from]": previous_start_time,
+            "filter[updated_at][to]": previous_end_time,
+            "filter[status_id]": STATUS_PROPOSTA,  # Apenas propostas
+            "limit": 250,
+            "with": "custom_fields_values"
+        }
+        
+        # VENDAS ANTERIORES
+        previous_vendas_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
+            "filter[status_id][0]": STATUS_VENDA_FINAL,
+            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
+            "filter[updated_at][from]": previous_start_time - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
             "filter[updated_at][to]": previous_end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
         
-        previous_leads_remarketing_params = {
+        previous_propostas_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
             "filter[updated_at][from]": previous_start_time,
             "filter[updated_at][to]": previous_end_time,
+            "filter[status_id]": STATUS_PROPOSTA,  # Apenas propostas
             "limit": 250,
             "with": "custom_fields_values"
         }
