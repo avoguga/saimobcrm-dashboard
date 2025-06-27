@@ -69,7 +69,8 @@ async def get_sales_kpis(
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
             "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
             "filter[updated_at][to]": end_time,
-            "filter[status_id]": STATUS_PROPOSTA,  # Apenas propostas
+            "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
+            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
             "limit": 250,
             "with": "custom_fields_values"
         }
@@ -98,7 +99,8 @@ async def get_sales_kpis(
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
             "filter[updated_at][from]": previous_start_time,
             "filter[updated_at][to]": previous_end_time,
-            "filter[status_id]": STATUS_PROPOSTA,  # Apenas propostas
+            "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
+            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
             "limit": 250,
             "with": "custom_fields_values"
         }
@@ -118,17 +120,49 @@ async def get_sales_kpis(
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
             "filter[updated_at][from]": previous_start_time,
             "filter[updated_at][to]": previous_end_time,
-            "filter[status_id]": STATUS_PROPOSTA,  # Apenas propostas
+            "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
+            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
             "limit": 250,
             "with": "custom_fields_values"
         }
         
-        # Buscar leads do período atual de ambos os pipelines
+        # LEADS PARA SEÇÃO GERAL (todos os leads criados no período)
+        current_leads_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,
+            "filter[created_at][from]": start_time,  # Usar created_at para leads
+            "filter[created_at][to]": end_time,
+            "limit": 250,
+            "with": "custom_fields_values"
+        }
+        
+        previous_leads_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,
+            "filter[created_at][from]": previous_start_time,  # Usar created_at para leads
+            "filter[created_at][to]": previous_end_time,
+            "limit": 250,
+            "with": "custom_fields_values"
+        }
+        
+        previous_leads_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,
+            "filter[created_at][from]": previous_start_time,  # Usar created_at para leads
+            "filter[created_at][to]": previous_end_time,
+            "limit": 250,
+            "with": "custom_fields_values"
+        }
+        
+        # Buscar PROPOSTAS do período atual de ambos os pipelines
         try:
-            current_vendas_data = kommo_api.get_leads(current_leads_vendas_params)
+            current_propostas_vendas_data = kommo_api.get_leads(current_propostas_vendas_params)
         except Exception as e:
-            logger.error(f"Erro ao buscar leads vendas atuais: {e}")
-            current_vendas_data = {"_embedded": {"leads": []}}
+            logger.error(f"Erro ao buscar propostas vendas atuais: {e}")
+            current_propostas_vendas_data = {"_embedded": {"leads": []}}
+            
+        try:
+            current_vendas_vendas_data = kommo_api.get_leads(current_vendas_vendas_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar vendas vendas atuais: {e}")
+            current_vendas_vendas_data = {"_embedded": {"leads": []}}
             
         try:
             current_remarketing_data = kommo_api.get_leads(current_leads_remarketing_params)
@@ -136,35 +170,89 @@ async def get_sales_kpis(
             logger.error(f"Erro ao buscar leads remarketing atuais: {e}")
             current_remarketing_data = {"_embedded": {"leads": []}}
             
-        # Buscar leads do período anterior de ambos os pipelines
         try:
-            previous_vendas_data = kommo_api.get_leads(previous_leads_vendas_params)
+            current_leads_vendas_data = kommo_api.get_leads(current_leads_vendas_params)
         except Exception as e:
-            logger.error(f"Erro ao buscar leads vendas anteriores: {e}")
-            previous_vendas_data = {"_embedded": {"leads": []}}
+            logger.error(f"Erro ao buscar todos os leads vendas atuais: {e}")
+            current_leads_vendas_data = {"_embedded": {"leads": []}}
+            
+        # Buscar PROPOSTAS do período anterior
+        try:
+            previous_propostas_vendas_data = kommo_api.get_leads(previous_propostas_vendas_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar propostas vendas anteriores: {e}")
+            previous_propostas_vendas_data = {"_embedded": {"leads": []}}
             
         try:
-            previous_remarketing_data = kommo_api.get_leads(previous_leads_remarketing_params)
+            previous_vendas_vendas_data = kommo_api.get_leads(previous_vendas_vendas_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar vendas vendas anteriores: {e}")
+            previous_vendas_vendas_data = {"_embedded": {"leads": []}}
+            
+        try:
+            previous_propostas_remarketing_data = kommo_api.get_leads(previous_propostas_remarketing_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar propostas remarketing anteriores: {e}")
+            previous_propostas_remarketing_data = {"_embedded": {"leads": []}}
+        
+        # Buscar TODOS os leads do período anterior
+        try:
+            previous_leads_vendas_data = kommo_api.get_leads(previous_leads_vendas_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads vendas anteriores: {e}")
+            previous_leads_vendas_data = {"_embedded": {"leads": []}}
+            
+        try:
+            previous_leads_remarketing_data = kommo_api.get_leads(previous_leads_remarketing_params)
         except Exception as e:
             logger.error(f"Erro ao buscar leads remarketing anteriores: {e}")
-            previous_remarketing_data = {"_embedded": {"leads": []}}
+            previous_leads_remarketing_data = {"_embedded": {"leads": []}}
         
-        # Combinar leads de ambos os pipelines
+        # Combinar PROPOSTAS de ambos os pipelines
+        current_propostas_all = []
+        if current_propostas_vendas_data and "_embedded" in current_propostas_vendas_data:
+            current_propostas_all.extend(current_propostas_vendas_data["_embedded"].get("leads", []))
+        
+        # Combinar VENDAS (sem adicionar remarketing para vendas)
+        current_vendas_all = []
+        if current_vendas_vendas_data and "_embedded" in current_vendas_vendas_data:
+            current_vendas_all.extend(current_vendas_vendas_data["_embedded"].get("leads", []))
+        
+        # Combinar TODOS os leads para seção geral
         current_all_leads = []
-        if current_vendas_data and "_embedded" in current_vendas_data:
-            current_all_leads.extend(current_vendas_data["_embedded"].get("leads", []))
+        if current_leads_vendas_data and "_embedded" in current_leads_vendas_data:
+            current_all_leads.extend(current_leads_vendas_data["_embedded"].get("leads", []))
         if current_remarketing_data and "_embedded" in current_remarketing_data:
             current_all_leads.extend(current_remarketing_data["_embedded"].get("leads", []))
             
         previous_all_leads = []
-        if previous_vendas_data and "_embedded" in previous_vendas_data:
-            previous_all_leads.extend(previous_vendas_data["_embedded"].get("leads", []))
-        if previous_remarketing_data and "_embedded" in previous_remarketing_data:
-            previous_all_leads.extend(previous_remarketing_data["_embedded"].get("leads", []))
+        if previous_leads_vendas_data and "_embedded" in previous_leads_vendas_data:
+            previous_all_leads.extend(previous_leads_vendas_data["_embedded"].get("leads", []))
+        if previous_leads_remarketing_data and "_embedded" in previous_leads_remarketing_data:
+            previous_all_leads.extend(previous_leads_remarketing_data["_embedded"].get("leads", []))
         
         # Criar estruturas de dados compatíveis
         current_leads_data = {"_embedded": {"leads": current_all_leads}}
         previous_leads_data = {"_embedded": {"leads": previous_all_leads}}
+        
+        # Criar estruturas para propostas e vendas  
+        current_propostas_data = {"_embedded": {"leads": current_propostas_all}}
+        current_sales_data = {"_embedded": {"leads": current_vendas_all}}
+        
+        # Combinar propostas anteriores
+        previous_propostas_all = []
+        if previous_propostas_vendas_data and "_embedded" in previous_propostas_vendas_data:
+            previous_propostas_all.extend(previous_propostas_vendas_data["_embedded"].get("leads", []))
+        if previous_propostas_remarketing_data and "_embedded" in previous_propostas_remarketing_data:
+            previous_propostas_all.extend(previous_propostas_remarketing_data["_embedded"].get("leads", []))
+            
+        # Combinar vendas anteriores  
+        previous_vendas_all = []
+        if previous_vendas_vendas_data and "_embedded" in previous_vendas_vendas_data:
+            previous_vendas_all.extend(previous_vendas_vendas_data["_embedded"].get("leads", []))
+            
+        previous_propostas_data = {"_embedded": {"leads": previous_propostas_all}}
+        previous_sales_data = {"_embedded": {"leads": previous_vendas_all}}
         
         # Função segura para extrair valor de custom fields
         def get_custom_field_value(lead, field_id):

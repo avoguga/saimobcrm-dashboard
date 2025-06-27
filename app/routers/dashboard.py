@@ -942,7 +942,8 @@ async def get_detailed_tables(
             "filter[pipeline_id]": PIPELINE_VENDAS,
             "filter[updated_at][from]": start_timestamp,  # PO: usar updated_at para propostas
             "filter[updated_at][to]": end_timestamp,
-            "filter[status_id]": STATUS_PROPOSTA,  # Apenas propostas
+            "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
+            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
             "limit": limit,
             "with": "contacts,tags,custom_fields_values"
         }
@@ -951,7 +952,8 @@ async def get_detailed_tables(
             "filter[pipeline_id]": PIPELINE_REMARKETING,
             "filter[updated_at][from]": start_timestamp,  # PO: usar updated_at para propostas
             "filter[updated_at][to]": end_timestamp,
-            "filter[status_id]": STATUS_PROPOSTA,  # Apenas propostas
+            "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
+            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
             "limit": limit,
             "with": "contacts,tags,custom_fields_values"
         }
@@ -1020,6 +1022,41 @@ async def get_detailed_tables(
         
         logger.info(f"Encontradas {len(all_propostas)} propostas e {len(all_vendas)} vendas totais")
         
+        # Buscar TODOS os leads para a seção leadsDetalhes (sem filtro de status)
+        all_leads_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,
+            "filter[created_at][from]": start_timestamp,  # Usar created_at para leads
+            "filter[created_at][to]": end_timestamp,
+            "limit": limit,
+            "with": "contacts,tags,custom_fields_values"
+        }
+        
+        all_leads_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,
+            "filter[created_at][from]": start_timestamp,  # Usar created_at para leads
+            "filter[created_at][to]": end_timestamp,
+            "limit": limit,
+            "with": "contacts,tags,custom_fields_values"
+        }
+        
+        # Buscar todos os leads
+        all_leads_vendas_data = safe_get_data(kommo_api.get_leads, all_leads_params)
+        all_leads_remarketing_data = safe_get_data(kommo_api.get_leads, all_leads_remarketing_params)
+        
+        # Combinar TODOS os leads
+        all_leads_for_details = []
+        if all_leads_vendas_data and "_embedded" in all_leads_vendas_data:
+            leads = all_leads_vendas_data["_embedded"].get("leads", [])
+            all_leads_for_details.extend(leads)
+            logger.info(f"Todos os leads do Funil de Vendas: {len(leads)}")
+        
+        if all_leads_remarketing_data and "_embedded" in all_leads_remarketing_data:
+            leads = all_leads_remarketing_data["_embedded"].get("leads", [])
+            all_leads_for_details.extend(leads)
+            logger.info(f"Todos os leads do Remarketing: {len(leads)}")
+        
+        logger.info(f"Total de leads para leadsDetalhes: {len(all_leads_for_details)}")
+        
         # Listas para as tabelas
         reunioes_detalhes = []
         propostas_detalhes = []
@@ -1043,9 +1080,13 @@ async def get_detailed_tables(
             reunioes_tasks = tasks_data.get('_embedded', {}).get('tasks', [])
             logger.info(f"Encontradas {len(reunioes_tasks)} tarefas de reunião concluídas")
         
-        # Criar mapa de lead_id para lead (combinar propostas e vendas para lookup de reuniões)
-        all_leads = all_propostas + all_vendas
-        leads_map = {lead.get("id"): lead for lead in all_leads if lead}
+        # Criar mapa de lead_id para lead (usar todos os leads para lookup de reuniões)
+        all_leads_combined = all_propostas + all_vendas + all_leads_for_details
+        # Remover duplicatas usando um dicionário
+        leads_map = {}
+        for lead in all_leads_combined:
+            if lead and lead.get("id"):
+                leads_map[lead.get("id")] = lead
         
         # Processar tarefas de reunião
         for task in reunioes_tasks:
@@ -1296,7 +1337,7 @@ async def get_detailed_tables(
         
         # NOVO: Processar todos os leads para leadsDetalhes
         logger.info("Processando todos os leads para leadsDetalhes...")
-        for lead in all_leads:
+        for lead in all_leads_for_details:
             if not lead:
                 continue
                 
