@@ -512,16 +512,16 @@ async def get_leads_by_user_chart(
         # Buscar leads de AMBOS os pipelines (Vendas + Remarketing)
         leads_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
-            "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
-            "filter[updated_at][to]": end_time,
+            "filter[created_at][from]": start_time,   # CORREÇÃO: usar created_at para leads (igual detailed-tables)
+            "filter[created_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
         
         leads_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
-            "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
-            "filter[updated_at][to]": end_time,
+            "filter[created_at][from]": start_time,   # CORREÇÃO: usar created_at para leads (igual detailed-tables)
+            "filter[created_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
@@ -560,6 +560,9 @@ async def get_leads_by_user_chart(
             remarketing_leads = leads_remarketing_data["_embedded"].get("leads", [])
             if isinstance(remarketing_leads, list):
                 all_leads.extend(remarketing_leads)
+        
+        # Log para debug - comparar com detailed-tables
+        logger.info(f"[charts/leads-by-user] Total leads encontrados: {len(all_leads)}")
         
         leads_data = {"_embedded": {"leads": all_leads}}
             
