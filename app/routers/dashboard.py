@@ -1589,20 +1589,29 @@ async def get_sales_comparison(
             all_leads = []
             try:
                 # Processar leads do pipeline de vendas
+                vendas_count = 0
                 if leads_vendas_data and isinstance(leads_vendas_data, dict) and "_embedded" in leads_vendas_data:
                     embedded_vendas = leads_vendas_data["_embedded"]
                     if embedded_vendas and isinstance(embedded_vendas, dict):
                         leads_vendas_raw = embedded_vendas.get("leads", [])
                         if leads_vendas_raw and isinstance(leads_vendas_raw, list):
-                            all_leads.extend([lead for lead in leads_vendas_raw if lead is not None])
+                            vendas_leads = [lead for lead in leads_vendas_raw if lead is not None]
+                            all_leads.extend(vendas_leads)
+                            vendas_count = len(vendas_leads)
                 
                 # Processar leads do pipeline de remarketing
+                remarketing_count = 0
                 if leads_remarketing_data and isinstance(leads_remarketing_data, dict) and "_embedded" in leads_remarketing_data:
                     embedded_remarketing = leads_remarketing_data["_embedded"]
                     if embedded_remarketing and isinstance(embedded_remarketing, dict):
                         leads_remarketing_raw = embedded_remarketing.get("leads", [])
                         if leads_remarketing_raw and isinstance(leads_remarketing_raw, list):
-                            all_leads.extend([lead for lead in leads_remarketing_raw if lead is not None])
+                            remarketing_leads = [lead for lead in leads_remarketing_raw if lead is not None]
+                            all_leads.extend(remarketing_leads)
+                            remarketing_count = len(remarketing_leads)
+                
+                # Log para debug - REMOVER em produção
+                logger.info(f"[sales-comparison] Vendas: {vendas_count}, Remarketing: {remarketing_count}, Total: {len(all_leads)}")
                             
             except Exception as e:
                 logger.error(f"Erro ao processar leads no período: {e}")
@@ -1801,7 +1810,7 @@ async def get_sales_comparison(
                     
                     # Extrair corretor do custom field
                     corretor_lead = get_custom_field_value(lead, 837920)  # ID do campo Corretor
-                    final_corretor = corretor_lead or "Vazio"
+                    final_corretor = corretor_lead or "Desconhecido"  # Consistente com detailed-tables
                     
                     # Inicializar contador se não existir
                     if final_corretor not in leads_by_user:
