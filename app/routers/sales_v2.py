@@ -9,6 +9,30 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v2", tags=["Sales V2 API"])
 
+# Função auxiliar para extrair valores de custom fields
+def get_custom_field_value(lead, field_id):
+    """Extrai valor de custom field de forma segura"""
+    try:
+        custom_fields = lead.get("custom_fields_values")
+        if not custom_fields or not isinstance(custom_fields, list):
+            return None
+            
+        for field in custom_fields:
+            if not field or not isinstance(field, dict):
+                continue
+            if field.get("field_id") == field_id:
+                values = field.get("values")
+                if values and isinstance(values, list) and len(values) > 0:
+                    first_value = values[0]
+                    if isinstance(first_value, dict):
+                        return first_value.get("value")
+                    elif isinstance(first_value, str):
+                        return first_value
+        return None
+    except Exception as e:
+        logger.error(f"Erro ao extrair custom field {field_id}: {e}")
+        return None
+
 @router.get("/sales/kpis")
 async def get_sales_kpis(
     days: int = Query(30, description="Período em dias para análise"),
@@ -55,7 +79,7 @@ async def get_sales_kpis(
         STATUS_CONTRATO_ASSINADO = 80689759
         STATUS_VENDA_FINAL = 142
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126
-        CUSTOM_FIELD_ESTADO = 800236  # Campo ESTADO
+        CUSTOM_FIELD_ESTADO = 851638  # Campo ESTADO
         
         # ============================================================================
         # IMPLEMENTAÇÃO CONFORME ESPECIFICAÇÃO DO PO - SEPARAÇÃO COMPLETA
@@ -287,29 +311,6 @@ async def get_sales_kpis(
         previous_propostas_data = {"_embedded": {"leads": previous_propostas_all}}
         previous_sales_data = {"_embedded": {"leads": previous_vendas_all}}
         
-        # Função segura para extrair valor de custom fields
-        def get_custom_field_value(lead, field_id):
-            """Extrai valor de custom field de forma segura"""
-            try:
-                custom_fields = lead.get("custom_fields_values")
-                if not custom_fields or not isinstance(custom_fields, list):
-                    return None
-                    
-                for field in custom_fields:
-                    if not field or not isinstance(field, dict):
-                        continue
-                    if field.get("field_id") == field_id:
-                        values = field.get("values")
-                        if values and isinstance(values, list) and len(values) > 0:
-                            first_value = values[0]
-                            if isinstance(first_value, dict):
-                                return first_value.get("value")
-                            elif isinstance(first_value, str):
-                                return first_value
-                return None
-            except Exception as e:
-                logger.error(f"Erro ao extrair custom field {field_id}: {e}")
-                return None
         
         # Função para filtrar e processar leads
         def process_leads(leads_data):
@@ -1163,29 +1164,6 @@ async def get_conversion_rates(
             logger.error(f"Erro ao buscar tarefas: {e}")
             tasks_data = {"_embedded": {"tasks": []}}
         
-        # Função segura para extrair valor de custom fields
-        def get_custom_field_value(lead, field_id):
-            """Extrai valor de custom field de forma segura"""
-            try:
-                custom_fields = lead.get("custom_fields_values")
-                if not custom_fields or not isinstance(custom_fields, list):
-                    return None
-                    
-                for field in custom_fields:
-                    if not field or not isinstance(field, dict):
-                        continue
-                    if field.get("field_id") == field_id:
-                        values = field.get("values")
-                        if values and isinstance(values, list) and len(values) > 0:
-                            first_value = values[0]
-                            if isinstance(first_value, dict):
-                                return first_value.get("value")
-                            elif isinstance(first_value, str):
-                                return first_value
-                return None
-            except Exception as e:
-                logger.error(f"Erro ao extrair custom field {field_id}: {e}")
-                return None
         
         # Criar mapa de leads (LÓGICA DOS MODAIS)
         leads_map = {}
@@ -1448,29 +1426,6 @@ async def get_pipeline_status(
                                             status_map[status_id] = status_name
                         break  # Encontrou o pipeline, pode parar
         
-        # Função segura para extrair valor de custom fields
-        def get_custom_field_value(lead, field_id):
-            """Extrai valor de custom field de forma segura"""
-            try:
-                custom_fields = lead.get("custom_fields_values")
-                if not custom_fields or not isinstance(custom_fields, list):
-                    return None
-                    
-                for field in custom_fields:
-                    if not field or not isinstance(field, dict):
-                        continue
-                    if field.get("field_id") == field_id:
-                        values = field.get("values")
-                        if values and isinstance(values, list) and len(values) > 0:
-                            first_value = values[0]
-                            if isinstance(first_value, dict):
-                                return first_value.get("value")
-                            elif isinstance(first_value, str):
-                                return first_value
-                return None
-            except Exception as e:
-                logger.error(f"Erro ao extrair custom field {field_id}: {e}")
-                return None
         
         # Função para verificar se venda tem data válida E está no período (ESPECIFICAÇÃO PO)
         def has_valid_sale_date(lead):
