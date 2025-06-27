@@ -56,35 +56,41 @@ async def get_sales_kpis(
         STATUS_VENDA_FINAL = 142
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126
         
-        # LÓGICA DOS MODAIS: Buscar de AMBOS os pipelines (Vendas + Remarketing)
+        # ============================================================================
+        # IMPLEMENTAÇÃO CONFORME ESPECIFICAÇÃO DO PO - SEPARAÇÃO COMPLETA
+        # ============================================================================
+        # PROPOSTAS: Filtrar por updated_at + status_proposta (evolução para proposta)
+        # VENDAS: Filtrar por campo data_fechamento (custom field) para período
+        # REUNIÕES: Filtrar por created_at da task (já implementado corretamente)
+        # ============================================================================
         current_leads_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
-            "filter[created_at][from]": start_time,   # MODAL: usar created_at
-            "filter[created_at][to]": end_time,
+            "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
+            "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
         
         current_leads_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
-            "filter[created_at][from]": start_time,
-            "filter[created_at][to]": end_time,
+            "filter[updated_at][from]": start_time,
+            "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
         
         previous_leads_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
-            "filter[created_at][from]": previous_start_time,
-            "filter[created_at][to]": previous_end_time,
+            "filter[updated_at][from]": previous_start_time,
+            "filter[updated_at][to]": previous_end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
         
         previous_leads_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
-            "filter[created_at][from]": previous_start_time,
-            "filter[created_at][to]": previous_end_time,
+            "filter[updated_at][from]": previous_start_time,
+            "filter[updated_at][to]": previous_end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
@@ -210,15 +216,33 @@ async def get_sales_kpis(
         current_leads = process_leads(current_leads_data)
         previous_leads = process_leads(previous_leads_data)
         
-        # Função para verificar se venda tem data válida (LÓGICA DOS MODAIS)
+        # Função para verificar se venda tem data válida E está no período (ESPECIFICAÇÃO PO)
         def has_valid_sale_date(lead):
-            """Verifica se a venda tem Data Fechamento válido - SEM fallback para closed_at"""
+            """Verifica se a venda tem Data Fechamento válido E está no período especificado"""
             # APENAS Data Fechamento (custom field) - sem fallback para closed_at
             data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
-            if data_fechamento:
-                return True
-            # Se não tiver Data Fechamento, NÃO é venda válida
-            return False
+            if not data_fechamento:
+                return False
+            
+            # Verificar se a data de fechamento está no período especificado (PO)
+            try:
+                from datetime import datetime
+                # Assumindo formato timestamp ou data string
+                if isinstance(data_fechamento, (int, float)):
+                    fechamento_timestamp = int(data_fechamento)
+                elif isinstance(data_fechamento, str):
+                    # Tentar converter string para timestamp (formato YYYY-MM-DD)
+                    fechamento_dt = datetime.strptime(data_fechamento, '%Y-%m-%d')
+                    fechamento_timestamp = int(fechamento_dt.timestamp())
+                else:
+                    return False
+                
+                # Verificar se está no período - PO: usar data_fechamento para filtrar período
+                return start_time <= fechamento_timestamp <= end_time
+            except Exception as e:
+                logger.error(f"Erro ao processar data_fechamento {data_fechamento}: {e}")
+                # Se não conseguir converter, considerar inválida
+                return False
         
         # Calcular métricas do período atual
         total_leads = len(current_leads)
@@ -244,14 +268,37 @@ async def get_sales_kpis(
         total_closed = won_leads + lost_leads
         win_rate = (won_leads / total_closed * 100) if total_closed > 0 else 0
         
+        # Função para verificar vendas do período anterior
+        def has_valid_sale_date_previous(lead):
+            """Verifica se a venda tem Data Fechamento válido E está no período anterior"""
+            data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
+            if not data_fechamento:
+                return False
+            
+            try:
+                from datetime import datetime
+                if isinstance(data_fechamento, (int, float)):
+                    fechamento_timestamp = int(data_fechamento)
+                elif isinstance(data_fechamento, str):
+                    fechamento_dt = datetime.strptime(data_fechamento, '%Y-%m-%d')
+                    fechamento_timestamp = int(fechamento_dt.timestamp())
+                else:
+                    return False
+                
+                # Verificar se está no período anterior
+                return previous_start_time <= fechamento_timestamp <= previous_end_time
+            except Exception as e:
+                logger.error(f"Erro ao processar data_fechamento anterior {data_fechamento}: {e}")
+                return False
+        
         # Calcular métricas do período anterior
         previous_total_leads = len(previous_leads)
         previous_active_leads = len([lead for lead in previous_leads if lead.get("status_id") not in [142, 143]])
         
-        # Vendas anteriores: apenas status de venda + data válida
+        # Vendas anteriores: apenas status de venda + data válida no período anterior
         previous_won_leads_with_date = [
             lead for lead in previous_leads 
-            if lead.get("status_id") in [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO] and has_valid_sale_date(lead)
+            if lead.get("status_id") in [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO] and has_valid_sale_date_previous(lead)
         ]
         previous_won_leads = len(previous_won_leads_with_date)
         
@@ -351,16 +398,16 @@ async def get_leads_by_user_chart(
         # Buscar leads de AMBOS os pipelines (Vendas + Remarketing)
         leads_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
-            "filter[created_at][from]": start_time,   # MODAL: usar created_at
-            "filter[created_at][to]": end_time,
+            "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
+            "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
         
         leads_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
-            "filter[created_at][from]": start_time,   # MODAL: usar created_at
-            "filter[created_at][to]": end_time,
+            "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
+            "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
@@ -369,7 +416,7 @@ async def get_leads_by_user_chart(
         tasks_params = {
             'filter[task_type]': 2,  # Tipo reunião
             'filter[is_completed]': 1,  # Apenas concluídas
-            'filter[created_at][from]': start_time,  # MODAL: usar created_at
+            'filter[created_at][from]': start_time,  # PO: usar created_at para reuniões
             'filter[created_at][to]': end_time,
             'limit': 250
         }
@@ -503,8 +550,8 @@ async def get_leads_by_user_chart(
                             if fonte_lead != fonte:
                                 continue
                     
-                    # Determinar corretor final - apenas custom field
-                    final_corretor = corretor_lead or "Vazio"
+                    # Determinar corretor final - tratar como "desconhecido" conforme PO
+                    final_corretor = corretor_lead or "Desconhecido"
                     
                     
                     # Inicializar contador se não existir
@@ -522,20 +569,33 @@ async def get_leads_by_user_chart(
                     # Incrementar contadores
                     leads_by_user[final_corretor]["value"] += 1
                     
-                    # Verificar se tem Data Fechamento para vendas (LÓGICA DOS MODAIS)
-                    def has_valid_sale_date(lead):
+                    # Verificar se tem Data Fechamento para vendas E está no período (ESPECIFICAÇÃO PO)
+                    def has_valid_sale_date_local(lead):
                         data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
-                        if data_fechamento:
-                            return True
-                        # SEM fallback para closed_at - seguindo lógica dos modais
-                        return False
+                        if not data_fechamento:
+                            return False
+                        
+                        try:
+                            from datetime import datetime
+                            if isinstance(data_fechamento, (int, float)):
+                                fechamento_timestamp = int(data_fechamento)
+                            elif isinstance(data_fechamento, str):
+                                fechamento_dt = datetime.strptime(data_fechamento, '%Y-%m-%d')
+                                fechamento_timestamp = int(fechamento_dt.timestamp())
+                            else:
+                                return False
+                            
+                            # PO: usar data_fechamento para filtrar período de vendas
+                            return start_time <= fechamento_timestamp <= end_time
+                        except Exception:
+                            return False
                     
                     status_id = lead.get("status_id")
                     lead_id = lead.get("id")
                     
-                    # Vendas: apenas com data válida
+                    # Vendas: apenas com data válida E no período
                     if (status_id in [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO] and 
-                        has_valid_sale_date(lead)):
+                        has_valid_sale_date_local(lead)):
                         leads_by_user[final_corretor]["sales"] += 1
                     elif status_id == 143:  # Lost
                         leads_by_user[final_corretor]["lost"] += 1
@@ -638,16 +698,16 @@ async def get_conversion_rates(
         # Buscar leads de AMBOS os pipelines (Vendas + Remarketing)
         leads_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
-            "filter[created_at][from]": start_time,   # MODAL: usar created_at
-            "filter[created_at][to]": end_time,
+            "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
+            "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
         
         leads_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
-            "filter[created_at][from]": start_time,   # MODAL: usar created_at
-            "filter[created_at][to]": end_time,
+            "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
+            "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
@@ -656,7 +716,7 @@ async def get_conversion_rates(
         tasks_params = {
             'filter[task_type]': 2,  # Tipo reunião
             'filter[is_completed]': 1,  # Apenas concluídas
-            'filter[created_at][from]': start_time,  # MODAL: usar created_at
+            'filter[created_at][from]': start_time,  # PO: usar created_at para reuniões
             'filter[created_at][to]': end_time,
             'limit': 250
         }
@@ -778,14 +838,27 @@ async def get_conversion_rates(
                     
                     filtered_leads.append(lead)
         
-        # Função para verificar se venda tem data válida (LÓGICA DOS MODAIS)
+        # Função para verificar se venda tem data válida E está no período (ESPECIFICAÇÃO PO)
         def has_valid_sale_date(lead):
-            """Verifica se a venda tem Data Fechamento válido - SEM fallback para closed_at"""
+            """Verifica se a venda tem Data Fechamento válido E está no período especificado"""
             data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
-            if data_fechamento:
-                return True
-            # SEM fallback para closed_at - seguindo lógica dos modais
-            return False
+            if not data_fechamento:
+                return False
+            
+            try:
+                from datetime import datetime
+                if isinstance(data_fechamento, (int, float)):
+                    fechamento_timestamp = int(data_fechamento)
+                elif isinstance(data_fechamento, str):
+                    fechamento_dt = datetime.strptime(data_fechamento, '%Y-%m-%d')
+                    fechamento_timestamp = int(fechamento_dt.timestamp())
+                else:
+                    return False
+                
+                # PO: usar data_fechamento para filtrar período de vendas
+                return start_time <= fechamento_timestamp <= end_time
+            except Exception:
+                return False
         
         # Calcular métricas de conversão com nova lógica
         total_leads = len(filtered_leads)
@@ -900,16 +973,16 @@ async def get_pipeline_status(
         # Buscar leads de AMBOS os pipelines (Vendas + Remarketing)
         leads_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
-            "filter[created_at][from]": start_time,   # MODAL: usar created_at
-            "filter[created_at][to]": end_time,
+            "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
+            "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
         
         leads_remarketing_params = {
             "filter[pipeline_id]": PIPELINE_REMARKETING,  # Remarketing
-            "filter[created_at][from]": start_time,   # MODAL: usar created_at
-            "filter[created_at][to]": end_time,
+            "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
+            "filter[updated_at][to]": end_time,
             "limit": 250,
             "with": "custom_fields_values"
         }
@@ -992,14 +1065,27 @@ async def get_pipeline_status(
                 logger.error(f"Erro ao extrair custom field {field_id}: {e}")
                 return None
         
-        # Função para verificar se venda tem data válida (LÓGICA DOS MODAIS)
+        # Função para verificar se venda tem data válida E está no período (ESPECIFICAÇÃO PO)
         def has_valid_sale_date(lead):
-            """Verifica se a venda tem Data Fechamento válido - SEM fallback para closed_at"""
+            """Verifica se a venda tem Data Fechamento válido E está no período especificado"""
             data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
-            if data_fechamento:
-                return True
-            # SEM fallback para closed_at - seguindo lógica dos modais
-            return False
+            if not data_fechamento:
+                return False
+            
+            try:
+                from datetime import datetime
+                if isinstance(data_fechamento, (int, float)):
+                    fechamento_timestamp = int(data_fechamento)
+                elif isinstance(data_fechamento, str):
+                    fechamento_dt = datetime.strptime(data_fechamento, '%Y-%m-%d')
+                    fechamento_timestamp = int(fechamento_dt.timestamp())
+                else:
+                    return False
+                
+                # PO: usar data_fechamento para filtrar período de vendas
+                return start_time <= fechamento_timestamp <= end_time
+            except Exception:
+                return False
         
         # Processar leads com filtros
         pipeline_status = {}
@@ -1152,8 +1238,8 @@ async def debug_sources_data(
         # Buscar leads
         leads_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,
-            "filter[created_at][from]": start_time,   # MODAL: usar created_at
-            "filter[created_at][to]": end_time,
+            "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
+            "filter[updated_at][to]": end_time,
             "limit": 50,  # Apenas alguns para debug
             "with": "custom_fields_values"
         }
