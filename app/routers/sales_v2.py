@@ -515,7 +515,7 @@ async def get_leads_by_user_chart(
             "filter[created_at][from]": start_time,   # CORREÇÃO: usar created_at para leads (igual detailed-tables)
             "filter[created_at][to]": end_time,
             "limit": 250,
-            "with": "custom_fields_values"
+            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro do detailed-tables
         }
         
         leads_remarketing_params = {
@@ -523,7 +523,7 @@ async def get_leads_by_user_chart(
             "filter[created_at][from]": start_time,   # CORREÇÃO: usar created_at para leads (igual detailed-tables)
             "filter[created_at][to]": end_time,
             "limit": 250,
-            "with": "custom_fields_values"
+            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro do detailed-tables
         }
         
         # ADICIONAR: Buscar propostas e vendas para completar o mapa de leads (igual detailed-tables)
@@ -534,7 +534,7 @@ async def get_leads_by_user_chart(
             "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
             "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
             "limit": 250,
-            "with": "custom_fields_values"
+            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro do detailed-tables
         }
         
         vendas_vendas_params = {
@@ -544,7 +544,7 @@ async def get_leads_by_user_chart(
             "filter[updated_at][from]": start_time - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
             "filter[updated_at][to]": end_time,
             "limit": 250,
-            "with": "custom_fields_values"
+            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro do detailed-tables
         }
 
         # Buscar tarefas de reunião concluídas
@@ -638,11 +638,30 @@ async def get_leads_by_user_chart(
             if lead and lead.get("id"):
                 leads_map[lead.get("id")] = lead
                 
+        # Função segura para extrair valor de custom fields
+        def get_custom_field_value(lead, field_id):
+            """Extrai valor de custom field de forma segura"""
+            try:
+                custom_fields = lead.get("custom_fields_values")
+                if not custom_fields or not isinstance(custom_fields, list):
+                    return None
+                for field in custom_fields:
+                    if field and field.get("field_id") == field_id:
+                        values = field.get("values")
+                        if values and isinstance(values, list) and len(values) > 0:
+                            return values[0].get("value")
+                return None
+            except Exception as e:
+                logger.error(f"Erro ao extrair custom field {field_id}: {e}")
+                return None
+        
         # Log para debug das reuniões
         logger.info(f"[charts/leads-by-user] Leads combinados: normais={len(all_leads)}, propostas={len(all_propostas)}, vendas={len(all_vendas)}, total_mapa={len(leads_map)}")
         
         # Criar mapa de reuniões realizadas por lead (LÓGICA DOS MODAIS)
         meetings_by_lead = {}
+        meetings_debug = []  # Para debugar
+        
         if tasks_data and "_embedded" in tasks_data:
             tasks_list = tasks_data["_embedded"].get("tasks", [])
             if isinstance(tasks_list, list):
@@ -654,13 +673,20 @@ async def get_leads_by_user_chart(
                         # ADICIONAR: Validação dupla de data (igual detailed-tables linha 1121)
                         created_at = task.get('created_at')
                         if not created_at:
+                            meetings_debug.append(f"Task {task.get('id')}: sem created_at")
                             continue
                         if created_at < start_time or created_at > end_time:
+                            meetings_debug.append(f"Task {task.get('id')}: data fora do período ({created_at})")
                             continue
                         
                         # MODAL: Verificar se o lead existe nos pipelines filtrados
                         if lead_id and lead_id in leads_map:
                             meetings_by_lead[lead_id] = meetings_by_lead.get(lead_id, 0) + 1
+                            lead = leads_map[lead_id]
+                            corretor = get_custom_field_value(lead, 837920)
+                            meetings_debug.append(f"Reunião válida: lead {lead_id}, corretor '{corretor}', task {task.get('id')}")
+                        elif lead_id:
+                            meetings_debug.append(f"Lead {lead_id} não encontrado no mapa de leads (task {task.get('id')})")
                             
         # Log para debug das reuniões encontradas
         total_meetings = sum(meetings_by_lead.values())
@@ -670,29 +696,9 @@ async def get_leads_by_user_chart(
         total_tasks = len(tasks_list) if 'tasks_list' in locals() and tasks_list else 0
         logger.info(f"[charts/leads-by-user] Tasks: total_api={total_tasks}, reunioes_validas={total_meetings}, periodo={start_time}-{end_time}")
         
-        # Função segura para extrair valor de custom fields
-        def get_custom_field_value(lead, field_id):
-            """Extrai valor de custom field de forma segura"""
-            try:
-                custom_fields = lead.get("custom_fields_values")
-                if not custom_fields or not isinstance(custom_fields, list):
-                    return None
-                    
-                for field in custom_fields:
-                    if not field or not isinstance(field, dict):
-                        continue
-                    if field.get("field_id") == field_id:
-                        values = field.get("values")
-                        if values and isinstance(values, list) and len(values) > 0:
-                            first_value = values[0]
-                            if isinstance(first_value, dict):
-                                return first_value.get("value")
-                            elif isinstance(first_value, str):
-                                return first_value
-                return None
-            except Exception as e:
-                logger.error(f"Erro ao extrair custom field {field_id}: {e}")
-                return None
+        # Log de debug das reuniões (primeiras 10)
+        if meetings_debug:
+            logger.info(f"[charts/leads-by-user] Debug reuniões (primeiras 10): {meetings_debug[:10]}")
         
         # Processar leads
         leads_by_user = {}
