@@ -899,7 +899,7 @@ async def get_detailed_tables(
         STATUS_VENDA_FINAL = 142  # "Closed - won" / "Venda ganha"
         PIPELINE_VENDAS = 10516987  # ID do Funil de Vendas
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126  # ID do campo "Data Fechamento"
-        CUSTOM_FIELD_ESTADO = 800236  # Campo ESTADO
+        CUSTOM_FIELD_ESTADO = 851638  # Campo ESTADO
         
         # Função auxiliar para extrair valores de custom fields
         def get_custom_field_value(lead, field_id):
