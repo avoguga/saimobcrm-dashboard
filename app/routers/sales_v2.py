@@ -515,7 +515,7 @@ async def get_leads_by_user_chart(
             "filter[created_at][from]": start_time,   # CORREÇÃO: usar created_at para leads (igual detailed-tables)
             "filter[created_at][to]": end_time,
             "limit": 250,
-            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro do detailed-tables
+            "with": "custom_fields_values"  # REVERTER: voltar ao parâmetro original
         }
         
         leads_remarketing_params = {
@@ -523,7 +523,7 @@ async def get_leads_by_user_chart(
             "filter[created_at][from]": start_time,   # CORREÇÃO: usar created_at para leads (igual detailed-tables)
             "filter[created_at][to]": end_time,
             "limit": 250,
-            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro do detailed-tables
+            "with": "custom_fields_values"  # REVERTER: voltar ao parâmetro original
         }
         
         # ADICIONAR: Buscar propostas e vendas para completar o mapa de leads (igual detailed-tables)
@@ -534,7 +534,7 @@ async def get_leads_by_user_chart(
             "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
             "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
             "limit": 250,
-            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro do detailed-tables
+            "with": "custom_fields_values"  # REVERTER: voltar ao parâmetro original
         }
         
         vendas_vendas_params = {
@@ -544,7 +544,7 @@ async def get_leads_by_user_chart(
             "filter[updated_at][from]": start_time - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
             "filter[updated_at][to]": end_time,
             "limit": 250,
-            "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro do detailed-tables
+            "with": "custom_fields_values"  # REVERTER: voltar ao parâmetro original
         }
 
         # Buscar tarefas de reunião concluídas
