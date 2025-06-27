@@ -526,6 +526,27 @@ async def get_leads_by_user_chart(
             "with": "custom_fields_values"
         }
         
+        # ADICIONAR: Buscar propostas e vendas para completar o mapa de leads (igual detailed-tables)
+        propostas_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,
+            "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
+            "filter[updated_at][to]": end_time,
+            "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
+            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
+            "limit": 250,
+            "with": "custom_fields_values"
+        }
+        
+        vendas_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,
+            "filter[status_id][0]": STATUS_VENDA_FINAL,
+            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
+            "filter[updated_at][from]": start_time - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
+            "filter[updated_at][to]": end_time,
+            "limit": 250,
+            "with": "custom_fields_values"
+        }
+
         # Buscar tarefas de reunião concluídas
         tasks_params = {
             'filter[task_type]': 2,  # Tipo reunião
@@ -561,6 +582,19 @@ async def get_leads_by_user_chart(
             if isinstance(remarketing_leads, list):
                 all_leads.extend(remarketing_leads)
         
+        # ADICIONAR: Buscar propostas e vendas para completar mapa de leads (igual detailed-tables)
+        try:
+            propostas_data = kommo_api.get_leads(propostas_vendas_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar propostas: {e}")
+            propostas_data = {"_embedded": {"leads": []}}
+            
+        try:
+            vendas_data = kommo_api.get_leads(vendas_vendas_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar vendas: {e}")
+            vendas_data = {"_embedded": {"leads": []}}
+        
         # Log para debug - comparar com detailed-tables
         logger.info(f"[charts/leads-by-user] Total leads encontrados: {len(all_leads)}")
         
@@ -587,11 +621,25 @@ async def get_leads_by_user_chart(
                     if user and isinstance(user, dict):
                         users_map[user.get("id")] = user.get("name", "Usuário Sem Nome")
         
-        # Criar mapa de leads (LÓGICA DOS MODAIS)
+        # Criar mapa de leads COMPLETO (igual detailed-tables)
+        # Combinar TODOS os leads: normais + propostas + vendas
+        all_propostas = []
+        if propostas_data and "_embedded" in propostas_data:
+            all_propostas = propostas_data["_embedded"].get("leads", [])
+            
+        all_vendas = []
+        if vendas_data and "_embedded" in vendas_data:
+            all_vendas = vendas_data["_embedded"].get("leads", [])
+        
+        # Criar mapa combinado (igual detailed-tables linha 1084-1089)
+        all_leads_combined = all_propostas + all_vendas + all_leads
         leads_map = {}
-        for lead in all_leads:
+        for lead in all_leads_combined:
             if lead and lead.get("id"):
                 leads_map[lead.get("id")] = lead
+                
+        # Log para debug das reuniões
+        logger.info(f"[charts/leads-by-user] Leads combinados: normais={len(all_leads)}, propostas={len(all_propostas)}, vendas={len(all_vendas)}, total_mapa={len(leads_map)}")
         
         # Criar mapa de reuniões realizadas por lead (LÓGICA DOS MODAIS)
         meetings_by_lead = {}
@@ -605,6 +653,10 @@ async def get_leads_by_user_chart(
                         # MODAL: Verificar se o lead existe nos pipelines filtrados
                         if lead_id and lead_id in leads_map:
                             meetings_by_lead[lead_id] = meetings_by_lead.get(lead_id, 0) + 1
+                            
+        # Log para debug das reuniões encontradas
+        total_meetings = sum(meetings_by_lead.values())
+        logger.info(f"[charts/leads-by-user] Reuniões mapeadas: {len(meetings_by_lead)} leads com reuniões, total_reuniões={total_meetings}")
         
         # Função segura para extrair valor de custom fields
         def get_custom_field_value(lead, field_id):
