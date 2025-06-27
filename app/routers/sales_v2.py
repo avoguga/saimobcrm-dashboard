@@ -650,6 +650,14 @@ async def get_leads_by_user_chart(
                     if (task and isinstance(task, dict) and 
                         task.get('entity_type') == 'leads'):
                         lead_id = task.get('entity_id')
+                        
+                        # ADICIONAR: Validação dupla de data (igual detailed-tables linha 1121)
+                        created_at = task.get('created_at')
+                        if not created_at:
+                            continue
+                        if created_at < start_time or created_at > end_time:
+                            continue
+                        
                         # MODAL: Verificar se o lead existe nos pipelines filtrados
                         if lead_id and lead_id in leads_map:
                             meetings_by_lead[lead_id] = meetings_by_lead.get(lead_id, 0) + 1
@@ -657,6 +665,10 @@ async def get_leads_by_user_chart(
         # Log para debug das reuniões encontradas
         total_meetings = sum(meetings_by_lead.values())
         logger.info(f"[charts/leads-by-user] Reuniões mapeadas: {len(meetings_by_lead)} leads com reuniões, total_reuniões={total_meetings}")
+        
+        # Log adicional: contar total de tasks processadas vs filtradas
+        total_tasks = len(tasks_list) if 'tasks_list' in locals() and tasks_list else 0
+        logger.info(f"[charts/leads-by-user] Tasks: total_api={total_tasks}, reunioes_validas={total_meetings}, periodo={start_time}-{end_time}")
         
         # Função segura para extrair valor de custom fields
         def get_custom_field_value(lead, field_id):
