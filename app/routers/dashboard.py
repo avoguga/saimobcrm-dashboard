@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timedelta
 from app.services.kommo_api import KommoAPI
 from app.services.facebook_api import FacebookAPI
+from app.utils.date_helpers import validate_sale_in_period, get_lead_closure_date, extract_custom_field_value
 import config
 
 router = APIRouter()
@@ -79,12 +80,46 @@ async def get_marketing_dashboard_complete(
             end_time = int(time.time())
             start_time = end_time - (days * 24 * 60 * 60)
         
-        # Buscar dados básicos - implementação similar aos endpoints existentes
-        leads_params = {"filter[created_at][from]": start_time, "filter[created_at][to]": end_time, "limit": 250}
+        # CORREÇÃO: Buscar apenas pipelines Vendas + Remarketing (igual charts/leads-by-user)
+        # IDs importantes (definidos depois no código)
+        PIPELINE_VENDAS = 10516987
+        PIPELINE_REMARKETING = 11059911
         
+        # Buscar leads de ambos os pipelines separadamente
+        leads_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,
+            "filter[created_at][from]": start_time, 
+            "filter[created_at][to]": end_time, 
+            "limit": 250,
+            "with": "contacts,tags,custom_fields_values"
+        }
         
-        # Buscar dados básicos
-        leads_data = safe_get_data(kommo_api.get_leads, leads_params)
+        leads_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,
+            "filter[created_at][from]": start_time, 
+            "filter[created_at][to]": end_time, 
+            "limit": 250,
+            "with": "contacts,tags,custom_fields_values"
+        }
+        
+        # Buscar dados de ambos os pipelines
+        leads_vendas_data = safe_get_data(kommo_api.get_leads, leads_vendas_params)
+        leads_remarketing_data = safe_get_data(kommo_api.get_leads, leads_remarketing_params)
+        
+        # Combinar leads de ambos os pipelines
+        combined_leads = []
+        if leads_vendas_data and "_embedded" in leads_vendas_data:
+            vendas_leads = leads_vendas_data["_embedded"].get("leads", [])
+            if isinstance(vendas_leads, list):
+                combined_leads.extend(vendas_leads)
+                
+        if leads_remarketing_data and "_embedded" in leads_remarketing_data:
+            remarketing_leads = leads_remarketing_data["_embedded"].get("leads", [])
+            if isinstance(remarketing_leads, list):
+                combined_leads.extend(remarketing_leads)
+        
+        # Criar estrutura similar ao original para compatibilidade
+        leads_data = {"_embedded": {"leads": combined_leads}}
         sources_data = safe_get_data(kommo_api.get_sources)
         tags_data = safe_get_data(kommo_api.get_tags)
         
@@ -978,24 +1013,22 @@ async def get_detailed_tables(
             "with": "contacts,tags,custom_fields_values"
         }
         
-        # VENDAS: Buscar leads com status de venda + filtro temporal amplo para performance
+        # VENDAS: Buscar leads com status de venda - CORREÇÃO: usar formato correto da API
         # (ainda filtraremos por data_fechamento específica depois)
         vendas_vendas_params = {
-            "filter[pipeline_id]": PIPELINE_VENDAS,
-            "filter[status_id][0]": STATUS_VENDA_FINAL,
-            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
-            "filter[updated_at][from]": start_timestamp - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
-            "filter[updated_at][to]": end_timestamp,
+            "filter[statuses][0][pipeline_id]": PIPELINE_VENDAS,
+            "filter[statuses][0][status_id]": STATUS_VENDA_FINAL,
+            "filter[statuses][1][pipeline_id]": PIPELINE_VENDAS,
+            "filter[statuses][1][status_id]": STATUS_CONTRATO_ASSINADO,
             "limit": limit,
             "with": "contacts,tags,custom_fields_values"
         }
         
         vendas_remarketing_params = {
-            "filter[pipeline_id]": PIPELINE_REMARKETING,
-            "filter[status_id][0]": STATUS_VENDA_FINAL,
-            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
-            "filter[updated_at][from]": start_timestamp - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
-            "filter[updated_at][to]": end_timestamp,
+            "filter[statuses][0][pipeline_id]": PIPELINE_REMARKETING,
+            "filter[statuses][0][status_id]": STATUS_VENDA_FINAL,
+            "filter[statuses][1][pipeline_id]": PIPELINE_REMARKETING,
+            "filter[statuses][1][status_id]": STATUS_CONTRATO_ASSINADO,
             "limit": limit,
             "with": "contacts,tags,custom_fields_values"
         }
@@ -1287,48 +1320,18 @@ async def get_detailed_tables(
             lead_name = lead.get("name", "")
             price = lead.get("price", 0)
             
-            # Buscar custom fields para vendas
-            custom_fields = lead.get("custom_fields_values", [])
-            fonte_lead = "N/A"
-            corretor_custom = None
-            data_fechamento_custom = None
+            # Validar se a venda deve ser incluída (status + data no período)
+            if not validate_sale_in_period(lead, start_timestamp, end_timestamp, CUSTOM_FIELD_DATA_FECHAMENTO):
+                continue
             
-            if custom_fields and isinstance(custom_fields, list):
-                for field in custom_fields:
-                    if field and isinstance(field, dict):
-                        field_id = field.get("field_id")
-                        values = field.get("values", [])
-                        
-                        if field_id == 837886 and values:  # Fonte
-                            fonte_lead = values[0].get("value", "N/A")
-                        elif field_id == 837920 and values:  # Corretor
-                            corretor_custom = values[0].get("value")
-                        elif field_id == CUSTOM_FIELD_DATA_FECHAMENTO and values:  # Data Fechamento
-                            data_fechamento_custom = values[0].get("value")
+            # Extrair campos customizados usando função padronizada
+            fonte_lead = extract_custom_field_value(lead, 837886) or "N/A"  # Fonte
+            corretor_custom = extract_custom_field_value(lead, 837920)  # Corretor
             
-            # Para vendas: APENAS usar Data Fechamento (PO)
-            if not data_fechamento_custom:
-                continue  # Pular vendas sem data_fechamento
-            
-            # Verificar se data_fechamento está no período
-            try:
-                if isinstance(data_fechamento_custom, str):
-                    if data_fechamento_custom.isdigit():
-                        data_timestamp = int(data_fechamento_custom)
-                    else:
-                        # Tentar formato YYYY-MM-DD
-                        data_dt = datetime.strptime(data_fechamento_custom, '%Y-%m-%d')
-                        data_timestamp = int(data_dt.timestamp())
-                else:
-                    data_timestamp = int(data_fechamento_custom)
-                
-                # Verificar se está no período
-                if data_timestamp < start_timestamp or data_timestamp > end_timestamp:
-                    continue  # Pular vendas fora do período
-                    
-            except Exception as e:
-                logger.warning(f"Erro ao processar data_fechamento {data_fechamento_custom}: {e}")
-                continue  # Pular vendas com data inválida
+            # Obter timestamp da data de fechamento para formatação
+            data_timestamp = get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
+            if not data_timestamp:
+                continue  # Não deveria chegar aqui, mas por segurança
             
             # Determinar corretor final
             corretor_final = corretor_custom or "Desconhecido"

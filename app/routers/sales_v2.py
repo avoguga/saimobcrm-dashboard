@@ -3,6 +3,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 import traceback
 import logging
+from app.utils.date_helpers import validate_sale_in_period, get_lead_closure_date, extract_custom_field_value as extract_field, is_date_in_period
 
 # Configurar logger
 logger = logging.getLogger(__name__)
@@ -107,14 +108,13 @@ async def get_sales_kpis(
             "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro que detailed-tables
         }
         
-        # VENDAS: Buscar leads com status de venda + filtro temporal amplo para performance
+        # VENDAS: Buscar leads com status de venda - CORREÇÃO: usar formato correto da API
         current_vendas_vendas_params = {
-            "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
-            "filter[status_id][0]": STATUS_VENDA_FINAL,
-            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
-            "filter[updated_at][from]": start_time - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
-            "filter[updated_at][to]": end_time,
-            "limit": 500,  # AUMENTAR limite para evitar perder dados
+            "filter[statuses][0][pipeline_id]": PIPELINE_VENDAS,
+            "filter[statuses][0][status_id]": STATUS_VENDA_FINAL,
+            "filter[statuses][1][pipeline_id]": PIPELINE_VENDAS,
+            "filter[statuses][1][status_id]": STATUS_CONTRATO_ASSINADO,
+            "limit": 500,
             "with": "custom_fields_values"
         }
         
@@ -135,14 +135,13 @@ async def get_sales_kpis(
             "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro que detailed-tables
         }
         
-        # VENDAS ANTERIORES
+        # VENDAS ANTERIORES - CORREÇÃO: usar formato correto da API
         previous_vendas_vendas_params = {
-            "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
-            "filter[status_id][0]": STATUS_VENDA_FINAL,
-            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
-            "filter[updated_at][from]": previous_start_time - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
-            "filter[updated_at][to]": previous_end_time,
-            "limit": 500,  # AUMENTAR limite para evitar perder dados
+            "filter[statuses][0][pipeline_id]": PIPELINE_VENDAS,
+            "filter[statuses][0][status_id]": STATUS_VENDA_FINAL,
+            "filter[statuses][1][pipeline_id]": PIPELINE_VENDAS,
+            "filter[statuses][1][status_id]": STATUS_CONTRATO_ASSINADO,
+            "limit": 500,
             "with": "custom_fields_values"
         }
         
@@ -366,41 +365,18 @@ async def get_sales_kpis(
         current_leads = process_leads(current_leads_data)
         previous_leads = process_leads(previous_leads_data)
         
-        # Função para verificar se venda tem data válida E está no período (ESPECIFICAÇÃO PO)
-        def has_valid_sale_date(lead):
-            """Verifica se a venda tem Data Fechamento válido E está no período especificado"""
-            # APENAS Data Fechamento (custom field) - sem fallback para closed_at
-            data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
-            if not data_fechamento:
-                return False
-            
-            # Verificar se a data de fechamento está no período especificado (PO)
-            try:
-                # Assumindo formato timestamp ou data string
-                if isinstance(data_fechamento, (int, float)):
-                    fechamento_timestamp = int(data_fechamento)
-                elif isinstance(data_fechamento, str):
-                    # Tentar converter string para timestamp (formato YYYY-MM-DD)
-                    fechamento_dt = datetime.strptime(data_fechamento, '%Y-%m-%d')
-                    fechamento_timestamp = int(fechamento_dt.timestamp())
-                else:
-                    return False
-                
-                # Verificar se está no período - PO: usar data_fechamento para filtrar período
-                return start_time <= fechamento_timestamp <= end_time
-            except Exception as e:
-                logger.error(f"Erro ao processar data_fechamento {data_fechamento}: {e}")
-                # Se não conseguir converter, considerar inválida
-                return False
+        # Usar função centralizada para validação de vendas
         
         # Calcular métricas do período atual
         total_leads = len(current_leads)
         active_leads = len([lead for lead in current_leads if lead.get("status_id") not in [142, 143]])
         
-        # Vendas: apenas status de venda + data válida
+        # Vendas: usar leads já filtrados por status + validar data no período
+        # current_vendas_all já contém apenas leads com status 142 e 80689759
         won_leads_with_date = [
-            lead for lead in current_leads 
-            if lead.get("status_id") in [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO] and has_valid_sale_date(lead)
+            lead for lead in current_vendas_all 
+            if get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO) and 
+               is_date_in_period(get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO), start_time, end_time)
         ]
         won_leads = len(won_leads_with_date)
         
@@ -451,36 +427,18 @@ async def get_sales_kpis(
         total_closed = won_leads + lost_leads
         win_rate = (won_leads / total_closed * 100) if total_closed > 0 else 0
         
-        # Função para verificar vendas do período anterior
-        def has_valid_sale_date_previous(lead):
-            """Verifica se a venda tem Data Fechamento válido E está no período anterior"""
-            data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
-            if not data_fechamento:
-                return False
-            
-            try:
-                if isinstance(data_fechamento, (int, float)):
-                    fechamento_timestamp = int(data_fechamento)
-                elif isinstance(data_fechamento, str):
-                    fechamento_dt = datetime.strptime(data_fechamento, '%Y-%m-%d')
-                    fechamento_timestamp = int(fechamento_dt.timestamp())
-                else:
-                    return False
-                
-                # Verificar se está no período anterior
-                return previous_start_time <= fechamento_timestamp <= previous_end_time
-            except Exception as e:
-                logger.error(f"Erro ao processar data_fechamento anterior {data_fechamento}: {e}")
-                return False
+        # Usar função centralizada para validação de vendas anteriores
         
         # Calcular métricas do período anterior
         previous_total_leads = len(previous_leads)
         previous_active_leads = len([lead for lead in previous_leads if lead.get("status_id") not in [142, 143]])
         
-        # Vendas anteriores: apenas status de venda + data válida no período anterior
+        # Vendas anteriores: usar leads já filtrados por status + validar data no período anterior
+        # previous_vendas_all já contém apenas leads com status 142 e 80689759
         previous_won_leads_with_date = [
-            lead for lead in previous_leads 
-            if lead.get("status_id") in [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO] and has_valid_sale_date_previous(lead)
+            lead for lead in previous_vendas_all 
+            if get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO) and 
+               is_date_in_period(get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO), previous_start_time, previous_end_time)
         ]
         previous_won_leads = len(previous_won_leads_with_date)
         
@@ -612,7 +570,7 @@ async def get_leads_by_user_chart(
         STATUS_VENDA_FINAL = 142
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126
         
-        # Buscar leads de AMBOS os pipelines (Vendas + Remarketing)
+        # Buscar leads de AMBOS os pipelines (Vendas + Remarketing) - PADRÃO CORRETO
         leads_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
             "filter[created_at][from]": start_time,   # CORREÇÃO: usar created_at para leads (igual detailed-tables)
@@ -631,19 +589,21 @@ async def get_leads_by_user_chart(
         
         # ADICIONAR: Buscar propostas e vendas para completar o mapa de leads (igual detailed-tables)
         propostas_vendas_params = {
-            "filter[pipeline_id]": PIPELINE_VENDAS,
+            "filter[statuses][0][pipeline_id]": PIPELINE_VENDAS,
+            "filter[statuses][0][status_id]": STATUS_PROPOSTA,
+            "filter[statuses][1][pipeline_id]": PIPELINE_VENDAS,
+            "filter[statuses][1][status_id]": STATUS_CONTRATO_ASSINADO,
             "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
             "filter[updated_at][to]": end_time,
-            "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
-            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
             "limit": 500,  # AUMENTAR limite para evitar perder dados
             "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro que detailed-tables
         }
         
         vendas_vendas_params = {
-            "filter[pipeline_id]": PIPELINE_VENDAS,
-            "filter[status_id][0]": STATUS_VENDA_FINAL,
-            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
+            "filter[statuses][0][pipeline_id]": PIPELINE_VENDAS,
+            "filter[statuses][0][status_id]": STATUS_VENDA_FINAL,
+            "filter[statuses][1][pipeline_id]": PIPELINE_VENDAS,
+            "filter[statuses][1][status_id]": STATUS_CONTRATO_ASSINADO,
             "filter[updated_at][from]": start_time - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
             "filter[updated_at][to]": end_time,
             "limit": 500,  # AUMENTAR limite para evitar perder dados
@@ -652,19 +612,21 @@ async def get_leads_by_user_chart(
         
         # CORREÇÃO: Adicionar propostas e vendas do REMARKETING (igual detailed-tables)
         propostas_remarketing_params = {
-            "filter[pipeline_id]": PIPELINE_REMARKETING,
+            "filter[statuses][0][pipeline_id]": PIPELINE_REMARKETING,
+            "filter[statuses][0][status_id]": STATUS_PROPOSTA,
+            "filter[statuses][1][pipeline_id]": PIPELINE_REMARKETING,
+            "filter[statuses][1][status_id]": STATUS_CONTRATO_ASSINADO,
             "filter[updated_at][from]": start_time,   # PO: usar updated_at para propostas
             "filter[updated_at][to]": end_time,
-            "filter[status_id][0]": STATUS_PROPOSTA,  # Propostas
-            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,  # Contrato assinado
             "limit": 500,  # AUMENTAR limite para evitar perder dados
             "with": "contacts,tags,custom_fields_values"
         }
         
         vendas_remarketing_params = {
-            "filter[pipeline_id]": PIPELINE_REMARKETING,
-            "filter[status_id][0]": STATUS_VENDA_FINAL,
-            "filter[status_id][1]": STATUS_CONTRATO_ASSINADO,
+            "filter[statuses][0][pipeline_id]": PIPELINE_REMARKETING,
+            "filter[statuses][0][status_id]": STATUS_VENDA_FINAL,
+            "filter[statuses][1][pipeline_id]": PIPELINE_REMARKETING,
+            "filter[statuses][1][status_id]": STATUS_CONTRATO_ASSINADO,
             "filter[updated_at][from]": start_time - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
             "filter[updated_at][to]": end_time,
             "limit": 500,  # AUMENTAR limite para evitar perder dados
@@ -695,17 +657,22 @@ async def get_leads_by_user_chart(
             logger.error(f"Erro ao buscar leads de remarketing: {e}")
             leads_remarketing_data = {"_embedded": {"leads": []}}
         
-        # Combinar leads de ambos os pipelines
-        all_leads = []
+        # Combinar leads de ambos os pipelines usando deduplicação por ID
+        all_leads_dict = {}
+        
         if leads_vendas_data and "_embedded" in leads_vendas_data:
             vendas_leads = leads_vendas_data["_embedded"].get("leads", [])
             if isinstance(vendas_leads, list):
-                all_leads.extend(vendas_leads)
+                for lead in vendas_leads:
+                    if lead and lead.get("id"):
+                        all_leads_dict[lead.get("id")] = lead
                 
         if leads_remarketing_data and "_embedded" in leads_remarketing_data:
             remarketing_leads = leads_remarketing_data["_embedded"].get("leads", [])
             if isinstance(remarketing_leads, list):
-                all_leads.extend(remarketing_leads)
+                for lead in remarketing_leads:
+                    if lead and lead.get("id"):
+                        all_leads_dict[lead.get("id")] = lead
         
         # ADICIONAR: Buscar propostas e vendas para completar mapa de leads (igual detailed-tables)
         try:
@@ -732,10 +699,75 @@ async def get_leads_by_user_chart(
             logger.error(f"Erro ao buscar vendas remarketing: {e}")
             vendas_remarketing_data = {"_embedded": {"leads": []}}
         
-        # Log para debug - comparar com detailed-tables
-        logger.info(f"[charts/leads-by-user] Total leads encontrados: {len(all_leads)}")
+        # CORREÇÃO: Adicionar vendas já filtradas por status aos leads disponíveis (com deduplicação)
+        if vendas_vendas_data and "_embedded" in vendas_vendas_data:
+            vendas_leads = vendas_vendas_data["_embedded"].get("leads", [])
+            if isinstance(vendas_leads, list):
+                for lead in vendas_leads:
+                    if lead and lead.get("id"):
+                        all_leads_dict[lead.get("id")] = lead
+                
+        if vendas_remarketing_data and "_embedded" in vendas_remarketing_data:
+            vendas_remarketing_leads = vendas_remarketing_data["_embedded"].get("leads", [])
+            if isinstance(vendas_remarketing_leads, list):
+                for lead in vendas_remarketing_leads:
+                    if lead and lead.get("id"):
+                        all_leads_dict[lead.get("id")] = lead
         
-        leads_data = {"_embedded": {"leads": all_leads}}
+        # CORREÇÃO: Separar leads por categoria igual detailed-tables
+        # Apenas leads criados no período + vendas válidas no período para contagem por usuário
+        leads_for_user_count = {}
+        
+        # 1. Adicionar leads criados no período (igual detailed-tables all_leads_for_details)
+        if leads_vendas_data and "_embedded" in leads_vendas_data:
+            vendas_leads = leads_vendas_data["_embedded"].get("leads", [])
+            if isinstance(vendas_leads, list):
+                for lead in vendas_leads:
+                    if lead and lead.get("id"):
+                        leads_for_user_count[lead.get("id")] = lead
+                
+        if leads_remarketing_data and "_embedded" in leads_remarketing_data:
+            remarketing_leads = leads_remarketing_data["_embedded"].get("leads", [])
+            if isinstance(remarketing_leads, list):
+                for lead in remarketing_leads:
+                    if lead and lead.get("id"):
+                        leads_for_user_count[lead.get("id")] = lead
+        
+        # 2. ADICIONAR: Vendas válidas no período (mesmo que criadas fora do período)
+        # Isso garante que vendas como Mario Henrique sejam contadas para o corretor correto
+        valid_sale_status_local = [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO]
+        
+        if vendas_vendas_data and "_embedded" in vendas_vendas_data:
+            vendas_leads = vendas_vendas_data["_embedded"].get("leads", [])
+            if isinstance(vendas_leads, list):
+                for lead in vendas_leads:
+                    if lead and lead.get("id"):
+                        # Validar se a venda é do período atual
+                        if validate_sale_in_period(lead, start_time, end_time, CUSTOM_FIELD_DATA_FECHAMENTO, valid_sale_status_local):
+                            leads_for_user_count[lead.get("id")] = lead
+                            logger.info(f"[charts/leads-by-user] Venda válida adicionada: {lead.get('name')} - {lead.get('id')}")
+                
+        if vendas_remarketing_data and "_embedded" in vendas_remarketing_data:
+            vendas_leads = vendas_remarketing_data["_embedded"].get("leads", [])
+            if isinstance(vendas_leads, list):
+                for lead in vendas_leads:
+                    if lead and lead.get("id"):
+                        # Validar se a venda é do período atual
+                        if validate_sale_in_period(lead, start_time, end_time, CUSTOM_FIELD_DATA_FECHAMENTO, valid_sale_status_local):
+                            leads_for_user_count[lead.get("id")] = lead
+                            logger.info(f"[charts/leads-by-user] Venda válida adicionada: {lead.get('name')} - {lead.get('id')}")
+        
+        # Converter para lista
+        all_leads_for_user_count = list(leads_for_user_count.values())
+        
+        # Manter all_leads completo para lookup de reuniões (inclui propostas e vendas antigas)
+        all_leads = list(all_leads_dict.values())
+        
+        # Log para debug - comparar com detailed-tables
+        logger.info(f"[charts/leads-by-user] Leads para contagem: {len(all_leads_for_user_count)}")
+        logger.info(f"[charts/leads-by-user] Total leads (com propostas/vendas): {len(all_leads)}")
+        
+        leads_data = {"_embedded": {"leads": all_leads_for_user_count}}
             
         try:
             tasks_data = kommo_api.get_tasks(tasks_params)
@@ -893,6 +925,10 @@ async def get_leads_by_user_chart(
                     if not lead or not isinstance(lead, dict):
                         continue
                     
+                    # CORREÇÃO: NÃO filtrar por created_at aqui pois já foi filtrado na seleção dos leads
+                    # O all_leads_for_user_count já contém leads criados no período + vendas válidas no período
+                    # Filtrar por created_at aqui removeria vendas válidas criadas fora do período
+                    
                     # Extrair valores de forma segura
                     corretor_lead = get_custom_field_value(lead, 837920)  # Corretor
                     fonte_lead = get_custom_field_value(lead, 837886)     # Fonte
@@ -939,32 +975,14 @@ async def get_leads_by_user_chart(
                     # Incrementar contadores
                     leads_by_user[final_corretor]["value"] += 1
                     
-                    # Verificar se tem Data Fechamento para vendas E está no período (ESPECIFICAÇÃO PO)
-                    def has_valid_sale_date_local(lead):
-                        data_fechamento = get_custom_field_value(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
-                        if not data_fechamento:
-                            return False
-                        
-                        try:
-                            if isinstance(data_fechamento, (int, float)):
-                                fechamento_timestamp = int(data_fechamento)
-                            elif isinstance(data_fechamento, str):
-                                fechamento_dt = datetime.strptime(data_fechamento, '%Y-%m-%d')
-                                fechamento_timestamp = int(fechamento_dt.timestamp())
-                            else:
-                                return False
-                            
-                            # PO: usar data_fechamento para filtrar período de vendas
-                            return start_time <= fechamento_timestamp <= end_time
-                        except Exception:
-                            return False
+                    # Usar função centralizada para validação de vendas
+                    valid_sale_status_local = [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO]
                     
                     status_id = lead.get("status_id")
                     lead_id = lead.get("id")
                     
                     # Vendas: apenas com data válida E no período
-                    if (status_id in [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO] and 
-                        has_valid_sale_date_local(lead)):
+                    if validate_sale_in_period(lead, start_time, end_time, CUSTOM_FIELD_DATA_FECHAMENTO, valid_sale_status_local):
                         leads_by_user[final_corretor]["sales"] += 1
                     elif status_id == 143:  # Lost
                         leads_by_user[final_corretor]["lost"] += 1
@@ -1255,10 +1273,10 @@ async def get_conversion_rates(
         proposals_leads = len([lead for lead in filtered_leads if lead.get("status_id") == STATUS_PROPOSTA])
         
         # Vendas: apenas status de venda + data válida
+        valid_sale_status_conversion = [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO]
         sales_leads = len([
             lead for lead in filtered_leads 
-            if (lead.get("status_id") in [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO] and 
-                has_valid_sale_date(lead))
+            if validate_sale_in_period(lead, start_time, end_time, CUSTOM_FIELD_DATA_FECHAMENTO, valid_sale_status_conversion)
         ])
         
         # Calcular taxas de conversão
@@ -1495,7 +1513,8 @@ async def get_pipeline_status(
                         grouped_status = "Proposta"
                     elif status_id in [STATUS_CONTRATO_ASSINADO, STATUS_VENDA_FINAL]:
                         # Verificar se venda tem data válida
-                        if has_valid_sale_date(lead):
+                        valid_sale_status_pipeline = [STATUS_CONTRATO_ASSINADO, STATUS_VENDA_FINAL]
+                        if validate_sale_in_period(lead, start_time, end_time, CUSTOM_FIELD_DATA_FECHAMENTO, valid_sale_status_pipeline):
                             grouped_status = "Venda Concluída"
                         else:
                             grouped_status = "Venda sem Data"
