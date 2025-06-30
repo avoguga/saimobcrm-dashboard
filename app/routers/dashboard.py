@@ -1205,7 +1205,7 @@ async def get_detailed_tables(
             if corretor_custom:
                 corretor_final = corretor_custom
             else:
-                corretor_final = "Desconhecido"  # Sem fallback para responsible_user_id
+                corretor_final = "Vazio"  # Sem fallback para responsible_user_id
             
             
             # Filtrar por corretor se especificado
@@ -1277,8 +1277,8 @@ async def get_detailed_tables(
                 continue
             
             
-            # Determinar corretor final - "Desconhecido" conforme PO
-            corretor_final = corretor_custom or "Desconhecido"
+            # Determinar corretor final - "Vazio" conforme PO
+            corretor_final = corretor_custom or "Vazio"
             
             # Filtrar por corretor se especificado
             if corretor and isinstance(corretor, str) and corretor.strip():
@@ -1334,7 +1334,7 @@ async def get_detailed_tables(
                 continue  # Não deveria chegar aqui, mas por segurança
             
             # Determinar corretor final
-            corretor_final = corretor_custom or "Desconhecido"
+            corretor_final = corretor_custom or "Vazio"
             
             # Filtrar por corretor se especificado
             if corretor and isinstance(corretor, str) and corretor.strip():
@@ -1399,7 +1399,7 @@ async def get_detailed_tables(
             if corretor_custom:
                 corretor_final = corretor_custom
             else:
-                corretor_final = "Desconhecido"
+                corretor_final = "Vazio"
             
             
             # Filtrar por corretor se especificado
@@ -1844,7 +1844,7 @@ async def get_sales_comparison(
                     
                     # Extrair corretor do custom field
                     corretor_lead = get_custom_field_value(lead, 837920)  # ID do campo Corretor
-                    final_corretor = corretor_lead or "Desconhecido"  # Consistente com detailed-tables
+                    final_corretor = corretor_lead or "Vazio"  # Consistente com detailed-tables
                     
                     # Inicializar contador se não existir
                     if final_corretor not in leads_by_user:

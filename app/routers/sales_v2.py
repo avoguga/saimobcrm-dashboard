@@ -393,8 +393,8 @@ async def get_sales_kpis(
             corretor_lead = get_custom_field_value(lead, 837920)
             fonte_lead = get_custom_field_value(lead, 837886)
             
-            # Determinar corretor final - "Desconhecido" conforme PO (igual detailed-tables)
-            corretor_final = corretor_lead or "Desconhecido"
+            # Determinar corretor final - "Vazio" conforme PO (igual detailed-tables)
+            corretor_final = corretor_lead or "Vazio"
             
             # Aplicar filtros
             if corretor and isinstance(corretor, str) and corretor.strip():
@@ -454,8 +454,8 @@ async def get_sales_kpis(
             corretor_lead = get_custom_field_value(lead, 837920)
             fonte_lead = get_custom_field_value(lead, 837886)
             
-            # Determinar corretor final - "Desconhecido" conforme PO (igual detailed-tables)
-            corretor_final = corretor_lead or "Desconhecido"
+            # Determinar corretor final - "Vazio" conforme PO (igual detailed-tables)
+            corretor_final = corretor_lead or "Vazio"
             
             # Aplicar filtros
             if corretor and isinstance(corretor, str) and corretor.strip():
@@ -880,7 +880,7 @@ async def get_leads_by_user_chart(
                             if corretor_lead:
                                 corretor_final = corretor_lead
                             else:
-                                corretor_final = "Desconhecido"
+                                corretor_final = "Vazio"
                             
                             # Aplicar filtros de corretor se especificado
                             if corretor and isinstance(corretor, str) and corretor.strip():
@@ -956,8 +956,8 @@ async def get_leads_by_user_chart(
                             if fonte_lead != fonte:
                                 continue
                     
-                    # Determinar corretor final - tratar como "desconhecido" conforme PO
-                    final_corretor = corretor_lead or "Desconhecido"
+                    # Determinar corretor final - tratar como "vazio" conforme PO
+                    final_corretor = corretor_lead or "Vazio"
                     
                     
                     # Inicializar contador se não existir
