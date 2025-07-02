@@ -178,16 +178,24 @@ async def get_sales_kpis(
             "with": "custom_fields_values"
         }
         
-        # Buscar PROPOSTAS do período atual de ambos os pipelines
+        # Buscar PROPOSTAS do período atual de ambos os pipelines - USAR PAGINAÇÃO
         try:
-            current_propostas_vendas_data = kommo_api.get_leads(current_propostas_vendas_params)
+            # Remover limit para usar get_all_leads
+            current_propostas_vendas_params_all = {k: v for k, v in current_propostas_vendas_params.items() if k != 'limit'}
+            logger.info(f"DEBUG PAGINAÇÃO: Chamando get_all_leads com params: {current_propostas_vendas_params_all}")
+            current_propostas_vendas_leads = kommo_api.get_all_leads(current_propostas_vendas_params_all)
+            logger.info(f"DEBUG PAGINAÇÃO: get_all_leads retornou {len(current_propostas_vendas_leads)} leads")
+            current_propostas_vendas_data = {"_embedded": {"leads": current_propostas_vendas_leads}}
         except Exception as e:
             logger.error(f"Erro ao buscar propostas vendas atuais: {e}")
             current_propostas_vendas_data = {"_embedded": {"leads": []}}
             
-        # ADICIONAR: propostas do REMARKETING para período atual
+        # ADICIONAR: propostas do REMARKETING para período atual - USAR PAGINAÇÃO
         try:
-            current_propostas_remarketing_data = kommo_api.get_leads(current_propostas_remarketing_params)
+            # Remover limit para usar get_all_leads
+            current_propostas_remarketing_params_all = {k: v for k, v in current_propostas_remarketing_params.items() if k != 'limit'}
+            current_propostas_remarketing_leads = kommo_api.get_all_leads(current_propostas_remarketing_params_all)
+            current_propostas_remarketing_data = {"_embedded": {"leads": current_propostas_remarketing_leads}}
         except Exception as e:
             logger.error(f"Erro ao buscar propostas remarketing atuais: {e}")
             current_propostas_remarketing_data = {"_embedded": {"leads": []}}
@@ -210,9 +218,12 @@ async def get_sales_kpis(
             logger.error(f"Erro ao buscar todos os leads vendas atuais: {e}")
             current_leads_vendas_data = {"_embedded": {"leads": []}}
             
-        # Buscar PROPOSTAS do período anterior
+        # Buscar PROPOSTAS do período anterior - USAR PAGINAÇÃO
         try:
-            previous_propostas_vendas_data = kommo_api.get_leads(previous_propostas_vendas_params)
+            # Remover limit para usar get_all_leads
+            previous_propostas_vendas_params_all = {k: v for k, v in previous_propostas_vendas_params.items() if k != 'limit'}
+            previous_propostas_vendas_leads = kommo_api.get_all_leads(previous_propostas_vendas_params_all)
+            previous_propostas_vendas_data = {"_embedded": {"leads": previous_propostas_vendas_leads}}
         except Exception as e:
             logger.error(f"Erro ao buscar propostas vendas anteriores: {e}")
             previous_propostas_vendas_data = {"_embedded": {"leads": []}}
@@ -224,7 +235,10 @@ async def get_sales_kpis(
             previous_vendas_vendas_data = {"_embedded": {"leads": []}}
             
         try:
-            previous_propostas_remarketing_data = kommo_api.get_leads(previous_propostas_remarketing_params)
+            # Remover limit para usar get_all_leads
+            previous_propostas_remarketing_params_all = {k: v for k, v in previous_propostas_remarketing_params.items() if k != 'limit'}
+            previous_propostas_remarketing_leads = kommo_api.get_all_leads(previous_propostas_remarketing_params_all)
+            previous_propostas_remarketing_data = {"_embedded": {"leads": previous_propostas_remarketing_leads}}
         except Exception as e:
             logger.error(f"Erro ao buscar propostas remarketing anteriores: {e}")
             previous_propostas_remarketing_data = {"_embedded": {"leads": []}}
@@ -245,9 +259,28 @@ async def get_sales_kpis(
         # Combinar PROPOSTAS de ambos os pipelines - filtrar por campo ESTADO = "Proposta Feita"
         current_propostas_all = []
         
+        # DEBUG: Ver quantos leads vieram da busca
+        logger.info(f"DEBUG PROPOSTAS: current_propostas_vendas_data tem dados? {bool(current_propostas_vendas_data and '_embedded' in current_propostas_vendas_data)}")
+        
         # Filtrar propostas do VENDAS por campo ESTADO
         if current_propostas_vendas_data and "_embedded" in current_propostas_vendas_data:
             vendas_leads = current_propostas_vendas_data["_embedded"].get("leads", [])
+            logger.info(f"DEBUG PROPOSTAS: {len(vendas_leads)} leads encontrados no pipeline vendas")
+            
+            # DEBUG: Ver valores do campo ESTADO e contar propostas
+            estados_encontrados = {}
+            propostas_exatas = 0
+            for lead in vendas_leads:
+                if lead:
+                    estado = get_custom_field_value(lead, CUSTOM_FIELD_ESTADO)
+                    if estado:
+                        estados_encontrados[estado] = estados_encontrados.get(estado, 0) + 1
+                        if estado == "Proposta Feita":
+                            propostas_exatas += 1
+            
+            logger.info(f"DEBUG PROPOSTAS: Estados encontrados: {estados_encontrados}")
+            logger.info(f"DEBUG PROPOSTAS: Propostas exatas encontradas: {propostas_exatas}")
+            
             for lead in vendas_leads:
                 if lead and get_custom_field_value(lead, CUSTOM_FIELD_ESTADO) == "Proposta Feita":
                     current_propostas_all.append(lead)
@@ -255,9 +288,13 @@ async def get_sales_kpis(
         # Filtrar propostas do REMARKETING por campo ESTADO
         if current_propostas_remarketing_data and "_embedded" in current_propostas_remarketing_data:
             remarketing_leads = current_propostas_remarketing_data["_embedded"].get("leads", [])
+            logger.info(f"DEBUG PROPOSTAS: {len(remarketing_leads)} leads encontrados no pipeline remarketing")
+            
             for lead in remarketing_leads:
                 if lead and get_custom_field_value(lead, CUSTOM_FIELD_ESTADO) == "Proposta Feita":
                     current_propostas_all.append(lead)
+        
+        logger.info(f"DEBUG PROPOSTAS: Total de propostas após filtrar por ESTADO='Proposta Feita': {len(current_propostas_all)}")
         
         # Combinar VENDAS (sem adicionar remarketing para vendas)
         current_vendas_all = []
@@ -371,13 +408,50 @@ async def get_sales_kpis(
         total_leads = len(current_leads)
         active_leads = len([lead for lead in current_leads if lead.get("status_id") not in [142, 143]])
         
-        # Vendas: usar leads já filtrados por status + validar data no período
-        # current_vendas_all já contém apenas leads com status 142 e 80689759
-        won_leads_with_date = [
-            lead for lead in current_vendas_all 
-            if get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO) and 
-               is_date_in_period(get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO), start_time, end_time)
-        ]
+        # Vendas: aplicar filtros de corretor e fonte nas vendas
+        logger.info(f"DEBUG: current_vendas_all tem {len(current_vendas_all)} vendas")
+        logger.info(f"DEBUG: Filtros - corretor: {corretor}, fonte: {fonte}")
+        
+        filtered_vendas = []
+        for lead in current_vendas_all:
+            if not lead:
+                continue
+            
+            # Validar data no período primeiro
+            if not (get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO) and 
+                   is_date_in_period(get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO), start_time, end_time)):
+                continue
+            
+            # Extrair corretor e fonte
+            corretor_lead = get_custom_field_value(lead, 837920)
+            fonte_lead = get_custom_field_value(lead, 837886)
+            
+            # Determinar corretor final
+            corretor_final = corretor_lead or "Vazio"
+            
+            # Aplicar filtros de corretor
+            if corretor and isinstance(corretor, str) and corretor.strip():
+                if ',' in corretor:
+                    corretores_list = [c.strip() for c in corretor.split(',')]
+                    if corretor_final not in corretores_list:
+                        continue
+                else:
+                    if corretor_final != corretor:
+                        continue
+            
+            # Aplicar filtros de fonte
+            if fonte and isinstance(fonte, str) and fonte.strip():
+                if ',' in fonte:
+                    fontes_list = [f.strip() for f in fonte.split(',')]
+                    if fonte_lead not in fontes_list:
+                        continue
+                else:
+                    if fonte_lead != fonte:
+                        continue
+            
+            filtered_vendas.append(lead)
+        
+        won_leads_with_date = filtered_vendas
         won_leads = len(won_leads_with_date)
         
         lost_leads = len([lead for lead in current_leads if lead.get("status_id") == 143])
@@ -433,13 +507,47 @@ async def get_sales_kpis(
         previous_total_leads = len(previous_leads)
         previous_active_leads = len([lead for lead in previous_leads if lead.get("status_id") not in [142, 143]])
         
-        # Vendas anteriores: usar leads já filtrados por status + validar data no período anterior
-        # previous_vendas_all já contém apenas leads com status 142 e 80689759
-        previous_won_leads_with_date = [
-            lead for lead in previous_vendas_all 
-            if get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO) and 
-               is_date_in_period(get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO), previous_start_time, previous_end_time)
-        ]
+        # Vendas anteriores: aplicar filtros de corretor e fonte nas vendas anteriores
+        filtered_previous_vendas = []
+        for lead in previous_vendas_all:
+            if not lead:
+                continue
+            
+            # Validar data no período anterior primeiro
+            if not (get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO) and 
+                   is_date_in_period(get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO), previous_start_time, previous_end_time)):
+                continue
+            
+            # Extrair corretor e fonte
+            corretor_lead = get_custom_field_value(lead, 837920)
+            fonte_lead = get_custom_field_value(lead, 837886)
+            
+            # Determinar corretor final
+            corretor_final = corretor_lead or "Vazio"
+            
+            # Aplicar filtros de corretor
+            if corretor and isinstance(corretor, str) and corretor.strip():
+                if ',' in corretor:
+                    corretores_list = [c.strip() for c in corretor.split(',')]
+                    if corretor_final not in corretores_list:
+                        continue
+                else:
+                    if corretor_final != corretor:
+                        continue
+            
+            # Aplicar filtros de fonte
+            if fonte and isinstance(fonte, str) and fonte.strip():
+                if ',' in fonte:
+                    fontes_list = [f.strip() for f in fonte.split(',')]
+                    if fonte_lead not in fontes_list:
+                        continue
+                else:
+                    if fonte_lead != fonte:
+                        continue
+            
+            filtered_previous_vendas.append(lead)
+        
+        previous_won_leads_with_date = filtered_previous_vendas
         previous_won_leads = len(previous_won_leads_with_date)
         
         previous_lost_leads = len([lead for lead in previous_leads if lead.get("status_id") == 143])

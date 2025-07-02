@@ -14,7 +14,8 @@
       "Bash(bash:*)",
       "Bash(mv:*)",
       "Bash(find:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(./test_kpis_simple.sh:*)"
     ],
     "deny": []
   }

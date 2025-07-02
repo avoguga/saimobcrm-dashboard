@@ -100,31 +100,46 @@ class KommoAPI:
         """Obtém todos os leads usando paginação automática"""
         all_leads = []
         page = 1
+        max_pages = 20  # LIMITE DE SEGURANÇA: máximo 20 páginas = 5000 leads
         
         if params is None:
             params = {}
         
-        while True:
+        print(f"🔍 get_all_leads: Iniciando busca com params: {params}")
+        
+        while page <= max_pages:
             params['page'] = page
             params['limit'] = 250  # Máximo por página
             
+            print(f"📄 get_all_leads: Buscando página {page}...")
             response = self.get_leads(params)
             
             if not response or '_embedded' not in response or 'leads' not in response['_embedded']:
+                print(f"❌ get_all_leads: Página {page} sem dados")
                 break
             
             leads = response['_embedded']['leads']
             if not leads:
+                print(f"❌ get_all_leads: Página {page} lista vazia")
                 break
                 
             all_leads.extend(leads)
+            print(f"✅ get_all_leads: Página {page} adicionou {len(leads)} leads (total: {len(all_leads)})")
             
             # Verificar se há mais páginas
             if '_links' in response and 'next' in response['_links']:
+                if len(leads) < 250:
+                    print(f"🏁 get_all_leads: Página {page} incompleta, parando")
+                    break
                 page += 1
             else:
+                print(f"🏁 get_all_leads: Página {page} sem 'next' link, parando")
                 break
         
+        if page > max_pages:
+            print(f"⚠️ get_all_leads: ATINGIU LIMITE de {max_pages} páginas!")
+        
+        print(f"📊 get_all_leads: CONCLUÍDO - {len(all_leads)} leads em {page-1} páginas")
         return all_leads
     
     # Métodos de Utilidade
