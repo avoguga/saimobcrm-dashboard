@@ -2001,6 +2001,7 @@ async def get_whatsapp_stats(
     """
     Endpoint para estatísticas de conversas do WhatsApp.
     Retorna o total de conversas e tendência de crescimento.
+    Implementa paginação para suportar períodos longos com muitos registros.
     """
     try:
         logger.info(f"Buscando estatísticas de WhatsApp para {days} dias, start_date: {start_date}, end_date: {end_date}")
@@ -2026,45 +2027,134 @@ async def get_whatsapp_stats(
             previous_end_time = start_time - 1
             previous_start_time = previous_end_time - (days * 24 * 60 * 60)
         
-        # Buscar dados relevantes das conversas de WhatsApp
-        # Esta implementação usa tarefas com a tag "WhatsApp" ou campo personalizado com valor WhatsApp
+        # IMPLEMENTAÇÃO DE PAGINAÇÃO: Buscar todas as tarefas relacionadas com WhatsApp
+        logger.info("Iniciando busca paginada de tarefas de WhatsApp...")
+        all_tasks = []
+        page = 1
+        has_more_pages = True
+        total_tasks_found = 0
         
-        # Buscar tarefas com a tag "WhatsApp" ou tipo de comunicação WhatsApp
-        whatsapp_tasks_params = {
-            'filter[created_at][from]': start_time,
-            'filter[created_at][to]': end_time,
-            'limit': 250
-        }
-        
-        # Buscar tarefas do período atual
-        tasks_data = safe_get_data(kommo_api.get_tasks, whatsapp_tasks_params)
-        
-        # Buscar tarefas do período anterior para calcular tendência
-        if not start_date and not end_date:
-            previous_tasks_params = {
-                'filter[created_at][from]': previous_start_time,
-                'filter[created_at][to]': previous_end_time,
-                'limit': 250
+        while has_more_pages:
+            whatsapp_tasks_params = {
+                'filter[created_at][from]': start_time,
+                'filter[created_at][to]': end_time,
+                'limit': 250,
+                'page': page
             }
-            previous_tasks_data = safe_get_data(kommo_api.get_tasks, previous_tasks_params)
+            
+            # Buscar página atual de tarefas
+            logger.info(f"Buscando tarefas - página {page}")
+            tasks_data = safe_get_data(kommo_api.get_tasks, whatsapp_tasks_params)
+            
+            # Verificar se temos dados e extrair tarefas
+            current_page_tasks = []
+            if tasks_data and '_embedded' in tasks_data:
+                current_page_tasks = tasks_data.get('_embedded', {}).get('tasks', [])
+                all_tasks.extend(current_page_tasks)
+                total_tasks_found += len(current_page_tasks)
+                logger.info(f"Página {page}: {len(current_page_tasks)} tarefas encontradas")
+            
+            # Verificar se há mais páginas
+            if tasks_data and '_links' in tasks_data and 'next' in tasks_data.get('_links', {}):
+                page += 1
+                # Limitar a 20 páginas para evitar sobrecarga (máximo 5000 registros)
+                if page > 20:
+                    logger.warning("Limite máximo de 20 páginas atingido - alguns dados podem estar faltando")
+                    has_more_pages = False
+            else:
+                has_more_pages = False
+            
+            # Segurança para evitar loop infinito
+            if len(current_page_tasks) == 0:
+                has_more_pages = False
+        
+        logger.info(f"Total de {total_tasks_found} tarefas encontradas em {page} páginas")
         
         # Filtrar tarefas relacionadas ao WhatsApp
         whatsapp_tasks = []
-        total_conversations = 0
         
-        if tasks_data and '_embedded' in tasks_data:
-            tasks = tasks_data.get('_embedded', {}).get('tasks', [])
-            for task in tasks:
-                # Verificar se a tarefa está relacionada ao WhatsApp
-                # Verificamos texto, tags e campos personalizados
-                is_whatsapp = False
+        for task in all_tasks:
+            # Verificar se a tarefa está relacionada ao WhatsApp
+            is_whatsapp = False
+            
+            # Verificar no texto da tarefa
+            task_text = task.get('text', '').lower()
+            if 'whatsapp' in task_text or 'zap' in task_text or 'wpp' in task_text:
+                is_whatsapp = True
+            
+            # Verificar nas tags (se disponíveis)
+            if not is_whatsapp and 'tags' in task.get('_embedded', {}):
+                for tag in task.get('_embedded', {}).get('tags', []):
+                    if 'whatsapp' in tag.get('name', '').lower():
+                        is_whatsapp = True
+                        break
+            
+            # Verificar nos campos personalizados
+            if not is_whatsapp and 'custom_fields_values' in task:
+                for field in task.get('custom_fields_values', []):
+                    field_values = field.get('values', [])
+                    for value in field_values:
+                        if 'whatsapp' in str(value.get('value', '')).lower():
+                            is_whatsapp = True
+                            break
+                    if is_whatsapp:
+                        break
+            
+            if is_whatsapp:
+                whatsapp_tasks.append(task)
+        
+        total_conversations = len(whatsapp_tasks)
+        logger.info(f"Identificadas {total_conversations} conversas de WhatsApp após filtragem")
+        
+        # Calcular tendência - também com paginação para o período anterior
+        trend = 0
+        if not start_date and not end_date:
+            previous_whatsapp_count = 0
+            
+            # Buscar tarefas do período anterior com paginação
+            logger.info("Buscando tarefas do período anterior para cálculo de tendência...")
+            previous_all_tasks = []
+            prev_page = 1
+            has_more_prev_pages = True
+            
+            while has_more_prev_pages:
+                previous_tasks_params = {
+                    'filter[created_at][from]': previous_start_time,
+                    'filter[created_at][to]': previous_end_time,
+                    'limit': 250,
+                    'page': prev_page
+                }
                 
-                # Verificar no texto da tarefa
+                previous_tasks_data = safe_get_data(kommo_api.get_tasks, previous_tasks_params)
+                
+                # Extrair tarefas da página atual
+                current_prev_tasks = []
+                if previous_tasks_data and '_embedded' in previous_tasks_data:
+                    current_prev_tasks = previous_tasks_data.get('_embedded', {}).get('tasks', [])
+                    previous_all_tasks.extend(current_prev_tasks)
+                
+                # Verificar se há mais páginas
+                if previous_tasks_data and '_links' in previous_tasks_data and 'next' in previous_tasks_data.get('_links', {}):
+                    prev_page += 1
+                    # Limitar páginas para evitar sobrecarga
+                    if prev_page > 20:
+                        has_more_prev_pages = False
+                else:
+                    has_more_prev_pages = False
+                
+                # Segurança para evitar loop infinito
+                if len(current_prev_tasks) == 0:
+                    has_more_prev_pages = False
+            
+            # Filtrar tarefas de WhatsApp do período anterior
+            previous_whatsapp_tasks = []
+            for task in previous_all_tasks:
+                is_whatsapp = False
                 task_text = task.get('text', '').lower()
                 if 'whatsapp' in task_text or 'zap' in task_text or 'wpp' in task_text:
                     is_whatsapp = True
                 
-                # Verificar nas tags (se disponíveis)
+                # Verificar nas tags
                 if not is_whatsapp and 'tags' in task.get('_embedded', {}):
                     for tag in task.get('_embedded', {}).get('tags', []):
                         if 'whatsapp' in tag.get('name', '').lower():
@@ -2083,65 +2173,56 @@ async def get_whatsapp_stats(
                             break
                 
                 if is_whatsapp:
-                    whatsapp_tasks.append(task)
-            
-            total_conversations = len(whatsapp_tasks)
-        
-        # Calcular tendência
-        trend = 0
-        if not start_date and not end_date and 'previous_tasks_data' in locals():
-            previous_whatsapp_tasks = []
-            if previous_tasks_data and '_embedded' in previous_tasks_data:
-                previous_tasks = previous_tasks_data.get('_embedded', {}).get('tasks', [])
-                for task in previous_tasks:
-                    # Aplicar os mesmos filtros do período atual
-                    is_whatsapp = False
-                    task_text = task.get('text', '').lower()
-                    if 'whatsapp' in task_text or 'zap' in task_text or 'wpp' in task_text:
-                        is_whatsapp = True
-                    
-                    # Verificar nas tags
-                    if not is_whatsapp and 'tags' in task.get('_embedded', {}):
-                        for tag in task.get('_embedded', {}).get('tags', []):
-                            if 'whatsapp' in tag.get('name', '').lower():
-                                is_whatsapp = True
-                                break
-                    
-                    # Verificar nos campos personalizados
-                    if not is_whatsapp and 'custom_fields_values' in task:
-                        for field in task.get('custom_fields_values', []):
-                            field_values = field.get('values', [])
-                            for value in field_values:
-                                if 'whatsapp' in str(value.get('value', '')).lower():
-                                    is_whatsapp = True
-                                    break
-                            if is_whatsapp:
-                                break
-                    
-                    if is_whatsapp:
-                        previous_whatsapp_tasks.append(task)
+                    previous_whatsapp_tasks.append(task)
             
             previous_total = len(previous_whatsapp_tasks)
+            logger.info(f"Período anterior: {previous_total} conversas de WhatsApp")
+            
             if previous_total > 0:
                 trend = ((total_conversations - previous_total) / previous_total) * 100
             elif total_conversations > 0:
                 trend = 100  # Se não havia conversas antes, mas agora existem
         
-        # Se não conseguimos calcular baseado em tarefas, fazer uma estimativa baseada no número de leads
+        # Se não encontramos conversas de WhatsApp, fazer estimativa baseada em leads
         if total_conversations == 0:
-            # Buscar leads para ter uma base de estimativa
-            leads_params = {
-                "filter[created_at][from]": start_time,
-                "filter[created_at][to]": end_time,
-                "limit": 250
-            }
+            logger.info("Sem conversas de WhatsApp encontradas, fazendo estimativa baseada em leads")
             
-            leads_data = safe_get_data(kommo_api.get_leads, leads_params)
-            total_leads = 0
+            # PAGINAÇÃO para leads
+            all_leads = []
+            lead_page = 1
+            has_more_lead_pages = True
             
-            if leads_data and "_embedded" in leads_data:
-                leads = leads_data["_embedded"].get("leads", [])
-                total_leads = len(leads)
+            while has_more_lead_pages:
+                leads_params = {
+                    "filter[created_at][from]": start_time,
+                    "filter[created_at][to]": end_time,
+                    "limit": 250,
+                    "page": lead_page
+                }
+                
+                leads_data = safe_get_data(kommo_api.get_leads, leads_params)
+                
+                # Extrair leads da página atual
+                current_leads = []
+                if leads_data and "_embedded" in leads_data:
+                    current_leads = leads_data["_embedded"].get("leads", [])
+                    all_leads.extend(current_leads)
+                
+                # Verificar se há mais páginas
+                if leads_data and '_links' in leads_data and 'next' in leads_data.get('_links', {}):
+                    lead_page += 1
+                    # Limitar páginas para evitar sobrecarga
+                    if lead_page > 20:
+                        has_more_lead_pages = False
+                else:
+                    has_more_lead_pages = False
+                
+                # Segurança para evitar loop infinito
+                if len(current_leads) == 0:
+                    has_more_lead_pages = False
+            
+            total_leads = len(all_leads)
+            logger.info(f"Encontrados {total_leads} leads para estimativa")
             
             # Estimar que aproximadamente 40% dos leads têm conversas de WhatsApp
             total_conversations = int(total_leads * 0.4)
@@ -2150,6 +2231,7 @@ async def get_whatsapp_stats(
             if trend == 0:
                 trend = 12.3  # Valor realista baseado em crescimento típico
         
+        # Preparar resposta com metadados de paginação
         response = {
             "totalConversations": total_conversations,
             "trend": round(trend, 1),
@@ -2159,16 +2241,31 @@ async def get_whatsapp_stats(
                 "end_date": datetime.fromtimestamp(end_time).strftime('%Y-%m-%d')
             },
             "metadata": {
-                "estimation_method": "task_based" if whatsapp_tasks else "lead_estimation",
-                "data_source": "kommo_api"
+                "estimation_method": "task_based" if total_tasks_found > 0 and whatsapp_tasks else "lead_estimation",
+                "data_source": "kommo_api",
+                "pagination": {
+                    "implemented": True,
+                    "tasks": {
+                        "total_pages_fetched": page,
+                        "total_tasks_found": total_tasks_found,
+                        "whatsapp_tasks_count": len(whatsapp_tasks)
+                    },
+                    "leads": {
+                        "total_pages_fetched": lead_page if 'lead_page' in locals() else 0,
+                        "total_leads_found": total_leads if 'total_leads' in locals() else 0
+                    },
+                    "records_per_page": 250
+                }
             }
         }
         
-        logger.info(f"Estatísticas de WhatsApp geradas: {total_conversations} conversas, tendência: {trend}%")
+        logger.info(f"Estatísticas de WhatsApp geradas com paginação: {total_conversations} conversas, tendência: {trend:.1f}%")
         return response
         
     except Exception as e:
         logger.error(f"Erro ao gerar estatísticas de WhatsApp: {str(e)}")
+        import traceback
+        logger.error(f"Traceback completo: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
 
 
