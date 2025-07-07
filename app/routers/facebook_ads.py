@@ -38,18 +38,35 @@ async def get_insights(
     since: Optional[str] = Query(None, description="Start date for custom range (YYYY-MM-DD)"),
     until: Optional[str] = Query(None, description="End date for custom range (YYYY-MM-DD)"),
     level: str = Query("campaign", description="Level of data aggregation"),
-    breakdowns: Optional[str] = Query(None, description="Comma-separated list of breakdowns (e.g., 'age,gender')")
+    breakdowns: Optional[str] = Query(None, description="Comma-separated list of breakdowns (e.g., 'age,gender')"),
+    campaign_id: Optional[str] = Query(None, description="Filter by specific campaign ID"),
+    adset_id: Optional[str] = Query(None, description="Filter by specific ad set ID"),
+    ad_id: Optional[str] = Query(None, description="Filter by specific ad ID")
 ):
     """
-    Get insights for the configured ad account
+    Get insights for the configured ad account or specific objects
     
     Returns metrics including:
     - Impressions, reach, clicks, CTR, CPC, CPM, spend
     - Lead metrics (total leads, cost per lead)
     - Engagement metrics (likes, comments, shares, video views)
+    
+    Can filter by campaign_id, adset_id, or ad_id
     """
     try:
         client = get_facebook_client()
+        
+        # Determine object ID based on filters
+        object_id = settings.FACEBOOK_AD_ACCOUNT_ID
+        if ad_id:
+            object_id = ad_id
+            level = "ad"
+        elif adset_id:
+            object_id = adset_id
+            level = "adset"
+        elif campaign_id:
+            object_id = campaign_id
+            level = "campaign"
         
         # Prepare time range
         time_range = None
@@ -61,12 +78,22 @@ async def get_insights(
         
         # Get insights
         insights = client.get_campaign_insights(
-            object_id=settings.FACEBOOK_AD_ACCOUNT_ID,
+            object_id=object_id,
             date_preset=date_preset,
             time_range=time_range,
             level=level,
             breakdowns=breakdowns_list
         )
+        
+        # Add filter metadata
+        if campaign_id or adset_id or ad_id:
+            if '_metadata' not in insights:
+                insights['_metadata'] = {}
+            insights['_metadata']['filters'] = {
+                'campaign_id': campaign_id,
+                'adset_id': adset_id,
+                'ad_id': ad_id
+            }
         
         return insights
     except Exception as e:
@@ -171,6 +198,42 @@ async def get_campaign_insights(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/adsets")
+async def get_all_adsets():
+    """
+    Get all ad sets for the configured ad account
+    """
+    try:
+        client = get_facebook_client()
+        adsets = client.get_all_adsets(settings.FACEBOOK_AD_ACCOUNT_ID)
+        return adsets
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/ads")
+async def get_all_ads():
+    """
+    Get all ads for the configured ad account
+    """
+    try:
+        client = get_facebook_client()
+        ads = client.get_all_ads(settings.FACEBOOK_AD_ACCOUNT_ID)
+        return ads
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/adsets/{adset_id}/ads")
+async def get_ads_for_adset(adset_id: str):
+    """
+    Get all ads for a specific ad set
+    """
+    try:
+        client = get_facebook_client()
+        ads = client.get_ads(adset_id)
+        return ads
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/campaigns/{campaign_id}/adsets")
 async def get_adsets_for_campaign(campaign_id: str):
     """
@@ -236,6 +299,90 @@ async def get_ad_insights(
         )
         
         return insights
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/adsets/{adset_id}/targeting")
+async def get_adset_targeting(adset_id: str):
+    """
+    Get targeting details for a specific ad set
+    """
+    try:
+        client = get_facebook_client()
+        targeting_data = client.get_adset_targeting(adset_id)
+        return targeting_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/insights/geographic")
+async def get_geographic_insights(
+    breakdown: str = Query("region", description="Geographic breakdown: city, region, country"),
+    date_preset: Optional[str] = Query("last_30d", description="Preset date range"),
+    since: Optional[str] = Query(None, description="Start date for custom range (YYYY-MM-DD)"),
+    until: Optional[str] = Query(None, description="End date for custom range (YYYY-MM-DD)")
+):
+    """
+    Get insights with geographic breakdown (city, region, country)
+    
+    Note: City breakdown aggregates data from all adsets
+    """
+    try:
+        client = get_facebook_client()
+        
+        if breakdown == "city":
+            # Para cidade, iterar pelos adsets
+            insights = client.get_city_insights_from_adsets(
+                ad_account_id=settings.FACEBOOK_AD_ACCOUNT_ID,
+                date_preset=date_preset
+            )
+        else:
+            # Para region/country, usar método normal
+            insights = client.get_insights_with_geo_breakdown(
+                object_id=settings.FACEBOOK_AD_ACCOUNT_ID,
+                breakdown_type=breakdown,
+                date_preset=date_preset,
+                level="campaign"
+            )
+        
+        return insights
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/insights/cities")
+async def get_city_insights(
+    date_preset: Optional[str] = Query("last_30d", description="Preset date range")
+):
+    """
+    Get insights specifically for cities (aggregated from all adsets)
+    """
+    try:
+        client = get_facebook_client()
+        
+        insights = client.get_city_insights_from_adsets(
+            ad_account_id=settings.FACEBOOK_AD_ACCOUNT_ID,
+            date_preset=date_preset
+        )
+        
+        return insights
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/adsets/city-targeted")
+async def find_city_targeted_adsets():
+    """
+    Find adsets that are specifically targeted to cities
+    """
+    try:
+        client = get_facebook_client()
+        
+        city_adsets = client.find_city_targeted_adsets(
+            ad_account_id=settings.FACEBOOK_AD_ACCOUNT_ID
+        )
+        
+        return {
+            "city_targeted_adsets": city_adsets,
+            "total_found": len(city_adsets)
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

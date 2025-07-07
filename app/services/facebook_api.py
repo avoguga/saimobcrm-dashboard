@@ -193,3 +193,196 @@ class FacebookAPI:
             'fields': ','.join(fields_to_request)
         })
         return response.get('data', [])
+    
+    def get_all_adsets(self, ad_account_id: str) -> List[Dict[str, Any]]:
+        """Get all ad sets for an ad account"""
+        fields_to_request = [
+            'id',
+            'name',
+            'status',
+            'campaign_id',
+            'daily_budget',
+            'lifetime_budget',
+            'bid_strategy',
+            'created_time',
+            'start_time',
+            'end_time',
+            'objective'
+        ]
+        
+        response = self._make_request(f"{ad_account_id}/adsets", {
+            'fields': ','.join(fields_to_request)
+        })
+        return response.get('data', [])
+    
+    def get_ads(self, adset_id: str) -> List[Dict[str, Any]]:
+        """Get all ads for an ad set"""
+        fields_to_request = [
+            'id',
+            'name',
+            'status',
+            'adset_id',
+            'campaign_id',
+            'creative',
+            'created_time',
+            'updated_time'
+        ]
+        
+        response = self._make_request(f"{adset_id}/ads", {
+            'fields': ','.join(fields_to_request)
+        })
+        return response.get('data', [])
+    
+    def get_all_ads(self, ad_account_id: str) -> List[Dict[str, Any]]:
+        """Get all ads for an ad account"""
+        fields_to_request = [
+            'id',
+            'name',
+            'status',
+            'adset_id',
+            'campaign_id',
+            'creative',
+            'created_time',
+            'updated_time'
+        ]
+        
+        response = self._make_request(f"{ad_account_id}/ads", {
+            'fields': ','.join(fields_to_request)
+        })
+        return response.get('data', [])
+    
+    def get_adset_targeting(self, adset_id: str) -> Dict[str, Any]:
+        """Get targeting details for an ad set"""
+        response = self._make_request(f"{adset_id}", {
+            'fields': 'targeting,name,status'
+        })
+        return response
+    
+    def get_insights_with_geo_breakdown(
+        self, 
+        object_id: str,
+        breakdown_type: str = "region",
+        date_preset: str = "last_30d",
+        level: str = None
+    ) -> Dict[str, Any]:
+        """Get insights with geographic breakdown"""
+        
+        params = {
+            'fields': 'impressions,reach,clicks,ctr,cpc,cpm,spend,actions',
+            'date_preset': date_preset,
+            'breakdowns': breakdown_type
+        }
+        
+        # Para city breakdown, NÃO usar level - deixar implícito baseado no object_id
+        # Para region/country, pode usar level=campaign se for account ID
+        if breakdown_type in ["region", "country"] and level:
+            params['level'] = level
+        
+        return self._make_request(f"{object_id}/insights", params)
+    
+    def get_city_insights_from_adsets(
+        self, 
+        ad_account_id: str,
+        date_preset: str = "last_30d"
+    ) -> Dict[str, Any]:
+        """Get city insights by iterating through adsets"""
+        
+        # 1. Primeiro buscar todos os adsets
+        adsets = self.get_all_adsets(ad_account_id)
+        
+        all_city_data = []
+        processing_stats = {
+            'total_adsets': len(adsets),
+            'adsets_with_city_data': 0,
+            'adsets_without_city_data': 0,
+            'adsets_with_errors': 0,
+            'city_targeting_adsets': []
+        }
+        
+        # 2. Para cada adset, buscar insights por cidade
+        for adset in adsets:
+            adset_id = adset.get('id')
+            adset_name = adset.get('name', '')
+            
+            if not adset_id:
+                continue
+                
+            try:
+                # Insights por cidade para este adset específico
+                city_insights = self._make_request(f"{adset_id}/insights", {
+                    'fields': 'impressions,reach,clicks,ctr,cpc,cpm,spend,actions',
+                    'date_preset': date_preset,
+                    'breakdowns': 'city'
+                })
+                
+                # Verificar se retornou dados com campo 'city'
+                has_city_data = False
+                
+                for insight in city_insights.get('data', []):
+                    # PONTO CRÍTICO: Verificar se a chave 'city' existe!
+                    if 'city' in insight:
+                        has_city_data = True
+                        insight['adset_id'] = adset_id
+                        insight['adset_name'] = adset_name
+                        all_city_data.append(insight)
+                
+                # Estatísticas de processamento
+                if has_city_data:
+                    processing_stats['adsets_with_city_data'] += 1
+                    processing_stats['city_targeting_adsets'].append({
+                        'id': adset_id,
+                        'name': adset_name
+                    })
+                else:
+                    processing_stats['adsets_without_city_data'] += 1
+                    
+            except Exception as e:
+                processing_stats['adsets_with_errors'] += 1
+                continue
+        
+        return {
+            'data': all_city_data,
+            'total_city_records': len(all_city_data),
+            'processing_stats': processing_stats,
+            '_metadata': {
+                'note': 'Only adsets with city-level targeting return city data',
+                'tip': 'AdSets targeting entire countries will not have city breakdown'
+            }
+        }
+    
+    def find_city_targeted_adsets(self, ad_account_id: str) -> List[Dict[str, Any]]:
+        """Find adsets that are specifically targeted to cities"""
+        
+        adsets = self.get_all_adsets(ad_account_id)
+        city_targeted_adsets = []
+        
+        for adset in adsets:
+            adset_id = adset.get('id')
+            adset_name = adset.get('name', '')
+            
+            # Buscar por pistas no nome do adset
+            city_indicators = ['[MACEIÓ]', '[CIDADES', '[CIDADE', 'NATAL', 'FORTALEZA', 'RECIFE', 'SALVADOR']
+            
+            has_city_indicator = any(indicator in adset_name.upper() for indicator in city_indicators)
+            
+            if has_city_indicator:
+                city_targeted_adsets.append({
+                    'id': adset_id,
+                    'name': adset_name,
+                    'reason': 'Name contains city indicator'
+                })
+            
+            # Opcional: Verificar targeting real (mais lento)
+            # try:
+            #     targeting = self.get_adset_targeting(adset_id)
+            #     geo_locations = targeting.get('targeting', {}).get('geo_locations', {})
+            #     if 'cities' in geo_locations:
+            #         city_targeted_adsets.append({
+            #             'id': adset_id,
+            #             'name': adset_name,
+            #             'reason': 'Has city targeting'
+            #         })
+            # except:
+            #     pass
+        
+        return city_targeted_adsets
