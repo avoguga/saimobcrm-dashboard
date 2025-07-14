@@ -872,34 +872,22 @@ def filter_leads_by_corretor(leads: list, corretor_name: str) -> list:
 
 # Função auxiliar para obter todos os leads (paginação automática)
 def get_all_leads_with_custom_fields():
-    """Busca todos os leads com campos personalizados"""
+    """Busca todos os leads com campos personalizados - VERSÃO OTIMIZADA"""
     try:
-        all_leads = []
-        page = 1
-        max_pages = 10  # Limitar a 10 páginas para evitar timeout (2500 leads max)
+        from app.services.kommo_api import KommoAPI
+        kommo_api = KommoAPI()
         
-        while page <= max_pages:
-            params = {
-                'limit': 250,
-                'page': page,
-                'with': 'custom_fields'
-            }
-            
-            data = api.get_leads(params)
-            
-            if not data or not data.get("_embedded"):
-                break
-                
-            leads = data.get("_embedded", {}).get("leads", [])
-            if not leads:
-                break
-                
-            all_leads.extend(leads)
-            
-            # Verificar se há próxima página
-            if not data.get("_links", {}).get("next"):
-                break
-            page += 1
+        print("🚀 get_all_leads_with_custom_fields: Usando método OTIMIZADO...")
+        
+        params = {
+            'limit': 250,
+            'with': 'custom_fields'
+        }
+        
+        # Usar método otimizado com limite moderado (função geral de leads)
+        all_leads = kommo_api.get_all_leads(params, use_parallel=True, max_workers=6, max_pages=12)
+        
+        print(f"✅ get_all_leads_with_custom_fields: {len(all_leads)} leads obtidos via método OTIMIZADO")
         
         return all_leads if all_leads else []
         

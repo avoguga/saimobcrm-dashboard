@@ -132,7 +132,7 @@ async def get_complete_corretor_dashboard(
             api = KommoAPI()
             
             # Buscar reuniões do corretor
-            params = {'filter[task_type]': 2, 'limit': 250}
+            params = {'filter[task_type_id]': 2, 'limit': 250}
             tasks_response = api.get_tasks(params)
             
             meetings_scheduled = 0
@@ -381,31 +381,26 @@ async def get_corretores_list(fonte: Optional[str] = Query(None, description="Fo
         from app.services.kommo_api import KommoAPI
         api = KommoAPI()
         
-        # Buscar leads com paginação progressiva
-        corretores_data = {}
-        page = 1
-        total_processed = 0
+        # 🚀 OTIMIZAÇÃO: Usar get_all_leads otimizado em vez de paginação manual
+        print("🚀 Usando get_all_leads OTIMIZADO para lista de corretores...")
         
-        while True:
-            params = {
-                'limit': 250,
-                'page': page,
-                'with': 'custom_fields'
-            }
-            
-            data = api.get_leads(params)
-            
-            if not data or not data.get("_embedded"):
-                break
-                
-            leads = data.get("_embedded", {}).get("leads", [])
-            if not leads:
-                break
-            
-            # Processar leads da página atual
-            for lead in leads:
-                if not lead:
-                    continue
+        params = {
+            'with': 'custom_fields',
+            'limit': 250
+        }
+        
+        # Usar o método otimizado com limite inteligente para listas de corretores
+        all_leads = api.get_all_leads(params, use_parallel=True, max_workers=6, max_pages=8)
+        
+        print(f"✅ Obtidos {len(all_leads)} leads para análise de corretores")
+        
+        # Processar todos os leads de uma vez
+        corretores_data = {}
+        total_processed = len(all_leads)
+        
+        for lead in all_leads:
+            if not lead:
+                continue
                     
                 custom_fields = lead.get("custom_fields_values", [])
                 if not custom_fields:
@@ -447,27 +442,18 @@ async def get_corretores_list(fonte: Optional[str] = Query(None, description="Fo
                         corretores_data[corretor]["won_leads"] += 1
                     elif status_id not in [142, 143]:  # active
                         corretores_data[corretor]["active_leads"] += 1
-            
-            total_processed += len(leads)
-            
-            # Verificar se há próxima página
-            if not data.get("_links", {}).get("next"):
-                break
-                
-            page += 1
-            
-            # Log de progresso
-            print(f"Processadas {page} páginas, {total_processed} leads, {len(corretores_data)} corretores encontrados")
         
         # Converter para lista e ordenar
         corretores_list = list(corretores_data.values())
         corretores_list.sort(key=lambda x: x["total_leads"], reverse=True)
         
+        print(f"✅ Análise concluída: {len(corretores_list)} corretores, {total_processed} leads processados")
+        
         return {
             "corretores": corretores_list,
             "total_corretores": len(corretores_list),
             "total_leads_processed": total_processed,
-            "pages_processed": page
+            "optimization": "parallel_processing"  # Indicador de que foi otimizado
         }
         
     except Exception as e:

@@ -971,7 +971,14 @@ async def get_detailed_tables(
                 end_dt = end_dt.replace(hour=23, minute=59, second=59)
                 start_timestamp = int(start_dt.timestamp())
                 end_timestamp = int(end_dt.timestamp())
+                
+                # Para reuniões: incluir 23:59 do dia anterior para capturar reuniões agendadas na virada do dia
+                meetings_start_dt = start_dt - timedelta(days=1)
+                meetings_start_dt = meetings_start_dt.replace(hour=23, minute=59, second=0)
+                meetings_start_timestamp = int(meetings_start_dt.timestamp())
+                
                 logger.info(f"Filtro por período: {start_date} a {end_date}")
+                logger.info(f"Filtro reuniões: {meetings_start_dt.strftime('%Y-%m-%d %H:%M')} a {end_dt.strftime('%Y-%m-%d %H:%M')}")
             except ValueError as date_error:
                 logger.error(f"Erro de validação de data: {date_error}")
                 raise HTTPException(status_code=400, detail="Formato de data inválido. Use YYYY-MM-DD")
@@ -981,7 +988,13 @@ async def get_detailed_tables(
             start_timestamp = end_timestamp - (days * 24 * 60 * 60)
             start_dt = datetime.fromtimestamp(start_timestamp)
             end_dt = datetime.fromtimestamp(end_timestamp)
+            
+            # Para reuniões: incluir 23:59 do dia anterior
+            meetings_start_timestamp = start_timestamp - (24 * 60 * 60) + (23 * 60 * 60 + 59 * 60)  # -1 dia + 23:59
+            meetings_start_dt = datetime.fromtimestamp(meetings_start_timestamp)
+            
             logger.info(f"Filtro por {days} dias: {start_dt.strftime('%Y-%m-%d')} a {end_dt.strftime('%Y-%m-%d')}")
+            logger.info(f"Filtro reuniões: {meetings_start_dt.strftime('%Y-%m-%d %H:%M')} a {end_dt.strftime('%Y-%m-%d %H:%M')}")
         
         logger.info(f"Buscando leads do Funil de Vendas (pipeline {PIPELINE_VENDAS})")
         
@@ -1042,12 +1055,31 @@ async def get_detailed_tables(
         vendas_remarketing_data = safe_get_data(kommo_api.get_leads, vendas_remarketing_params)
         
         users_data = safe_get_data(kommo_api.get_users)
+        pipelines_data = safe_get_data(kommo_api.get_pipelines)
         
         # Criar mapa de usuários
         users_map = {}
         if users_data and "_embedded" in users_data:
             for user in users_data["_embedded"].get("users", []):
                 users_map[user["id"]] = user["name"]
+        
+        # Criar mapa de status IDs para nomes reais
+        status_map = {}
+        if pipelines_data and "_embedded" in pipelines_data:
+            pipelines_list = pipelines_data["_embedded"].get("pipelines", [])
+            if isinstance(pipelines_list, list):
+                for pipeline in pipelines_list:
+                    if pipeline and isinstance(pipeline, dict):
+                        embedded_statuses = pipeline.get("_embedded", {})
+                        if isinstance(embedded_statuses, dict):
+                            statuses = embedded_statuses.get("statuses", [])
+                            if isinstance(statuses, list):
+                                for status in statuses:
+                                    if status and isinstance(status, dict):
+                                        status_id = status.get("id")
+                                        status_name = status.get("name", f"Status {status_id}")
+                                        if status_id:
+                                            status_map[status_id] = status_name
         
         # Filtrar PROPOSTAS por campo ESTADO = "Proposta Feita"
         all_propostas = []
@@ -1122,17 +1154,19 @@ async def get_detailed_tables(
         logger.info(f"Total de leads para leadsDetalhes: {len(all_leads_for_details)}")
         
         # Listas para as tabelas
-        reunioes_detalhes = []
+        reunioes_detalhes = []  # Reuniões não-orgânicas
+        reunioes_organicas_detalhes = []  # NOVA lista para reuniões orgânicas
         propostas_detalhes = []
         vendas_detalhes = []
-        leads_detalhes = []  # NOVA lista para todos os leads
+        leads_detalhes = []  # Lista para leads não-orgânicos
+        organicos_detalhes = []  # NOVA lista para leads orgânicos
         
         # NOVO: Buscar tarefas de reunião realizadas COM filtro de data
         logger.info("Buscando tarefas de reunião realizadas...")
         tasks_params = {
-            'filter[task_type]': 2,  # Tipo reunião
+            'filter[task_type_id]': 2,  # CORREÇÃO: usar task_type_id em vez de task_type
             'filter[is_completed]': 1,  # Apenas concluídas
-            'filter[complete_till][from]': start_timestamp,  # PO: usar complete_till para reuniões
+            'filter[complete_till][from]': meetings_start_timestamp,  # CORREÇÃO: usar meetings_start_timestamp para incluir 23:59 do dia anterior
             'filter[complete_till][to]': end_timestamp,      # Filtro de data
             'limit': limit
         }
@@ -1168,6 +1202,8 @@ async def get_detailed_tables(
             # Extrair dados do lead
             lead_name = lead.get("name", "")
             responsible_user_id = lead.get("responsible_user_id")
+            pipeline_id = lead.get("pipeline_id")
+            status_id = lead.get("status_id")
             
             # VALIDAÇÃO: Verificar se a reunião realmente aconteceu
             # Reunião é considerada verdadeira se:
@@ -1207,6 +1243,16 @@ async def get_detailed_tables(
             else:
                 corretor_final = "Vazio"  # Sem fallback para responsible_user_id
             
+            # Determinar funil baseado no pipeline_id
+            if pipeline_id == PIPELINE_VENDAS:
+                funil = "Funil de Vendas"
+            elif pipeline_id == PIPELINE_REMARKETING:
+                funil = "Remarketing"
+            else:
+                funil = "Desconhecido"
+            
+            # Determinar etapa baseado no status_id usando nomes reais da API
+            etapa = status_map.get(status_id, f"Status {status_id}")
             
             # Filtrar por corretor se especificado
             if corretor and isinstance(corretor, str) and corretor.strip():
@@ -1235,14 +1281,23 @@ async def get_detailed_tables(
             data_agendada = task.get('complete_till')
             data_agendada_formatada = datetime.fromtimestamp(data_agendada).strftime("%d/%m/%Y %H:%M") if data_agendada else "N/A"
             
-            reunioes_detalhes.append({
+            # Criar objeto da reunião
+            reuniao_obj = {
                 "Data da Reunião": data_formatada,  # Data em que foi marcada como concluída
                 "Data Agendada": data_agendada_formatada,  # Data original do agendamento
                 "Nome do Lead": lead_name,
                 "Corretor": corretor_final,
                 "Fonte": fonte_lead,
+                "Funil": funil,
+                "Etapa": etapa,
                 "Status": "Realizada"  # Confirmação visual de que a reunião aconteceu
-            })
+            }
+            
+            # Separar entre reuniões orgânicas e não-orgânicas baseado na fonte
+            if fonte_lead == "Orgânico":
+                reunioes_organicas_detalhes.append(reuniao_obj)
+            else:
+                reunioes_detalhes.append(reuniao_obj)
         
         # Processar PROPOSTAS (já filtradas por updated_at e status)
         for lead in all_propostas:
@@ -1378,6 +1433,7 @@ async def get_detailed_tables(
             lead_name = lead.get("name", "")
             created_at = lead.get("created_at")
             status_id = lead.get("status_id")
+            pipeline_id = lead.get("pipeline_id")
             
             # Extrair custom fields
             custom_fields = lead.get("custom_fields_values", [])
@@ -1401,6 +1457,13 @@ async def get_detailed_tables(
             else:
                 corretor_final = "Vazio"
             
+            # Determinar funil baseado no pipeline_id
+            if pipeline_id == PIPELINE_VENDAS:
+                funil = "Funil de Vendas"
+            elif pipeline_id == PIPELINE_REMARKETING:
+                funil = "Remarketing"
+            else:
+                funil = "Desconhecido"
             
             # Filtrar por corretor se especificado
             if corretor and isinstance(corretor, str) and corretor.strip():
@@ -1435,32 +1498,47 @@ async def get_detailed_tables(
             elif status_id in [80689711, 80689715, 80689719, 80689723, 80689727]:
                 status_name = "Em Negociação"
             
+            # Determinar etapa baseado no status_id usando nomes reais da API
+            etapa = status_map.get(status_id, f"Status {status_id}")
+            
             # Formatar data de criação
             if created_at:
                 data_criacao_formatada = datetime.fromtimestamp(created_at).strftime("%Y-%m-%d")
             else:
                 data_criacao_formatada = "N/A"
             
-            # Adicionar à lista de leads detalhes com chaves EXATAS conforme solicitado
-            leads_detalhes.append({
+            # Criar objeto do lead
+            lead_obj = {
                 "Data de Criação": data_criacao_formatada,
                 "Nome do Lead": lead_name,
                 "Corretor": corretor_final,
                 "Fonte": fonte_lead,
+                "Funil": funil,
+                "Etapa": etapa,
                 "Status": status_name
-            })
+            }
+            
+            # Separar entre orgânicos e leads não-orgânicos baseado na fonte
+            if fonte_lead == "Orgânico":
+                organicos_detalhes.append(lead_obj)
+            else:
+                leads_detalhes.append(lead_obj)
         
         # Ordenar leads por data de criação (mais recentes primeiro)
         leads_detalhes.sort(key=lambda x: x["Data de Criação"], reverse=True)
+        organicos_detalhes.sort(key=lambda x: x["Data de Criação"], reverse=True)
         
         # Ordenar as listas por data (mais recentes primeiro)
         reunioes_detalhes.sort(key=lambda x: datetime.strptime(x["Data da Reunião"], "%d/%m/%Y %H:%M"), reverse=True)
+        reunioes_organicas_detalhes.sort(key=lambda x: datetime.strptime(x["Data da Reunião"], "%d/%m/%Y %H:%M"), reverse=True)
         propostas_detalhes.sort(key=lambda x: datetime.strptime(x["Data da Proposta"], "%d/%m/%Y %H:%M"), reverse=True)
         vendas_detalhes.sort(key=lambda x: datetime.strptime(x["Data da Venda"], "%d/%m/%Y %H:%M"), reverse=True)
         
         # Calcular totais
-        total_leads = len(leads_detalhes)  # NOVO
-        total_reunioes = len(reunioes_detalhes)
+        total_leads = len(leads_detalhes)  # Leads não-orgânicos
+        total_organicos = len(organicos_detalhes)  # NOVO: Leads orgânicos
+        total_reunioes = len(reunioes_detalhes)  # Reuniões não-orgânicas
+        total_reunioes_organicas = len(reunioes_organicas_detalhes)  # NOVO: Reuniões orgânicas
         total_propostas = len(propostas_detalhes)
         total_vendas = len(vendas_detalhes)
         valor_total_vendas = sum(
@@ -1470,13 +1548,17 @@ async def get_detailed_tables(
         
         # Montar resposta
         response = {
-            "leadsDetalhes": leads_detalhes,  # NOVO
-            "reunioesDetalhes": reunioes_detalhes,
+            "leadsDetalhes": leads_detalhes,  # Leads não-orgânicos
+            "organicosDetalhes": organicos_detalhes,  # NOVO: Leads orgânicos
+            "reunioesDetalhes": reunioes_detalhes,  # Reuniões não-orgânicas
+            "reunioesOrganicasDetalhes": reunioes_organicas_detalhes,  # NOVO: Reuniões orgânicas
             "propostasDetalhes": propostas_detalhes,
             "vendasDetalhes": vendas_detalhes,
             "summary": {
-                "total_leads": total_leads,  # NOVO
-                "total_reunioes": total_reunioes,
+                "total_leads": total_leads,  # Leads não-orgânicos
+                "total_organicos": total_organicos,  # NOVO: Leads orgânicos
+                "total_reunioes": total_reunioes,  # Reuniões não-orgânicas
+                "total_reunioes_organicas": total_reunioes_organicas,  # NOVO: Reuniões orgânicas
                 "total_propostas": total_propostas,
                 "total_vendas": total_vendas,
                 "valor_total_vendas": valor_total_vendas
@@ -1786,10 +1868,10 @@ async def get_sales_comparison(
             try:
                 # Buscar tarefas de reunião realizadas
                 tasks_params = {
-                    'filter[task_type]': 2,  # Tipo reunião
+                    'filter[task_type_id]': 2,  # CORREÇÃO: Tipo reunião
                     'filter[is_completed]': 1,  # Apenas concluídas
-                    'filter[created_at][from]': start_timestamp,
-                    'filter[created_at][to]': end_timestamp,
+                    'filter[complete_till][from]': meetings_start_timestamp,  # CORREÇÃO: usar meetings_start_timestamp para incluir 23:59 do dia anterior
+                    'filter[complete_till][to]': end_timestamp,
                     'limit': 250
                 }
                 

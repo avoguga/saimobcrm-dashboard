@@ -16,7 +16,7 @@ async def get_all_meetings(
         
         # Parâmetros base para buscar reuniões
         params = {
-            'filter[task_type]': 2,  # Tipo reunião
+            'filter[task_type_id]': 2,  # Tipo reunião
             'limit': 250
         }
         
@@ -167,7 +167,7 @@ async def get_meeting_stats(
         
         # Buscar todas as reuniões
         params = {
-            'filter[task_type]': 2,  # Tipo reunião
+            'filter[task_type_id]': 2,  # Tipo reunião
             'limit': 500
         }
         
@@ -289,7 +289,7 @@ async def get_scheduled_meetings_by_user():
         
         # Buscar tarefas do tipo reunião (task_type_id = 2)
         params = {
-            'filter[task_type]': 2,  # Tipo reunião
+            'filter[task_type_id]': 2,  # Tipo reunião
             'filter[is_completed]': 0,  # Não concluídas
             'limit': 250
         }
@@ -333,7 +333,7 @@ async def get_completed_meetings_by_user(
         
         # Buscar tarefas do tipo reunião concluídas
         params = {
-            'filter[task_type]': 2,  # Tipo reunião
+            'filter[task_type_id]': 2,  # Tipo reunião
             'filter[is_completed]': 1,  # Concluídas
             'limit': 250
         }
@@ -430,7 +430,7 @@ async def get_meetings_scheduled_by_corretor(
         
         # Buscar tarefas do tipo reunião não concluídas
         params = {
-            'filter[task_type]': 2,  # Tipo reunião
+            'filter[task_type_id]': 2,  # Tipo reunião
             'filter[is_completed]': 0,  # Não concluídas (agendadas)
             'limit': 250
         }
@@ -515,7 +515,7 @@ async def get_meetings_completed_by_corretor(
         
         # Buscar tarefas do tipo reunião concluídas
         params = {
-            'filter[task_type]': 2,  # Tipo reunião
+            'filter[task_type_id]': 2,  # Tipo reunião
             'filter[is_completed]': 1,  # Concluídas
             'limit': 250
         }
@@ -612,7 +612,7 @@ async def get_meeting_stats_by_corretor(
         
         # Buscar todas as tarefas do tipo reunião
         params = {
-            'filter[task_type]': 2,  # Tipo reunião
+            'filter[task_type_id]': 2,  # Tipo reunião
             'limit': 250
         }
         

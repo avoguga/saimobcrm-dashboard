@@ -59,10 +59,10 @@ async def get_tasks(
         
         if task_type:
             if len(task_type) == 1:
-                params["filter[task_type]"] = task_type[0]
+                params["filter[task_type_id]"] = task_type[0]
             else:
                 for i, type_id in enumerate(task_type):
-                    params[f"filter[task_type][{i}]"] = type_id
+                    params[f"filter[task_type_id][{i}]"] = type_id
         
         if entity_type:
             params["filter[entity_type]"] = entity_type

@@ -62,11 +62,19 @@ async def get_sales_kpis(
                 end_dt = end_dt.replace(hour=23, minute=59, second=59)
                 start_time = int(start_dt.timestamp())
                 end_time = int(end_dt.timestamp())
+                
+                # Para reuniões: incluir 23:59 do dia anterior para capturar reuniões agendadas na virada do dia
+                meetings_start_dt = start_dt - timedelta(days=1)
+                meetings_start_dt = meetings_start_dt.replace(hour=23, minute=59, second=0)
+                meetings_start_time = int(meetings_start_dt.timestamp())
             except ValueError:
                 raise HTTPException(status_code=400, detail="Formato de data inválido. Use YYYY-MM-DD")
         else:
             end_time = int(time.time())
             start_time = end_time - (days * 24 * 60 * 60)
+            
+            # Para reuniões: incluir 23:59 do dia anterior
+            meetings_start_time = start_time - (24 * 60 * 60) + (23 * 60 * 60 + 59 * 60)  # -1 dia + 23:59
         
         # Período anterior para comparação
         period_duration = end_time - start_time
@@ -678,6 +686,39 @@ async def get_leads_by_user_chart(
         STATUS_VENDA_FINAL = 142
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126
         
+        # 🧠 OTIMIZAÇÃO INTELIGENTE: Ajustar filtros baseado no período solicitado
+        period_days = (end_time - start_time) / (24 * 60 * 60)
+        print(f"📅 Período solicitado: {period_days:.1f} dias")
+        
+        # Definir estratégia baseada no período
+        if period_days <= 14:  # 2 semanas
+            lookback_days = 30  # Buscar vendas até 30 dias atrás
+            max_workers = 4     # Menos threads
+            estimated_leads = "poucos"
+            print("🚀 Estratégia RÁPIDA: Período curto detectado")
+        elif period_days <= 30:  # 1 mês  
+            lookback_days = 90   # Buscar vendas até 3 meses atrás
+            max_workers = 6      # Threads médias
+            estimated_leads = "moderados"
+            print("⚡ Estratégia MÉDIA: Período moderado detectado")
+        elif period_days <= 90:  # 3 meses
+            lookback_days = 180  # Buscar vendas até 6 meses atrás
+            max_workers = 8      # Mais threads
+            estimated_leads = "muitos"
+            print("🔥 Estratégia INTENSA: Período longo detectado")
+        else:  # Mais de 3 meses
+            lookback_days = 365  # Buscar vendas até 1 ano atrás (original)
+            max_workers = 8      # Máximo de threads
+            estimated_leads = "massivos"
+            print("🌊 Estratégia COMPLETA: Período extenso detectado")
+        
+        # Calcular timestamps baseados na estratégia
+        sales_start_time = start_time - (lookback_days * 24 * 60 * 60)
+        
+        print(f"📊 Leads estimados: {estimated_leads}")
+        print(f"🔍 Buscando vendas desde: {lookback_days} dias atrás")
+        print(f"⚙️ Usando {max_workers} threads paralelas")
+        
         # Buscar leads de AMBOS os pipelines (Vendas + Remarketing) - PADRÃO CORRETO
         leads_vendas_params = {
             "filter[pipeline_id]": PIPELINE_VENDAS,  # Funil de Vendas
@@ -712,7 +753,7 @@ async def get_leads_by_user_chart(
             "filter[statuses][0][status_id]": STATUS_VENDA_FINAL,
             "filter[statuses][1][pipeline_id]": PIPELINE_VENDAS,
             "filter[statuses][1][status_id]": STATUS_CONTRATO_ASSINADO,
-            "filter[updated_at][from]": start_time - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
+            "filter[updated_at][from]": sales_start_time,  # 🧠 INTELIGENTE: adapta baseado no período
             "filter[updated_at][to]": end_time,
             "limit": 500,  # AUMENTAR limite para evitar perder dados
             "with": "contacts,tags,custom_fields_values"  # CORREÇÃO: usar mesmo parâmetro que detailed-tables
@@ -735,39 +776,68 @@ async def get_leads_by_user_chart(
             "filter[statuses][0][status_id]": STATUS_VENDA_FINAL,
             "filter[statuses][1][pipeline_id]": PIPELINE_REMARKETING,
             "filter[statuses][1][status_id]": STATUS_CONTRATO_ASSINADO,
-            "filter[updated_at][from]": start_time - (365 * 24 * 60 * 60),  # 1 ano atrás para dar margem
+            "filter[updated_at][from]": sales_start_time,  # 🧠 INTELIGENTE: adapta baseado no período
             "filter[updated_at][to]": end_time,
             "limit": 500,  # AUMENTAR limite para evitar perder dados
             "with": "contacts,tags,custom_fields_values"
         }
         
 
+        # Calcular meetings_start_time (um dia antes para capturar reuniões)
+        meetings_start_time = start_time - (24 * 60 * 60)  # 1 dia antes
+        
         # Buscar tarefas de reunião concluídas
         tasks_params = {
-            'filter[task_type]': 2,  # Tipo reunião
+            'filter[task_type_id]': 2,  # Tipo reunião
             'filter[is_completed]': 1,  # Apenas concluídas
-            'filter[complete_till][from]': start_time,  # PO: usar complete_till para reuniões
+            'filter[complete_till][from]': meetings_start_time,  # usar meetings_start_time para incluir 23:59 do dia anterior
             'filter[complete_till][to]': end_time,
             'limit': 250
         }
         
-        # Buscar leads de vendas
-        try:
-            leads_vendas_data = kommo_api.get_leads(leads_vendas_params)
-        except Exception as e:
-            logger.error(f"Erro ao buscar leads de vendas: {e}")
-            leads_vendas_data = {"_embedded": {"leads": []}}
-            
-        # Buscar leads de remarketing
-        try:
-            leads_remarketing_data = kommo_api.get_leads(leads_remarketing_params)
-        except Exception as e:
-            logger.error(f"Erro ao buscar leads de remarketing: {e}")
-            leads_remarketing_data = {"_embedded": {"leads": []}}
+        # OTIMIZAÇÃO: Fazer todas as consultas em PARALELO para reduzir tempo drasticamente
+        from concurrent.futures import ThreadPoolExecutor
+        import time as time_module
         
-        # Combinar leads de ambos os pipelines usando deduplicação por ID
+        start_queries = time_module.time()
+        print(f"🚀 Iniciando {6} consultas PARALELAS...")
+        
+        def safe_api_call(api_method, params, description):
+            """Wrapper seguro para chamadas da API"""
+            try:
+                result = api_method(params)
+                print(f"✅ {description}: Sucesso")
+                return result
+            except Exception as e:
+                logger.error(f"Erro em {description}: {e}")
+                print(f"❌ {description}: Erro")
+                return {"_embedded": {"leads": []}}
+        
+        # Executar todas as consultas em paralelo com threads adaptativas
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submeter todas as consultas
+            future_leads_vendas = executor.submit(safe_api_call, kommo_api.get_leads, leads_vendas_params, "Leads Vendas")
+            future_leads_remarketing = executor.submit(safe_api_call, kommo_api.get_leads, leads_remarketing_params, "Leads Remarketing")
+            future_propostas_vendas = executor.submit(safe_api_call, kommo_api.get_leads, propostas_vendas_params, "Propostas Vendas")
+            future_propostas_remarketing = executor.submit(safe_api_call, kommo_api.get_leads, propostas_remarketing_params, "Propostas Remarketing")
+            future_vendas_vendas = executor.submit(safe_api_call, kommo_api.get_leads, vendas_vendas_params, "Vendas Vendas")
+            future_vendas_remarketing = executor.submit(safe_api_call, kommo_api.get_leads, vendas_remarketing_params, "Vendas Remarketing")
+            
+            # Aguardar resultados
+            leads_vendas_data = future_leads_vendas.result(timeout=30)
+            leads_remarketing_data = future_leads_remarketing.result(timeout=30)
+            propostas_vendas_data = future_propostas_vendas.result(timeout=30)
+            propostas_remarketing_data = future_propostas_remarketing.result(timeout=30)
+            vendas_vendas_data = future_vendas_vendas.result(timeout=30)
+            vendas_remarketing_data = future_vendas_remarketing.result(timeout=30)
+        
+        end_queries = time_module.time()
+        print(f"🎉 6 consultas PARALELAS concluídas em {end_queries - start_queries:.2f}s")
+        
+        # Combinar leads de TODOS os resultados usando deduplicação por ID
         all_leads_dict = {}
         
+        # Adicionar leads de vendas
         if leads_vendas_data and "_embedded" in leads_vendas_data:
             vendas_leads = leads_vendas_data["_embedded"].get("leads", [])
             if isinstance(vendas_leads, list):
@@ -775,6 +845,7 @@ async def get_leads_by_user_chart(
                     if lead and lead.get("id"):
                         all_leads_dict[lead.get("id")] = lead
                 
+        # Adicionar leads de remarketing        
         if leads_remarketing_data and "_embedded" in leads_remarketing_data:
             remarketing_leads = leads_remarketing_data["_embedded"].get("leads", [])
             if isinstance(remarketing_leads, list):
@@ -782,32 +853,23 @@ async def get_leads_by_user_chart(
                     if lead and lead.get("id"):
                         all_leads_dict[lead.get("id")] = lead
         
-        # ADICIONAR: Buscar propostas e vendas para completar mapa de leads (igual detailed-tables)
-        try:
-            propostas_vendas_data = kommo_api.get_leads(propostas_vendas_params)
-        except Exception as e:
-            logger.error(f"Erro ao buscar propostas vendas: {e}")
-            propostas_vendas_data = {"_embedded": {"leads": []}}
-            
-        try:
-            propostas_remarketing_data = kommo_api.get_leads(propostas_remarketing_params)
-        except Exception as e:
-            logger.error(f"Erro ao buscar propostas remarketing: {e}")
-            propostas_remarketing_data = {"_embedded": {"leads": []}}
-            
-        try:
-            vendas_vendas_data = kommo_api.get_leads(vendas_vendas_params)
-        except Exception as e:
-            logger.error(f"Erro ao buscar vendas vendas: {e}")
-            vendas_vendas_data = {"_embedded": {"leads": []}}
-            
-        try:
-            vendas_remarketing_data = kommo_api.get_leads(vendas_remarketing_params)
-        except Exception as e:
-            logger.error(f"Erro ao buscar vendas remarketing: {e}")
-            vendas_remarketing_data = {"_embedded": {"leads": []}}
+        # Adicionar propostas de vendas
+        if propostas_vendas_data and "_embedded" in propostas_vendas_data:
+            propostas_leads = propostas_vendas_data["_embedded"].get("leads", [])
+            if isinstance(propostas_leads, list):
+                for lead in propostas_leads:
+                    if lead and lead.get("id"):
+                        all_leads_dict[lead.get("id")] = lead
         
-        # CORREÇÃO: Adicionar vendas já filtradas por status aos leads disponíveis (com deduplicação)
+        # Adicionar propostas de remarketing
+        if propostas_remarketing_data and "_embedded" in propostas_remarketing_data:
+            propostas_remarketing_leads = propostas_remarketing_data["_embedded"].get("leads", [])
+            if isinstance(propostas_remarketing_leads, list):
+                for lead in propostas_remarketing_leads:
+                    if lead and lead.get("id"):
+                        all_leads_dict[lead.get("id")] = lead
+        
+        # Adicionar vendas de vendas
         if vendas_vendas_data and "_embedded" in vendas_vendas_data:
             vendas_leads = vendas_vendas_data["_embedded"].get("leads", [])
             if isinstance(vendas_leads, list):
@@ -815,6 +877,7 @@ async def get_leads_by_user_chart(
                     if lead and lead.get("id"):
                         all_leads_dict[lead.get("id")] = lead
                 
+        # Adicionar vendas de remarketing
         if vendas_remarketing_data and "_embedded" in vendas_remarketing_data:
             vendas_remarketing_leads = vendas_remarketing_data["_embedded"].get("leads", [])
             if isinstance(vendas_remarketing_leads, list):
@@ -1077,11 +1140,25 @@ async def get_leads_by_user_chart(
                             "meetingsHeld": 0,  # Campo que o frontend usa
                             "meetings": 0,      # Fallback para compatibilidade
                             "sales": 0,
-                            "lost": 0
+                            "lost": 0,
+                            # NOVOS campos para separação orgânica vs paga
+                            "organicLeads": 0,
+                            "paidLeads": 0,
+                            "organicMeetings": 0,
+                            "paidMeetings": 0
                         }
+                        logger.info(f"DEBUG: Inicializando contador para corretor: {final_corretor} com campos orgânicos")
                     
                     # Incrementar contadores
                     leads_by_user[final_corretor]["value"] += 1
+                    
+                    # Separar leads entre orgânicos e pagos
+                    if fonte_lead == "Orgânico":
+                        leads_by_user[final_corretor]["organicLeads"] += 1
+                        logger.info(f"DEBUG: Lead orgânico encontrado - Corretor: {final_corretor}, Fonte: {fonte_lead}")
+                    else:
+                        leads_by_user[final_corretor]["paidLeads"] += 1
+                        logger.info(f"DEBUG: Lead pago encontrado - Corretor: {final_corretor}, Fonte: {fonte_lead}")
                     
                     # Usar função centralizada para validação de vendas
                     valid_sale_status_local = [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO]
@@ -1102,6 +1179,12 @@ async def get_leads_by_user_chart(
                         meetings_count = meetings_by_lead[lead_id]
                         leads_by_user[final_corretor]["meetingsHeld"] += meetings_count
                         leads_by_user[final_corretor]["meetings"] += meetings_count  # Fallback
+                        
+                        # Separar reuniões entre orgânicas e pagas
+                        if fonte_lead == "Orgânico":
+                            leads_by_user[final_corretor]["organicMeetings"] += meetings_count
+                        else:
+                            leads_by_user[final_corretor]["paidMeetings"] += meetings_count
         
         # REMOVIDO: Lógica extra que contava meetings de leads fora do período
         # Para alinhar com detailed-tables, só contamos meetings de leads do período atual
@@ -1216,11 +1299,19 @@ async def get_conversion_rates(
                 end_dt = end_dt.replace(hour=23, minute=59, second=59)
                 start_time = int(start_dt.timestamp())
                 end_time = int(end_dt.timestamp())
+                
+                # Para reuniões: incluir 23:59 do dia anterior para capturar reuniões agendadas na virada do dia
+                meetings_start_dt = start_dt - timedelta(days=1)
+                meetings_start_dt = meetings_start_dt.replace(hour=23, minute=59, second=0)
+                meetings_start_time = int(meetings_start_dt.timestamp())
             except ValueError:
                 raise HTTPException(status_code=400, detail="Formato de data inválido. Use YYYY-MM-DD")
         else:
             end_time = int(time.time())
             start_time = end_time - (days * 24 * 60 * 60)
+            
+            # Para reuniões: incluir 23:59 do dia anterior
+            meetings_start_time = start_time - (24 * 60 * 60) + (23 * 60 * 60 + 59 * 60)  # -1 dia + 23:59
         
         # IDs importantes
         PIPELINE_VENDAS = 10516987
@@ -1247,12 +1338,16 @@ async def get_conversion_rates(
             "with": "custom_fields_values"
         }
         
+        # Garantir que meetings_start_time está definido (caso não esteja definido acima)
+        if 'meetings_start_time' not in locals():
+            meetings_start_time = start_time - (24 * 60 * 60)  # 1 dia antes como fallback
+        
         # Buscar tarefas de reunião concluídas
         tasks_params = {
-            'filter[task_type]': 2,  # Tipo reunião
+            'filter[task_type_id]': 2,  # Tipo reunião
             'filter[is_completed]': 1,  # Apenas concluídas
-            'filter[created_at][from]': start_time,  # PO: usar created_at para reuniões
-            'filter[created_at][to]': end_time,
+            'filter[complete_till][from]': meetings_start_time,  # usar meetings_start_time para incluir 23:59 do dia anterior
+            'filter[complete_till][to]': end_time,
             'limit': 250  # Usar mesmo limite do detailed-tables
         }
         
