@@ -941,7 +941,10 @@ async def get_leads_by_user_chart(
         leads_data = {"_embedded": {"leads": all_leads_for_user_count}}
             
         try:
-            tasks_data = kommo_api.get_tasks(tasks_params)
+            # Usar get_all_tasks com paginação para períodos grandes
+            all_tasks = kommo_api.get_all_tasks(tasks_params)
+            tasks_data = {"_embedded": {"tasks": all_tasks}}
+            logger.info(f"[charts/leads-by-user] Total de tarefas encontradas: {len(all_tasks)}")
         except Exception as e:
             logger.error(f"Erro ao buscar tarefas: {e}")
             tasks_data = {"_embedded": {"tasks": []}}
@@ -1487,7 +1490,10 @@ async def get_conversion_rates(
         leads_data = {"_embedded": {"leads": all_leads}}
         
         try:
-            tasks_data = kommo_api.get_tasks(tasks_params)
+            # Usar get_all_tasks com paginação para períodos grandes
+            all_tasks = kommo_api.get_all_tasks(tasks_params)
+            tasks_data = {"_embedded": {"tasks": all_tasks}}
+            logger.info(f"[sales/kpis] Total de tarefas encontradas: {len(all_tasks)}")
         except Exception as e:
             logger.error(f"Erro ao buscar tarefas: {e}")
             tasks_data = {"_embedded": {"tasks": []}}

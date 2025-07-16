@@ -1171,7 +1171,15 @@ async def get_detailed_tables(
             'limit': limit
         }
         
-        tasks_data = safe_get_data(kommo_api.get_tasks, tasks_params)
+        # Usar get_all_tasks com paginação para períodos grandes
+        try:
+            all_tasks = kommo_api.get_all_tasks(tasks_params)
+            tasks_data = {"_embedded": {"tasks": all_tasks}}
+            logger.info(f"[detailed-tables] Total de tarefas encontradas: {len(all_tasks)}")
+        except Exception as e:
+            logger.error(f"Erro ao buscar todas as tarefas: {e}")
+            tasks_data = safe_get_data(kommo_api.get_tasks, tasks_params)
+        
         reunioes_tasks = []
         
         if tasks_data and '_embedded' in tasks_data:
@@ -1959,7 +1967,14 @@ async def get_sales_comparison(
                     'limit': 250
                 }
                 
-                tasks_data = safe_get_data(kommo_api.get_tasks, tasks_params)
+                # Usar get_all_tasks com paginação para períodos grandes
+                try:
+                    all_tasks = kommo_api.get_all_tasks(tasks_params)
+                    tasks_data = {"_embedded": {"tasks": all_tasks}}
+                    logger.info(f"[marketing-complete] Total de tarefas encontradas: {len(all_tasks)}")
+                except Exception as e:
+                    logger.error(f"Erro ao buscar todas as tarefas: {e}")
+                    tasks_data = safe_get_data(kommo_api.get_tasks, tasks_params)
                 
                 # Criar mapa de leads para verificação
                 leads_map = {lead.get("id"): lead for lead in all_leads if lead and lead.get("id")}

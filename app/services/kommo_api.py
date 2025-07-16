@@ -182,6 +182,60 @@ class KommoAPI:
         """Obtém tarefas com filtros opcionais"""
         return self._make_request("tasks", params)
     
+    def get_all_tasks(self, params: Optional[Dict] = None, max_pages: int = 20) -> List[Dict]:
+        """Obtém todas as tarefas usando paginação automática
+        
+        Args:
+            params: Parâmetros da consulta
+            max_pages: Número máximo de páginas para buscar (default: 20)
+        
+        Returns:
+            Lista de todas as tarefas encontradas
+        """
+        all_tasks = []
+        page = 1
+        
+        if params is None:
+            params = {}
+        
+        print(f"🔍 get_all_tasks: Iniciando busca com params: {params}")
+        
+        while page <= max_pages:
+            params_copy = params.copy()
+            params_copy['page'] = page
+            params_copy['limit'] = 250  # Máximo por página
+            
+            print(f"📄 get_all_tasks: Buscando página {page}...")
+            response = self.get_tasks(params_copy)
+            
+            if not response or '_embedded' not in response or 'tasks' not in response['_embedded']:
+                print(f"❌ get_all_tasks: Página {page} sem dados")
+                break
+            
+            tasks = response['_embedded']['tasks']
+            if not tasks:
+                print(f"❌ get_all_tasks: Página {page} lista vazia")
+                break
+                
+            all_tasks.extend(tasks)
+            print(f"✅ get_all_tasks: Página {page} adicionou {len(tasks)} tarefas (total: {len(all_tasks)})")
+            
+            # Verificar se há mais páginas
+            if '_links' in response and 'next' in response['_links']:
+                if len(tasks) < 250:
+                    print(f"🏁 get_all_tasks: Página {page} incompleta, parando")
+                    break
+                page += 1
+            else:
+                print(f"🏁 get_all_tasks: Página {page} sem 'next' link, parando")
+                break
+        
+        if page > max_pages:
+            print(f"⚠️ get_all_tasks: ATINGIU LIMITE de {max_pages} páginas!")
+        
+        print(f"📊 get_all_tasks: CONCLUÍDO - {len(all_tasks)} tarefas em {page-1} páginas")
+        return all_tasks
+    
     # Método para buscar leads com paginação completa (versão antiga sequencial)
     def get_all_leads_old(self, params: Optional[Dict] = None) -> List[Dict]:
         """Obtém todos os leads usando paginação automática (MÉTODO ANTIGO LENTO)"""
