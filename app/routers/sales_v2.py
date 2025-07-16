@@ -1019,6 +1019,93 @@ async def get_leads_by_user_chart(
                 logger.error(f"Erro ao extrair custom field {field_id}: {e}")
                 return None
         
+        # OTIMIZAÇÃO INTELIGENTE: Buscar apenas leads únicos das reuniões que não estão no mapa
+        reunion_lead_ids = set()
+        if tasks_data and "_embedded" in tasks_data:
+            tasks_list = tasks_data["_embedded"].get("tasks", [])
+            if isinstance(tasks_list, list):
+                for task in tasks_list:
+                    if task.get('entity_type') == 'leads':
+                        lead_id = task.get('entity_id')
+                        
+                        # Validação de data primeiro
+                        complete_till = task.get('complete_till')
+                        if not complete_till:
+                            continue
+                        if complete_till < start_time or complete_till > end_time:
+                            continue
+                        
+                        # Se o lead não está no mapa, adicionar para busca
+                        if lead_id and lead_id not in leads_map:
+                            reunion_lead_ids.add(lead_id)
+        
+        print(f"DEBUG: {len(tasks_list) if 'tasks_list' in locals() else 0} reuniões encontradas")
+        print(f"DEBUG: {len(reunion_lead_ids)} leads únicos precisam ser buscados")
+        
+        # Buscar os leads faltantes em lote usando filtro de IDs
+        if reunion_lead_ids:
+            logger.info(f"Buscando {len(reunion_lead_ids)} leads adicionais para reuniões: {list(reunion_lead_ids)}")
+            
+            # DEBUG: Tentar busca em lote primeiro
+            leads_found_batch = 0
+            try:
+                # Converter IDs para string separada por vírgula
+                ids_string = ','.join(str(id) for id in reunion_lead_ids)
+                print(f"DEBUG: Tentando busca em lote com IDs: {ids_string}")
+                
+                # Buscar múltiplos leads de uma vez
+                batch_params = {
+                    'filter[id]': ids_string,
+                    'limit': len(reunion_lead_ids),
+                    'with': 'contacts,custom_fields_values'
+                }
+                
+                batch_result = kommo_api.get_leads(batch_params)
+                print(f"DEBUG: Resultado busca em lote: {batch_result is not None}")
+                
+                if batch_result and '_embedded' in batch_result:
+                    batch_leads = batch_result['_embedded'].get('leads', [])
+                    print(f"DEBUG: Leads encontrados em lote: {len(batch_leads)}")
+                    
+                    # Adicionar todos os leads encontrados ao mapa
+                    for lead in batch_leads:
+                        if lead and lead.get('id'):
+                            leads_map[lead.get('id')] = lead
+                            leads_found_batch += 1
+                            print(f"DEBUG: Lead {lead.get('id')} adicionado via lote")
+                
+            except Exception as e:
+                print(f"DEBUG: Erro na busca em lote: {e}")
+            
+            # Busca paralela para IDs não encontrados
+            remaining_ids = reunion_lead_ids - set(leads_map.keys())
+            if remaining_ids:
+                print(f"DEBUG: Fazendo busca PARALELA para {len(remaining_ids)} leads restantes")
+                
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                
+                def fetch_lead(lead_id):
+                    try:
+                        return lead_id, kommo_api.get_lead(lead_id)
+                    except Exception as e:
+                        print(f"DEBUG: Erro ao buscar lead {lead_id}: {e}")
+                        return lead_id, None
+                
+                max_threads = min(10, len(remaining_ids))
+                with ThreadPoolExecutor(max_workers=max_threads) as executor:
+                    future_to_id = {executor.submit(fetch_lead, lead_id): lead_id for lead_id in remaining_ids}
+                    
+                    for future in as_completed(future_to_id):
+                        lead_id, lead = future.result()
+                        if lead:
+                            leads_map[lead_id] = lead
+                            print(f"DEBUG: Lead {lead_id} encontrado via thread")
+            
+            logger.info(f"Total leads encontrados: {leads_found_batch} em lote + {len(reunion_lead_ids) - len(remaining_ids) - leads_found_batch} individual")
+        
+        # Processar tarefas de reunião (agora com todos os leads disponíveis)
+        print(f"DEBUG: Processando reuniões com leads_map atualizado...")
+        
         # Criar mapa de reuniões realizadas por lead
         meetings_by_lead = {}
         missing_leads = []  # Para debug
@@ -1075,8 +1162,15 @@ async def get_leads_by_user_chart(
                             
                             # Só contar se passou em todos os filtros
                             meetings_by_lead[lead_id] = meetings_by_lead.get(lead_id, 0) + 1
+                            
+                            # DEBUG: Mostrar qual reunião está sendo contada
+                            lead_name = lead.get("name", "Nome não encontrado")
+                            complete_till_formatted = datetime.fromtimestamp(complete_till).strftime("%d/%m/%Y %H:%M")
+                            print(f"DEBUG REUNIÃO CONTADA: {complete_till_formatted} - {lead_name} - {corretor_final} - {fonte_lead}")
                         elif lead_id:
                             missing_leads.append(lead_id)
+                            complete_till_formatted = datetime.fromtimestamp(complete_till).strftime("%d/%m/%Y %H:%M")
+                            print(f"DEBUG REUNIÃO IGNORADA - Lead não encontrado: {lead_id} - {complete_till_formatted}")
                             
         # Log para debug
         total_meetings = sum(meetings_by_lead.values())
@@ -1086,105 +1180,118 @@ async def get_leads_by_user_chart(
         
         # Função já definida acima
 
-        # Processar leads
-        leads_by_user = {}
+        # CORREÇÃO: Incluir leads que têm reuniões no período (mesmo que criados fora)
+        leads_to_process = []
         
+        # 1. Adicionar leads criados no período
         if leads_data and "_embedded" in leads_data:
             leads_list = leads_data["_embedded"].get("leads", [])
             if isinstance(leads_list, list):
-                for lead in leads_list:
-                    if not lead or not isinstance(lead, dict):
+                leads_to_process.extend(leads_list)
+        
+        # 2. Adicionar leads que têm reuniões no período (mesmo que criados fora)
+        for lead_id in meetings_by_lead.keys():
+            lead = leads_map.get(lead_id)
+            if lead and lead not in leads_to_process:
+                leads_to_process.append(lead)
+                print(f"DEBUG: Lead {lead_id} ({lead.get('name', 'Nome não encontrado')}) adicionado por ter reuniões")
+        
+        # Processar leads
+        leads_by_user = {}
+        
+        for lead in leads_to_process:
+            if not lead or not isinstance(lead, dict):
+                continue
+            
+            # CORREÇÃO: NÃO filtrar por created_at aqui pois já foi filtrado na seleção dos leads
+            # O all_leads_for_user_count já contém leads criados no período + vendas válidas no período
+            # Filtrar por created_at aqui removeria vendas válidas criadas fora do período
+            
+            # Extrair valores de forma segura
+            corretor_lead = get_custom_field_value(lead, 837920)  # Corretor
+            fonte_lead = get_custom_field_value(lead, 837886)     # Fonte
+            
+            # Aplicar filtros - suporta múltiplos valores separados por vírgula
+            if corretor and isinstance(corretor, str) and corretor.strip():
+                # Se corretor contém vírgula, é multi-select
+                if ',' in corretor:
+                    corretores_list = [c.strip() for c in corretor.split(',')]
+                    if corretor_lead not in corretores_list:
+                        continue
+                else:
+                    # Filtro único
+                    if corretor_lead != corretor:
+                        continue
+            
+            if fonte and isinstance(fonte, str) and fonte.strip():
+                # Se fonte contém vírgula, é multi-select
+                if ',' in fonte:
+                    fontes_list = [f.strip() for f in fonte.split(',')]
+                    if fonte_lead not in fontes_list:
+                        continue
+                else:
+                    # Filtro único
+                    if fonte_lead != fonte:
                         continue
                     
-                    # CORREÇÃO: NÃO filtrar por created_at aqui pois já foi filtrado na seleção dos leads
-                    # O all_leads_for_user_count já contém leads criados no período + vendas válidas no período
-                    # Filtrar por created_at aqui removeria vendas válidas criadas fora do período
+            # Determinar corretor final - tratar como "vazio" conforme PO
+            final_corretor = corretor_lead or "Vazio"
+            
+            
+            # Inicializar contador se não existir
+            if final_corretor not in leads_by_user:
+                leads_by_user[final_corretor] = {
+                    "name": final_corretor,
+                    "value": 0,
+                    "active": 0,
+                    "meetingsHeld": 0,  # Campo que o frontend usa
+                    "meetings": 0,      # Fallback para compatibilidade
+                    "sales": 0,
+                    "lost": 0,
+                    # NOVOS campos para separação orgânica vs paga
+                    "organicLeads": 0,
+                    "paidLeads": 0,
+                    "organicMeetings": 0,
+                    "paidMeetings": 0
+                }
+                logger.info(f"DEBUG: Inicializando contador para corretor: {final_corretor} com campos orgânicos")
+            
+            # Incrementar contadores
+            leads_by_user[final_corretor]["value"] += 1
                     
-                    # Extrair valores de forma segura
-                    corretor_lead = get_custom_field_value(lead, 837920)  # Corretor
-                    fonte_lead = get_custom_field_value(lead, 837886)     # Fonte
-                    
-                    # Aplicar filtros - suporta múltiplos valores separados por vírgula
-                    if corretor and isinstance(corretor, str) and corretor.strip():
-                        # Se corretor contém vírgula, é multi-select
-                        if ',' in corretor:
-                            corretores_list = [c.strip() for c in corretor.split(',')]
-                            if corretor_lead not in corretores_list:
-                                continue
-                        else:
-                            # Filtro único
-                            if corretor_lead != corretor:
-                                continue
-                    
-                    if fonte and isinstance(fonte, str) and fonte.strip():
-                        # Se fonte contém vírgula, é multi-select
-                        if ',' in fonte:
-                            fontes_list = [f.strip() for f in fonte.split(',')]
-                            if fonte_lead not in fontes_list:
-                                continue
-                        else:
-                            # Filtro único
-                            if fonte_lead != fonte:
-                                continue
-                    
-                    # Determinar corretor final - tratar como "vazio" conforme PO
-                    final_corretor = corretor_lead or "Vazio"
-                    
-                    
-                    # Inicializar contador se não existir
-                    if final_corretor not in leads_by_user:
-                        leads_by_user[final_corretor] = {
-                            "name": final_corretor,
-                            "value": 0,
-                            "active": 0,
-                            "meetingsHeld": 0,  # Campo que o frontend usa
-                            "meetings": 0,      # Fallback para compatibilidade
-                            "sales": 0,
-                            "lost": 0,
-                            # NOVOS campos para separação orgânica vs paga
-                            "organicLeads": 0,
-                            "paidLeads": 0,
-                            "organicMeetings": 0,
-                            "paidMeetings": 0
-                        }
-                        logger.info(f"DEBUG: Inicializando contador para corretor: {final_corretor} com campos orgânicos")
-                    
-                    # Incrementar contadores
-                    leads_by_user[final_corretor]["value"] += 1
-                    
-                    # Separar leads entre orgânicos e pagos
-                    if fonte_lead == "Orgânico":
-                        leads_by_user[final_corretor]["organicLeads"] += 1
-                        logger.info(f"DEBUG: Lead orgânico encontrado - Corretor: {final_corretor}, Fonte: {fonte_lead}")
-                    else:
-                        leads_by_user[final_corretor]["paidLeads"] += 1
-                        logger.info(f"DEBUG: Lead pago encontrado - Corretor: {final_corretor}, Fonte: {fonte_lead}")
-                    
-                    # Usar função centralizada para validação de vendas
-                    valid_sale_status_local = [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO]
-                    
-                    status_id = lead.get("status_id")
-                    lead_id = lead.get("id")
-                    
-                    # Vendas: apenas com data válida E no período
-                    if validate_sale_in_period(lead, start_time, end_time, CUSTOM_FIELD_DATA_FECHAMENTO, valid_sale_status_local):
-                        leads_by_user[final_corretor]["sales"] += 1
-                    elif status_id == 143:  # Lost
-                        leads_by_user[final_corretor]["lost"] += 1
-                    else:  # Active
-                        leads_by_user[final_corretor]["active"] += 1
-                    
-                    # Reuniões realizadas: do mapa de tarefas
-                    if lead_id in meetings_by_lead:
-                        meetings_count = meetings_by_lead[lead_id]
-                        leads_by_user[final_corretor]["meetingsHeld"] += meetings_count
-                        leads_by_user[final_corretor]["meetings"] += meetings_count  # Fallback
-                        
-                        # Separar reuniões entre orgânicas e pagas
-                        if fonte_lead == "Orgânico":
-                            leads_by_user[final_corretor]["organicMeetings"] += meetings_count
-                        else:
-                            leads_by_user[final_corretor]["paidMeetings"] += meetings_count
+            # Separar leads entre orgânicos e pagos
+            if fonte_lead == "Orgânico":
+                leads_by_user[final_corretor]["organicLeads"] += 1
+                logger.info(f"DEBUG: Lead orgânico encontrado - Corretor: {final_corretor}, Fonte: {fonte_lead}")
+            else:
+                leads_by_user[final_corretor]["paidLeads"] += 1
+                logger.info(f"DEBUG: Lead pago encontrado - Corretor: {final_corretor}, Fonte: {fonte_lead}")
+            
+            # Usar função centralizada para validação de vendas
+            valid_sale_status_local = [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO]
+            
+            status_id = lead.get("status_id")
+            lead_id = lead.get("id")
+            
+            # Vendas: apenas com data válida E no período
+            if validate_sale_in_period(lead, start_time, end_time, CUSTOM_FIELD_DATA_FECHAMENTO, valid_sale_status_local):
+                leads_by_user[final_corretor]["sales"] += 1
+            elif status_id == 143:  # Lost
+                leads_by_user[final_corretor]["lost"] += 1
+            else:  # Active
+                leads_by_user[final_corretor]["active"] += 1
+            
+            # Reuniões realizadas: do mapa de tarefas
+            if lead_id in meetings_by_lead:
+                meetings_count = meetings_by_lead[lead_id]
+                leads_by_user[final_corretor]["meetingsHeld"] += meetings_count
+                leads_by_user[final_corretor]["meetings"] += meetings_count  # Fallback
+                
+                # Separar reuniões entre orgânicas e pagas
+                if fonte_lead == "Orgânico":
+                    leads_by_user[final_corretor]["organicMeetings"] += meetings_count
+                else:
+                    leads_by_user[final_corretor]["paidMeetings"] += meetings_count
         
         # REMOVIDO: Lógica extra que contava meetings de leads fora do período
         # Para alinhar com detailed-tables, só contamos meetings de leads do período atual

@@ -54,7 +54,7 @@ class KommoAPI:
         self._cache.clear()
         print("💾 Cache LIMPO")
     
-    def _make_request(self, endpoint: str, params: Optional[Dict] = None, use_cache: bool = True) -> Dict:
+    def _make_request(self, endpoint: str, params: Optional[Dict] = None, use_cache: bool = True, retry_on_429: bool = True) -> Dict:
         """Método genérico para fazer requisições à API Kommo com cache e tratamento de erro melhorado"""
         # Verificar cache primeiro
         if use_cache:
@@ -63,42 +63,64 @@ class KommoAPI:
             if cached_result is not None:
                 return cached_result
         url = f"{self.base_url}/{endpoint}"
-        try:
-            response = requests.get(url, headers=self.headers, params=params)
-            
-            # Imprimir informações para debug
-            print(f"Request URL: {response.url}")
-            print(f"Status Code: {response.status_code}")
-            print(f"Response Headers: {dict(response.headers)}")
-            
-            # Verificar se a resposta foi bem-sucedida
-            response.raise_for_status()
-            
-            # Verificar se a resposta contém conteúdo
-            if not response.text:
-                print("Resposta vazia recebida da API")
-                return {}
-            
-            # Tentar fazer o parse do JSON
-            try:
-                result = response.json()
-                # Salvar no cache se a requisição foi bem-sucedida
-                if use_cache and result:
-                    cache_key = self._get_cache_key(endpoint, params)
-                    self._save_to_cache(cache_key, result)
-                return result
-            except ValueError as e:
-                print(f"Erro ao analisar JSON: {e}")
-                print(f"Conteúdo da resposta: {response.text[:200]}...")  # Mostrar os primeiros 200 caracteres
-                raise ValueError(f"Resposta inválida da API Kommo: {e}")
         
-        except requests.exceptions.RequestException as e:
-            print(f"Erro de requisição HTTP: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"Status Code: {e.response.status_code}")
-                print(f"Response Content: {e.response.text[:500]}")
-            # Retornar estrutura vazia mas com indicador de erro
-            return {"_error": True, "_error_message": str(e)}
+        # Implementar retry com backoff exponencial para 429 errors
+        max_retries = 3 if retry_on_429 else 1
+        base_delay = 1.0  # 1 segundo inicial
+        
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, headers=self.headers, params=params)
+                
+                # Imprimir informações para debug (apenas na primeira tentativa)
+                if attempt == 0:
+                    print(f"Request URL: {response.url}")
+                    print(f"Status Code: {response.status_code}")
+                    print(f"Response Headers: {dict(response.headers)}")
+                
+                # Se receber 429, fazer retry com delay
+                if response.status_code == 429 and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # Backoff exponencial
+                    print(f"⚠️ Rate limit atingido (429) - Tentativa {attempt + 1}/{max_retries}. Aguardando {delay}s...")
+                    time.sleep(delay)
+                    continue
+                
+                # Verificar se a resposta foi bem-sucedida
+                response.raise_for_status()
+                
+                # Verificar se a resposta contém conteúdo
+                if not response.text:
+                    print("Resposta vazia recebida da API")
+                    return {}
+                
+                # Tentar fazer o parse do JSON
+                try:
+                    result = response.json()
+                    # Salvar no cache se a requisição foi bem-sucedida
+                    if use_cache and result:
+                        cache_key = self._get_cache_key(endpoint, params)
+                        self._save_to_cache(cache_key, result)
+                    return result
+                except ValueError as e:
+                    print(f"Erro ao analisar JSON: {e}")
+                    print(f"Conteúdo da resposta: {response.text[:200]}...")  # Mostrar os primeiros 200 caracteres
+                    raise ValueError(f"Resposta inválida da API Kommo: {e}")
+            
+            except requests.exceptions.RequestException as e:
+                print(f"Erro de requisição HTTP: {e}")
+                if hasattr(e, 'response') and e.response is not None:
+                    print(f"Status Code: {e.response.status_code}")
+                    print(f"Response Content: {e.response.text[:500]}")
+                    
+                    # Se for 429 e não for a última tentativa, tentar novamente
+                    if e.response.status_code == 429 and attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        print(f"⚠️ Rate limit atingido (429) - Tentativa {attempt + 1}/{max_retries}. Aguardando {delay}s...")
+                        time.sleep(delay)
+                        continue
+                
+                # Retornar estrutura vazia mas com indicador de erro
+                return {"_error": True, "_error_message": str(e)}
     
     # Métodos para Leads
     def get_leads(self, params: Optional[Dict] = None) -> Dict:

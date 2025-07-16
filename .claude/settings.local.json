@@ -15,7 +15,9 @@
       "Bash(mv:*)",
       "Bash(find:*)",
       "Bash(curl:*)",
-      "Bash(./test_kpis_simple.sh:*)"
+      "Bash(./test_kpis_simple.sh:*)",
+      "Bash(awk:*)",
+      "Bash(sed:*)"
     ],
     "deny": []
   }

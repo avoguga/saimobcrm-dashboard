@@ -1177,6 +1177,7 @@ async def get_detailed_tables(
         if tasks_data and '_embedded' in tasks_data:
             reunioes_tasks = tasks_data.get('_embedded', {}).get('tasks', [])
             logger.info(f"Encontradas {len(reunioes_tasks)} tarefas de reunião concluídas")
+            
         
         # Criar mapa de lead_id para lead (usar todos os leads para lookup de reuniões)
         all_leads_combined = all_propostas + all_vendas + all_leads_for_details
@@ -1186,7 +1187,90 @@ async def get_detailed_tables(
             if lead and lead.get("id"):
                 leads_map[lead.get("id")] = lead
         
-        # Processar tarefas de reunião
+        # OTIMIZAÇÃO INTELIGENTE: Buscar apenas leads únicos das reuniões
+        # Coletar IDs únicos dos leads das reuniões que não estão no mapa
+        reunion_lead_ids = set()
+        for task in reunioes_tasks:
+            if task.get('entity_type') == 'leads':
+                lead_id = task.get('entity_id')
+                if lead_id and lead_id not in leads_map:
+                    reunion_lead_ids.add(lead_id)
+        
+        print(f"DEBUG: {len(reunioes_tasks)} reuniões encontradas")
+        print(f"DEBUG: {len(reunion_lead_ids)} leads únicos precisam ser buscados")
+        
+        # Buscar os leads faltantes em lote usando filtro de IDs
+        if reunion_lead_ids:
+            logger.info(f"Buscando {len(reunion_lead_ids)} leads adicionais para reuniões: {list(reunion_lead_ids)}")
+            
+            # DEBUG: Tentar busca em lote primeiro, mas com fallback garantido
+            leads_found_batch = 0
+            try:
+                # Converter IDs para string separada por vírgula
+                ids_string = ','.join(str(id) for id in reunion_lead_ids)
+                print(f"DEBUG: Tentando busca em lote com IDs: {ids_string}")
+                
+                # Buscar múltiplos leads de uma vez
+                batch_params = {
+                    'filter[id]': ids_string,
+                    'limit': len(reunion_lead_ids),
+                    'with': 'contacts,custom_fields_values'
+                }
+                
+                batch_result = kommo_api.get_leads(batch_params)
+                print(f"DEBUG: Resultado busca em lote: {batch_result is not None}")
+                
+                if batch_result and '_embedded' in batch_result:
+                    batch_leads = batch_result['_embedded'].get('leads', [])
+                    print(f"DEBUG: Leads encontrados em lote: {len(batch_leads)}")
+                    
+                    # Adicionar todos os leads encontrados ao mapa
+                    for lead in batch_leads:
+                        if lead and lead.get('id'):
+                            leads_map[lead.get('id')] = lead
+                            leads_found_batch += 1
+                            print(f"DEBUG: Lead {lead.get('id')} adicionado via lote")
+                
+            except Exception as e:
+                print(f"DEBUG: Erro na busca em lote: {e}")
+            
+            # Busca paralela para IDs não encontrados (muito mais rápida)
+            remaining_ids = reunion_lead_ids - set(leads_map.keys())
+            if remaining_ids:
+                print(f"DEBUG: Fazendo busca PARALELA para {len(remaining_ids)} leads restantes")
+                
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                import time
+                
+                def fetch_lead(lead_id):
+                    try:
+                        return lead_id, kommo_api.get_lead(lead_id)
+                    except Exception as e:
+                        print(f"DEBUG: Erro ao buscar lead {lead_id}: {e}")
+                        return lead_id, None
+                
+                start_time = time.time()
+                # OTIMIZAÇÃO: Máximo 10 threads para melhor performance sem sobrecarregar
+                max_threads = min(10, len(remaining_ids))
+                print(f"DEBUG: Usando {max_threads} threads paralelas")
+                with ThreadPoolExecutor(max_workers=max_threads) as executor:
+                    # Submeter todas as tarefas
+                    future_to_id = {executor.submit(fetch_lead, lead_id): lead_id for lead_id in remaining_ids}
+                    
+                    # Coletar resultados conforme ficam prontos
+                    for future in as_completed(future_to_id):
+                        lead_id, lead = future.result()
+                        if lead:
+                            leads_map[lead_id] = lead
+                            print(f"DEBUG: Lead {lead_id} encontrado via thread")
+                
+                elapsed = time.time() - start_time
+                print(f"DEBUG: Busca paralela concluída em {elapsed:.2f}s para {len(remaining_ids)} leads")
+            
+            logger.info(f"Total leads encontrados: {leads_found_batch} em lote + {len(reunion_lead_ids) - len(remaining_ids) - leads_found_batch} individual")
+        
+        # Processar tarefas de reunião (agora com todos os leads disponíveis)
+        print(f"DEBUG: Processando {len(reunioes_tasks)} reuniões...")
         for task in reunioes_tasks:
             if not task or task.get('entity_type') != 'leads':
                 continue
