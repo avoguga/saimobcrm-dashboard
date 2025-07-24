@@ -599,17 +599,15 @@ async def get_leads_segmentation(
     until: Optional[str] = Query(None, description="End date for custom range (YYYY-MM-DD)"),
     campaign_id: Optional[str] = Query(None, description="Filter by specific campaign ID"),
     adset_id: Optional[str] = Query(None, description="Filter by specific ad set ID"),
-    breakdowns: Optional[str] = Query("gender,region,city", description="Segmentation breakdowns (comma-separated)")
+    breakdowns: Optional[str] = Query("gender", description="Segmentation breakdowns (comma-separated)")
 ):
     """
-    Get leads segmented by gender and location (state/city).
+    Get leads segmented by gender.
     
     Returns detailed breakdown of leads by:
-    - Gender (male, female)
-    - State/Region (region)
-    - City (city)
+    - Gender (male, female, unknown)
     
-    Each row in the response represents a unique combination of gender + state + city.
+    Each row in the response represents leads by gender.
     """
     try:
         client = get_facebook_client()
@@ -627,17 +625,8 @@ async def get_leads_segmentation(
             time_range = {'since': since, 'until': until}
         
         # Prepare breakdowns
-        breakdowns_list = breakdowns.split(',') if breakdowns else ["gender", "region"]
+        breakdowns_list = breakdowns.split(',') if breakdowns else ["gender"]
         
-        # Validate breakdown combinations (Meta API limitation)
-        has_demographic = any(bd in breakdowns_list for bd in ['gender', 'age'])
-        has_geographic = any(bd in breakdowns_list for bd in ['region', 'city'])
-        
-        if has_demographic and has_geographic:
-            raise HTTPException(
-                status_code=400, 
-                detail="Meta API não permite combinar breakdowns demográficos (gender, age) com geográficos (region, city) para campanhas de leads. Use separadamente: 'gender' OU 'region' OU 'city'."
-            )
         
         # Get segmented insights
         insights = client.get_leads_segmentation_insights(
@@ -685,7 +674,7 @@ async def get_campaign_leads_segmentation(
     date_preset: Optional[str] = Query("last_30d", description="Preset date range"),
     since: Optional[str] = Query(None, description="Start date for custom range (YYYY-MM-DD)"),
     until: Optional[str] = Query(None, description="End date for custom range (YYYY-MM-DD)"),
-    breakdowns: Optional[str] = Query("gender,region,city", description="Segmentation breakdowns")
+    breakdowns: Optional[str] = Query("gender", description="Segmentation breakdowns")
 ):
     """
     Get leads segmentation for a specific campaign.
@@ -697,17 +686,8 @@ async def get_campaign_leads_segmentation(
         if since and until:
             time_range = {'since': since, 'until': until}
         
-        breakdowns_list = breakdowns.split(',') if breakdowns else ["gender", "region", "city"]
+        breakdowns_list = breakdowns.split(',') if breakdowns else ["gender"]
         
-        # Validate breakdown combinations (Meta API limitation)
-        has_demographic = any(bd in breakdowns_list for bd in ['gender', 'age'])
-        has_geographic = any(bd in breakdowns_list for bd in ['region', 'city'])
-        
-        if has_demographic and has_geographic:
-            raise HTTPException(
-                status_code=400, 
-                detail="Meta API não permite combinar breakdowns demográficos (gender, age) com geográficos (region, city) para campanhas de leads. Use separadamente: 'gender' OU 'region' OU 'city'."
-            )
         
         insights = client.get_leads_segmentation_insights(
             object_id=campaign_id,
