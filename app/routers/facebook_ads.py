@@ -19,10 +19,16 @@ async def get_campaigns(
     """Get all campaigns for the configured ad account"""
     try:
         client = get_facebook_client()
-        campaigns = client.get_campaigns(settings.FACEBOOK_AD_ACCOUNT_ID)
+        campaigns_list = client.get_campaigns(settings.FACEBOOK_AD_ACCOUNT_ID)
+        
+        # Garantir formato consistente
+        campaigns = {
+            'data': campaigns_list,
+            'total_count': len(campaigns_list)
+        }
         
         # Se fonte foi especificada, adicionar metadados de filtro
-        if fonte and campaigns.get('data'):
+        if fonte and campaigns_list:
             campaigns['_metadata'] = {
                 'fonte_filter': fonte,
                 'note': 'Filtro por fonte aplicado - campanhas Facebook Ads'
@@ -445,6 +451,146 @@ async def facebook_webhook(data: dict):
     except Exception as e:
         print(f"Error processing Facebook webhook: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing webhook: {str(e)}")
+
+@router.get("/whatsapp/insights")
+async def get_whatsapp_insights(
+    date_preset: Optional[str] = Query(None, description="Preset date range (e.g., 'last_7d', 'last_30d')"),
+    since: Optional[str] = Query(None, description="Start date for custom range (YYYY-MM-DD)"),
+    until: Optional[str] = Query(None, description="End date for custom range (YYYY-MM-DD)"),
+    level: str = Query("campaign", description="Level of data aggregation"),
+    campaign_id: Optional[str] = Query(None, description="Filter by specific campaign ID"),
+    adset_id: Optional[str] = Query(None, description="Filter by specific ad set ID"),
+    ad_id: Optional[str] = Query(None, description="Filter by specific ad ID")
+):
+    """
+    Get WhatsApp campaign metrics including:
+    - conversations_started: Number of WhatsApp conversations initiated (onsite_conversion.messaging_conversation_started_7d)
+    - profile_visits: Number of visits to company Facebook/Instagram profile/page (profile_view)
+    - whatsapp_clicks: Number of clicks that lead to WhatsApp chat (link_click + inline_link_click + etc)
+    
+    Specifically designed for campaigns with:
+    - Objective: OUTCOME_ENGAGEMENT or OUTCOME_TRAFFIC
+    - Destination: MESSAGING_APPS
+    - Optimization: CONVERSATIONS
+    """
+    try:
+        client = get_facebook_client()
+        
+        # Determine object ID based on filters
+        object_id = settings.FACEBOOK_AD_ACCOUNT_ID
+        if ad_id:
+            object_id = ad_id
+            level = "ad"
+        elif adset_id:
+            object_id = adset_id
+            level = "adset"
+        elif campaign_id:
+            object_id = campaign_id
+            level = "campaign"
+        
+        # Prepare time range
+        time_range = None
+        if since and until:
+            time_range = {'since': since, 'until': until}
+        
+        # Get WhatsApp-specific insights
+        insights = client.get_whatsapp_campaign_insights(
+            object_id=object_id,
+            date_preset=date_preset,
+            time_range=time_range,
+            level=level
+        )
+        
+        # Process and extract WhatsApp metrics for each data entry
+        processed_data = []
+        if insights.get('data'):
+            for entry in insights['data']:
+                whatsapp_metrics = client.extract_whatsapp_metrics(entry)
+                whatsapp_metrics['date_start'] = entry.get('date_start')
+                whatsapp_metrics['date_stop'] = entry.get('date_stop')
+                processed_data.append(whatsapp_metrics)
+        
+        # Add metadata for documentation
+        metadata = {
+            'whatsapp_metrics_explanation': {
+                'conversations_started': 'Number of WhatsApp conversations initiated within 7 days (onsite_conversion.messaging_conversation_started_7d)',
+                'profile_visits': 'Number of visits to company Facebook/Instagram profile/page (profile_view)',
+                'whatsapp_clicks': 'Total clicks that lead to WhatsApp chat (link_click + inline_link_click + outbound_click + messaging_contact)',
+                'clicks_breakdown': 'Detailed breakdown of different types of WhatsApp clicks',
+                'cost_per_conversation': 'Total spend divided by conversations started',
+                'cost_per_whatsapp_click': 'Total spend divided by WhatsApp clicks',
+                'cost_per_profile_visit': 'Total spend divided by profile visits',
+                'whatsapp_conversion_rate': 'Percentage of WhatsApp clicks that resulted in conversations'
+            },
+            'campaign_requirements': {
+                'objective': 'OUTCOME_ENGAGEMENT or OUTCOME_TRAFFIC',
+                'destination_type': 'MESSAGING_APPS',
+                'optimization_goal': 'CONVERSATIONS'
+            },
+            'filters_applied': {
+                'campaign_id': campaign_id,
+                'adset_id': adset_id,
+                'ad_id': ad_id,
+                'level': level
+            }
+        }
+        
+        return {
+            'data': processed_data,
+            'summary': {
+                'total_campaigns': len(processed_data),
+                'total_conversations': sum(item['conversations_started'] for item in processed_data),
+                'total_profile_visits': sum(item['profile_visits'] for item in processed_data),
+                'total_whatsapp_clicks': sum(item['whatsapp_clicks'] for item in processed_data),
+                'total_spend': sum(item['total_spend'] for item in processed_data)
+            },
+            '_metadata': metadata
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/whatsapp/campaigns/{campaign_id}/insights")
+async def get_whatsapp_campaign_insights(
+    campaign_id: str,
+    date_preset: Optional[str] = Query("last_7d", description="Preset date range"),
+    since: Optional[str] = Query(None, description="Start date for custom range (YYYY-MM-DD)"),
+    until: Optional[str] = Query(None, description="End date for custom range (YYYY-MM-DD)")
+):
+    """
+    Get WhatsApp-specific insights for a specific campaign
+    """
+    try:
+        client = get_facebook_client()
+        
+        time_range = None
+        if since and until:
+            time_range = {'since': since, 'until': until}
+        
+        insights = client.get_whatsapp_campaign_insights(
+            object_id=campaign_id,
+            date_preset=date_preset if not time_range else None,
+            time_range=time_range,
+            level="campaign"
+        )
+        
+        # Process WhatsApp metrics
+        processed_data = []
+        if insights.get('data'):
+            for entry in insights['data']:
+                whatsapp_metrics = client.extract_whatsapp_metrics(entry)
+                whatsapp_metrics['date_start'] = entry.get('date_start')
+                whatsapp_metrics['date_stop'] = entry.get('date_stop')
+                processed_data.append(whatsapp_metrics)
+        
+        return {
+            'campaign_id': campaign_id,
+            'data': processed_data,
+            'whatsapp_metrics': processed_data[0] if processed_data else None
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/webhook")
 async def verify_facebook_webhook(

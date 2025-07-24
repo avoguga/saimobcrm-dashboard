@@ -386,3 +386,158 @@ class FacebookAPI:
             #     pass
         
         return city_targeted_adsets
+    
+    def get_whatsapp_campaign_insights(
+        self,
+        object_id: str,
+        date_preset: Optional[str] = None,
+        time_range: Optional[Dict[str, str]] = None,
+        level: str = "campaign"
+    ) -> Dict[str, Any]:
+        """
+        Get WhatsApp-specific insights for campaigns, adsets or ads.
+        Extracts conversations started and link clicks metrics.
+        
+        Args:
+            object_id: The Facebook object ID (campaign, adset, ad, or ad account)
+            date_preset: Preset date range (e.g., 'last_7d', 'last_30d')
+            time_range: Custom date range with 'since' and 'until' keys
+            level: Level of data aggregation ('campaign', 'adset', 'ad')
+        """
+        
+        # Fields needed for WhatsApp campaign metrics
+        fields = [
+            "campaign_name",
+            "clicks",
+            "actions",
+            "spend",
+            "impressions",
+            "reach"
+        ]
+        
+        params = {
+            'fields': ','.join(fields),
+            'level': level,
+            'action_breakdowns': 'action_type'  # Essential for getting detailed action types
+        }
+        
+        # Facebook requires either date_preset or time_range
+        if date_preset:
+            params['date_preset'] = date_preset
+        elif time_range:
+            params['time_range'] = str(time_range)
+        else:
+            # Default to last 7 days if no date range specified
+            params['date_preset'] = 'last_7d'
+            
+        return self._make_request(f"{object_id}/insights", params)
+    
+    def extract_whatsapp_metrics(self, insights_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract WhatsApp campaign metrics from insights data.
+        
+        Returns:
+        - conversations_started: Number of WhatsApp conversations initiated (onsite_conversion.messaging_conversation_started_7d)
+        - profile_visits: Number of visits to company profile/page on FB/IG (profile_view)
+        """
+        whatsapp_metrics = {
+            'conversations_started': 0,
+            'profile_visits': 0,
+            'whatsapp_clicks': 0,  # Clicks specifically to WhatsApp
+            'clicks_breakdown': {
+                'link_click': 0,
+                'inline_link_click': 0,
+                'outbound_click': 0,
+                'messaging_contact': 0
+            },
+            'total_spend': 0,
+            'campaign_name': '',
+            'impressions': 0,
+            'reach': 0,
+            'raw_actions': []  # For debugging purposes
+        }
+        
+        # Extract basic metrics with error handling
+        whatsapp_metrics['campaign_name'] = insights_data.get('campaign_name', '')
+        
+        try:
+            whatsapp_metrics['total_spend'] = float(insights_data.get('spend', 0))
+        except (ValueError, TypeError):
+            whatsapp_metrics['total_spend'] = 0.0
+            
+        try:
+            whatsapp_metrics['impressions'] = int(insights_data.get('impressions', 0))
+        except (ValueError, TypeError):
+            whatsapp_metrics['impressions'] = 0
+            
+        try:
+            whatsapp_metrics['reach'] = int(insights_data.get('reach', 0))
+        except (ValueError, TypeError):
+            whatsapp_metrics['reach'] = 0
+        
+        # Extract WhatsApp-specific actions
+        if 'actions' in insights_data and isinstance(insights_data['actions'], list):
+            for action in insights_data['actions']:
+                if not isinstance(action, dict):
+                    continue
+                    
+                action_type = action.get('action_type', '')
+                try:
+                    value = int(action.get('value', 0))
+                except (ValueError, TypeError):
+                    value = 0
+                
+                # Store raw actions for debugging
+                whatsapp_metrics['raw_actions'].append({
+                    'action_type': action_type,
+                    'value': value
+                })
+                
+                # WhatsApp conversations started (7-day attribution)
+                if action_type == 'onsite_conversion.messaging_conversation_started_7d':
+                    whatsapp_metrics['conversations_started'] = value
+                
+                # Profile visits - visits to company FB/IG profile/page (NOT WhatsApp)
+                elif action_type == 'profile_view':
+                    whatsapp_metrics['profile_visits'] = value
+                
+                # WhatsApp-specific clicks - clicks that lead to WhatsApp chat
+                elif action_type == 'link_click':
+                    whatsapp_metrics['clicks_breakdown']['link_click'] = value
+                    whatsapp_metrics['whatsapp_clicks'] += value
+                
+                elif action_type == 'inline_link_click':
+                    whatsapp_metrics['clicks_breakdown']['inline_link_click'] = value
+                    whatsapp_metrics['whatsapp_clicks'] += value
+                    
+                elif action_type == 'outbound_click':
+                    whatsapp_metrics['clicks_breakdown']['outbound_click'] = value
+                    whatsapp_metrics['whatsapp_clicks'] += value
+                    
+                elif action_type == 'messaging_contact':
+                    whatsapp_metrics['clicks_breakdown']['messaging_contact'] = value
+                    whatsapp_metrics['whatsapp_clicks'] += value
+        
+        # Calculate derived metrics
+        if whatsapp_metrics['conversations_started'] > 0 and whatsapp_metrics['total_spend'] > 0:
+            whatsapp_metrics['cost_per_conversation'] = whatsapp_metrics['total_spend'] / whatsapp_metrics['conversations_started']
+        else:
+            whatsapp_metrics['cost_per_conversation'] = 0
+            
+        if whatsapp_metrics['whatsapp_clicks'] > 0 and whatsapp_metrics['total_spend'] > 0:
+            whatsapp_metrics['cost_per_whatsapp_click'] = whatsapp_metrics['total_spend'] / whatsapp_metrics['whatsapp_clicks']
+        else:
+            whatsapp_metrics['cost_per_whatsapp_click'] = 0
+            
+        if whatsapp_metrics['whatsapp_clicks'] > 0 and whatsapp_metrics['conversations_started'] > 0:
+            whatsapp_metrics['whatsapp_conversion_rate'] = (whatsapp_metrics['conversations_started'] / whatsapp_metrics['whatsapp_clicks']) * 100
+        else:
+            whatsapp_metrics['whatsapp_conversion_rate'] = 0
+            
+        # Additional metrics for profile visits
+        if whatsapp_metrics['profile_visits'] > 0 and whatsapp_metrics['total_spend'] > 0:
+            whatsapp_metrics['cost_per_profile_visit'] = whatsapp_metrics['total_spend'] / whatsapp_metrics['profile_visits']
+        else:
+            whatsapp_metrics['cost_per_profile_visit'] = 0
+        
+        return whatsapp_metrics
