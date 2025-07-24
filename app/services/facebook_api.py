@@ -541,3 +541,140 @@ class FacebookAPI:
             whatsapp_metrics['cost_per_profile_visit'] = 0
         
         return whatsapp_metrics
+    
+    def get_leads_segmentation_insights(
+        self,
+        object_id: str,
+        date_preset: Optional[str] = None,
+        time_range: Optional[Dict[str, str]] = None,
+        breakdowns: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Get leads segmentation insights by gender and location (state/city).
+        
+        Args:
+            object_id: The Facebook object ID (campaign, adset, ad, or ad account)
+            date_preset: Preset date range (e.g., 'last_7d', 'last_30d')
+            time_range: Custom date range with 'since' and 'until' keys
+            breakdowns: List of breakdowns (gender, region, city)
+        """
+        
+        # Fields needed for leads segmentation
+        fields = [
+            "actions"
+        ]
+        
+        # Default breakdowns for gender and location
+        if not breakdowns:
+            breakdowns = ["gender", "region", "city"]
+        
+        params = {
+            'fields': ','.join(fields),
+            'action_breakdowns': 'action_type',
+            'breakdowns': ','.join(breakdowns)
+        }
+        
+        # Facebook requires either date_preset or time_range
+        if date_preset:
+            params['date_preset'] = date_preset
+        elif time_range:
+            params['time_range'] = str(time_range)
+        else:
+            # Default to last 30 days for leads analysis
+            params['date_preset'] = 'last_30d'
+            
+        return self._make_request(f"{object_id}/insights", params)
+    
+    def process_leads_segmentation(self, insights_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Process leads segmentation data from Facebook API response.
+        
+        Returns a list of segmented leads data with gender, state, city and lead count.
+        """
+        segmented_results = []
+        
+        if not insights_data.get('data'):
+            return segmented_results
+        
+        # Process each segment in the response
+        for segment in insights_data['data']:
+            # Extract demographic and location data
+            gender = segment.get('gender', 'unknown')
+            state = segment.get('region', 'unknown')
+            city = segment.get('city', 'unknown')
+            
+            # Initialize leads count for this segment
+            leads_count = 0
+            
+            # Extract leads from actions
+            if 'actions' in segment and isinstance(segment['actions'], list):
+                for action in segment['actions']:
+                    if isinstance(action, dict) and action.get('action_type') == 'lead':
+                        try:
+                            leads_count = int(action.get('value', 0))
+                            break  # Found the lead action, stop looking
+                        except (ValueError, TypeError):
+                            leads_count = 0
+            
+            # Add processed segment to results
+            segmented_results.append({
+                'genero': gender,
+                'estado': state,
+                'cidade': city,
+                'leads': leads_count,
+                'raw_segment': segment  # Keep raw data for debugging
+            })
+        
+        return segmented_results
+    
+    def get_leads_summary(self, segmented_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Generate summary statistics from segmented leads data.
+        """
+        if not segmented_data:
+            return {
+                'total_leads': 0,
+                'total_segments': 0,
+                'by_gender': {},
+                'by_state': {},
+                'by_city': {},
+                'top_segments': []
+            }
+        
+        # Calculate totals
+        total_leads = sum(segment['leads'] for segment in segmented_data)
+        total_segments = len(segmented_data)
+        
+        # Group by gender
+        by_gender = {}
+        for segment in segmented_data:
+            gender = segment['genero']
+            by_gender[gender] = by_gender.get(gender, 0) + segment['leads']
+        
+        # Group by state
+        by_state = {}
+        for segment in segmented_data:
+            state = segment['estado']
+            by_state[state] = by_state.get(state, 0) + segment['leads']
+        
+        # Group by city
+        by_city = {}
+        for segment in segmented_data:
+            city = segment['cidade']
+            by_city[city] = by_city.get(city, 0) + segment['leads']
+        
+        # Top performing segments (top 10)
+        top_segments = sorted(
+            segmented_data, 
+            key=lambda x: x['leads'], 
+            reverse=True
+        )[:10]
+        
+        return {
+            'total_leads': total_leads,
+            'total_segments': total_segments,
+            'by_gender': by_gender,
+            'by_state': by_state,
+            'by_city': by_city,
+            'top_segments': top_segments
+        }

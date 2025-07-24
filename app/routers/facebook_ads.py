@@ -592,6 +592,146 @@ async def get_whatsapp_campaign_insights(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/leads/segmentation")
+async def get_leads_segmentation(
+    date_preset: Optional[str] = Query(None, description="Preset date range (e.g., 'last_7d', 'last_30d')"),
+    since: Optional[str] = Query(None, description="Start date for custom range (YYYY-MM-DD)"),
+    until: Optional[str] = Query(None, description="End date for custom range (YYYY-MM-DD)"),
+    campaign_id: Optional[str] = Query(None, description="Filter by specific campaign ID"),
+    adset_id: Optional[str] = Query(None, description="Filter by specific ad set ID"),
+    breakdowns: Optional[str] = Query("gender,region,city", description="Segmentation breakdowns (comma-separated)")
+):
+    """
+    Get leads segmented by gender and location (state/city).
+    
+    Returns detailed breakdown of leads by:
+    - Gender (male, female)
+    - State/Region (region)
+    - City (city)
+    
+    Each row in the response represents a unique combination of gender + state + city.
+    """
+    try:
+        client = get_facebook_client()
+        
+        # Determine object ID based on filters
+        object_id = settings.FACEBOOK_AD_ACCOUNT_ID
+        if adset_id:
+            object_id = adset_id
+        elif campaign_id:
+            object_id = campaign_id
+        
+        # Prepare time range
+        time_range = None
+        if since and until:
+            time_range = {'since': since, 'until': until}
+        
+        # Prepare breakdowns
+        breakdowns_list = breakdowns.split(',') if breakdowns else ["gender", "region"]
+        
+        # Validate breakdown combinations (Meta API limitation)
+        has_demographic = any(bd in breakdowns_list for bd in ['gender', 'age'])
+        has_geographic = any(bd in breakdowns_list for bd in ['region', 'city'])
+        
+        if has_demographic and has_geographic:
+            raise HTTPException(
+                status_code=400, 
+                detail="Meta API não permite combinar breakdowns demográficos (gender, age) com geográficos (region, city) para campanhas de leads. Use separadamente: 'gender' OU 'region' OU 'city'."
+            )
+        
+        # Get segmented insights
+        insights = client.get_leads_segmentation_insights(
+            object_id=object_id,
+            date_preset=date_preset,
+            time_range=time_range,
+            breakdowns=breakdowns_list
+        )
+        
+        # Process the segmentation data
+        segmented_data = client.process_leads_segmentation(insights)
+        
+        # Generate summary statistics
+        summary = client.get_leads_summary(segmented_data)
+        
+        return {
+            'data': segmented_data,
+            'summary': summary,
+            '_metadata': {
+                'segmentation_explanation': {
+                    'genero': 'User gender (male, female, unknown)',
+                    'estado': 'Brazilian state/region where the lead is located',
+                    'cidade': 'City where the lead is located',
+                    'leads': 'Number of leads generated in this segment'
+                },
+                'filters_applied': {
+                    'campaign_id': campaign_id,
+                    'adset_id': adset_id,
+                    'breakdowns': breakdowns_list
+                },
+                'api_call_structure': {
+                    'fields': 'actions',
+                    'action_breakdowns': 'action_type',
+                    'breakdowns': ','.join(breakdowns_list)
+                }
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/campaigns/{campaign_id}/leads/segmentation")
+async def get_campaign_leads_segmentation(
+    campaign_id: str,
+    date_preset: Optional[str] = Query("last_30d", description="Preset date range"),
+    since: Optional[str] = Query(None, description="Start date for custom range (YYYY-MM-DD)"),
+    until: Optional[str] = Query(None, description="End date for custom range (YYYY-MM-DD)"),
+    breakdowns: Optional[str] = Query("gender,region,city", description="Segmentation breakdowns")
+):
+    """
+    Get leads segmentation for a specific campaign.
+    """
+    try:
+        client = get_facebook_client()
+        
+        time_range = None
+        if since and until:
+            time_range = {'since': since, 'until': until}
+        
+        breakdowns_list = breakdowns.split(',') if breakdowns else ["gender", "region", "city"]
+        
+        # Validate breakdown combinations (Meta API limitation)
+        has_demographic = any(bd in breakdowns_list for bd in ['gender', 'age'])
+        has_geographic = any(bd in breakdowns_list for bd in ['region', 'city'])
+        
+        if has_demographic and has_geographic:
+            raise HTTPException(
+                status_code=400, 
+                detail="Meta API não permite combinar breakdowns demográficos (gender, age) com geográficos (region, city) para campanhas de leads. Use separadamente: 'gender' OU 'region' OU 'city'."
+            )
+        
+        insights = client.get_leads_segmentation_insights(
+            object_id=campaign_id,
+            date_preset=date_preset if not time_range else None,
+            time_range=time_range,
+            breakdowns=breakdowns_list
+        )
+        
+        segmented_data = client.process_leads_segmentation(insights)
+        summary = client.get_leads_summary(segmented_data)
+        
+        return {
+            'campaign_id': campaign_id,
+            'data': segmented_data,
+            'summary': summary,
+            'segmentation_details': {
+                'total_segments': len(segmented_data),
+                'segments_with_leads': len([s for s in segmented_data if s['leads'] > 0])
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/webhook")
 async def verify_facebook_webhook(
     hub_mode: str = Query(alias="hub.mode"),
