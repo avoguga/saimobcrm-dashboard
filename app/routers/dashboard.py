@@ -918,8 +918,10 @@ async def get_detailed_tables(
     limit: int = Query(250, description="Limite de registros por página"),
 ):
     """
-    Endpoint que retorna dados detalhados para 3 tabelas:
-    - Reuniões: Data da Reunião, Nome do Lead, Corretor, Fonte, Anúncio, Público
+    Endpoint que retorna dados detalhados para 5 tabelas:
+    - Leads: Data de Criação, Nome do Lead, Corretor, Fonte, Anúncio, Público, Funil, Etapa, Status
+    - Leads Orgânicos: Data de Criação, Nome do Lead, Corretor, Fonte, Anúncio, Público, Funil, Etapa, Status
+    - Reuniões: Data da Reunião, Nome do Lead, Corretor, Fonte, Anúncio, Público, Funil, Etapa, Status
     - Propostas: Data da Proposta, Nome do Lead, Corretor, Fonte, Anúncio, Público
     - Vendas: Data da Venda, Nome do Lead, Corretor, Fonte, Anúncio, Público, Valor da Venda
     
@@ -1554,6 +1556,8 @@ async def get_detailed_tables(
             custom_fields = lead.get("custom_fields_values", [])
             fonte_lead = "N/A"
             corretor_custom = None
+            anuncio_lead = "N/A"  # Novo campo
+            publico_lead = "N/A"  # Novo campo (conjunto de anúncios)
             
             if custom_fields and isinstance(custom_fields, list):
                 for field in custom_fields:
@@ -1565,6 +1569,10 @@ async def get_detailed_tables(
                             fonte_lead = values[0].get("value", "N/A")
                         elif field_id == 837920 and values:  # Corretor
                             corretor_custom = values[0].get("value")
+                        elif field_id == 837846 and values:  # Anúncio
+                            anuncio_lead = values[0].get("value", "N/A")
+                        elif field_id == 837844 and values:  # Público (conjunto de anúncios)
+                            publico_lead = values[0].get("value", "N/A")
             
             # Determinar corretor final
             if corretor_custom:
@@ -1628,6 +1636,8 @@ async def get_detailed_tables(
                 "Nome do Lead": lead_name,
                 "Corretor": corretor_final,
                 "Fonte": fonte_lead,
+                "Anúncio": anuncio_lead,  # Novo campo
+                "Público": publico_lead,  # Novo campo (conjunto de anúncios)
                 "Funil": funil,
                 "Etapa": etapa,
                 "Status": status_name
