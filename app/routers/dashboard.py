@@ -919,9 +919,9 @@ async def get_detailed_tables(
 ):
     """
     Endpoint que retorna dados detalhados para 3 tabelas:
-    - Reuniões: Data da Reunião, Nome do Lead, Corretor, Fonte
-    - Propostas: Data da Proposta, Nome do Lead, Corretor, Fonte
-    - Vendas: Data da Venda, Nome do Lead, Corretor, Fonte, Valor da Venda
+    - Reuniões: Data da Reunião, Nome do Lead, Corretor, Fonte, Anúncio, Público
+    - Propostas: Data da Proposta, Nome do Lead, Corretor, Fonte, Anúncio, Público
+    - Vendas: Data da Venda, Nome do Lead, Corretor, Fonte, Anúncio, Público, Valor da Venda
     
     Retorna TODOS os dados sem filtro de período.
     """
@@ -935,6 +935,9 @@ async def get_detailed_tables(
         PIPELINE_VENDAS = 10516987  # ID do Funil de Vendas
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126  # ID do campo "Data Fechamento"
         CUSTOM_FIELD_ESTADO = 851638  # Campo ESTADO
+        CUSTOM_FIELD_FONTE = 837886  # Campo "Fonte"
+        CUSTOM_FIELD_ANUNCIO = 837846  # Campo "Anúncio"
+        CUSTOM_FIELD_PUBLICO = 837844  # Campo "Público" (conjunto de anúncios)
         
         # Função auxiliar para extrair valores de custom fields
         def get_custom_field_value(lead, field_id):
@@ -1317,6 +1320,8 @@ async def get_detailed_tables(
             custom_fields = lead.get("custom_fields_values", [])
             fonte_lead = "N/A"
             corretor_custom = None
+            anuncio_lead = "N/A"  # Novo campo
+            publico_lead = "N/A"  # Novo campo (conjunto de anúncios)
             
             if custom_fields and isinstance(custom_fields, list):
                 for field in custom_fields:
@@ -1328,6 +1333,10 @@ async def get_detailed_tables(
                             fonte_lead = values[0].get("value", "N/A")
                         elif field_id == 837920 and values:  # Corretor
                             corretor_custom = values[0].get("value")
+                        elif field_id == 837846 and values:  # Anúncio
+                            anuncio_lead = values[0].get("value", "N/A")
+                        elif field_id == 837844 and values:  # Público (conjunto de anúncios)
+                            publico_lead = values[0].get("value", "N/A")
             
             # Determinar corretor final - apenas do custom field
             if corretor_custom:
@@ -1380,6 +1389,8 @@ async def get_detailed_tables(
                 "Nome do Lead": lead_name,
                 "Corretor": corretor_final,
                 "Fonte": fonte_lead,
+                "Anúncio": anuncio_lead,  # Novo campo
+                "Público": publico_lead,  # Novo campo (conjunto de anúncios)
                 "Funil": funil,
                 "Etapa": etapa,
                 "Status": "Realizada"  # Confirmação visual de que a reunião aconteceu
@@ -1405,6 +1416,8 @@ async def get_detailed_tables(
             custom_fields = lead.get("custom_fields_values", [])
             fonte_lead = "N/A"
             corretor_custom = None
+            anuncio_lead = "N/A"  # Novo campo
+            publico_lead = "N/A"  # Novo campo (conjunto de anúncios)
             
             if custom_fields and isinstance(custom_fields, list):
                 for field in custom_fields:
@@ -1416,6 +1429,10 @@ async def get_detailed_tables(
                             fonte_lead = values[0].get("value", "N/A")
                         elif field_id == 837920 and values:  # Corretor
                             corretor_custom = values[0].get("value")
+                        elif field_id == 837846 and values:  # Anúncio
+                            anuncio_lead = values[0].get("value", "N/A")
+                        elif field_id == 837844 and values:  # Público (conjunto de anúncios)
+                            publico_lead = values[0].get("value", "N/A")
             
             # Para propostas: SEMPRE usar updated_at (PO)
             data_relevante = updated_at
@@ -1455,7 +1472,9 @@ async def get_detailed_tables(
                 "Data da Proposta": data_formatada,  # PO: usando updated_at
                 "Nome do Lead": lead_name,
                 "Corretor": corretor_final,
-                "Fonte": fonte_lead
+                "Fonte": fonte_lead,
+                "Anúncio": anuncio_lead,  # Novo campo
+                "Público": publico_lead  # Novo campo (conjunto de anúncios)
             })
         
         # Processar VENDAS (filtrar por data_fechamento no período)
@@ -1474,6 +1493,8 @@ async def get_detailed_tables(
             # Extrair campos customizados usando função padronizada
             fonte_lead = extract_custom_field_value(lead, 837886) or "N/A"  # Fonte
             corretor_custom = extract_custom_field_value(lead, 837920)  # Corretor
+            anuncio_lead = extract_custom_field_value(lead, 837846) or "N/A"  # Anúncio
+            publico_lead = extract_custom_field_value(lead, 837844) or "N/A"  # Público (conjunto de anúncios)
             
             # Obter timestamp da data de fechamento para formatação
             data_timestamp = get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
@@ -1513,6 +1534,8 @@ async def get_detailed_tables(
                 "Nome do Lead": lead_name,
                 "Corretor": corretor_final,
                 "Fonte": fonte_lead,
+                "Anúncio": anuncio_lead,  # Novo campo
+                "Público": publico_lead,  # Novo campo (conjunto de anúncios)
                 "Valor da Venda": valor_formatado
             })
         
