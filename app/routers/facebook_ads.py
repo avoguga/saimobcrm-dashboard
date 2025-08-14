@@ -105,68 +105,6 @@ async def get_insights(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/insights/summary")
-async def get_insights_summary(
-    date_preset: Optional[str] = Query("last_7d", description="Preset date range"),
-    since: Optional[str] = Query(None, description="Start date for custom range (YYYY-MM-DD)"),
-    until: Optional[str] = Query(None, description="End date for custom range (YYYY-MM-DD)")
-):
-    """
-    Get a summarized view of insights with calculated metrics
-    """
-    try:
-        client = get_facebook_client()
-        
-        # Prepare time range
-        time_range = None
-        if since and until:
-            time_range = {'since': since, 'until': until}
-        
-        # Get raw insights
-        insights_data = client.get_campaign_insights(
-            object_id=settings.FACEBOOK_AD_ACCOUNT_ID,
-            date_preset=date_preset if not time_range else None,
-            time_range=time_range
-        )
-        
-        if not insights_data.get('data'):
-            return {"error": "No data available for the specified period"}
-        
-        # Process the first data point (or aggregate if needed)
-        data_list = insights_data.get('data', [])
-        data = data_list[0] if data_list else {}
-        
-        # Extract lead metrics
-        lead_metrics = client.get_lead_metrics(data)
-        
-        # Extract engagement metrics
-        engagement_metrics = client.get_engagement_metrics(data)
-        
-        # Build summary response
-        summary = {
-            "basic_metrics": {
-                "impressions": data.get('impressions', 0),
-                "reach": data.get('reach', 0),
-                "clicks": data.get('clicks', 0),
-                "inline_link_clicks": data.get('inline_link_clicks', 0),
-                "ctr": data.get('ctr', 0),
-                "inline_link_click_ctr": data.get('inline_link_click_ctr', 0),
-                "cpc": data.get('cpc', 0),
-                "cost_per_inline_link_click": data.get('cost_per_inline_link_click', 0),
-                "cpm": data.get('cpm', 0),
-                "spend": data.get('spend', 0)
-            },
-            "lead_metrics": lead_metrics,
-            "engagement_metrics": engagement_metrics,
-            "period": {
-                "date_preset": date_preset,
-                "time_range": time_range
-            }
-        }
-        
-        return summary
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/campaigns/{campaign_id}/insights")
 async def get_campaign_insights(
