@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     # Configurações da aplicação
     DEBUG: bool = True
     
+    # Configurações do Redis Cache
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://default:HqdjcMSpTbf0WgU1mzP583cCESRqTB4hjo4mMqudnYBhMIo1xDvV5rTsIZfHVjsl@167.88.39.225:3457/0")
+    CACHE_TTL: int = int(os.getenv("CACHE_TTL", "600"))  # 10 minutos
+    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         if self.KOMMO_SUBDOMAIN:
@@ -31,3 +35,5 @@ KOMMO_SUBDOMAIN = settings.KOMMO_SUBDOMAIN
 KOMMO_TOKEN = settings.KOMMO_TOKEN
 KOMMO_API_URL = settings.KOMMO_API_URL
 DEBUG = settings.DEBUG
+REDIS_URL = settings.REDIS_URL
+CACHE_TTL = settings.CACHE_TTL

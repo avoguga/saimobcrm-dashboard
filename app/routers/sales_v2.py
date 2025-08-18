@@ -2037,3 +2037,177 @@ async def debug_sources_data(
         logger.error(f"Erro no debug de fontes: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+
+@router.get("/dashboard/optimized")
+async def get_dashboard_optimized(
+    days: int = Query(30, description="Período em dias para análise"),
+    use_cache: bool = Query(True, description="Usar cache Redis"),
+    force_refresh: bool = Query(False, description="Forçar refresh do cache")
+):
+    """
+    Dashboard otimizado com carregamento paralelo e cache Redis
+    Substitui chamadas sequenciais por requisições paralelas
+    """
+    try:
+        import time
+        start_time = time.time()
+        
+        logger.info(f"Dashboard otimizado iniciado - {days} dias, cache: {use_cache}")
+        
+        # Instanciar API do Kommo
+        from app.services.kommo_api import KommoAPI
+        api = KommoAPI()
+        
+        # Configurar endpoints para busca paralela
+        base_url = "http://localhost:8000"  # URL interna
+        endpoints_config = [
+            {
+                "endpoint": f"{base_url}/api/v2/sales/kpis?days={days}",
+                "cache_key": f"dashboard:kpis:{days}" if use_cache and not force_refresh else None
+            },
+            {
+                "endpoint": f"{base_url}/api/v2/charts/leads-by-user?days={days}",
+                "cache_key": f"dashboard:leads_by_user:{days}" if use_cache and not force_refresh else None
+            },
+            {
+                "endpoint": f"{base_url}/api/v2/sales/conversion-rates?days={days}",
+                "cache_key": f"dashboard:conversion_rates:{days}" if use_cache and not force_refresh else None
+            },
+            {
+                "endpoint": f"{base_url}/api/v2/sales/pipeline-status?days={days}",
+                "cache_key": f"dashboard:pipeline_status:{days}" if use_cache and not force_refresh else None
+            }
+        ]
+        
+        # Buscar dados usando requests paralelos simples
+        import asyncio
+        import aiohttp
+        
+        async def fetch_endpoint(session, config):
+            cache_key = config.get('cache_key')
+            
+            # Verificar cache primeiro
+            if cache_key and api.redis_client:
+                try:
+                    cached = api.redis_client.get(cache_key)
+                    if cached:
+                        import pickle
+                        data = pickle.loads(cached)
+                        return {"endpoint": config["endpoint"], "data": data, "from_cache": True}
+                except:
+                    pass
+            
+            # Buscar da API
+            try:
+                async with session.get(config["endpoint"], timeout=aiohttp.ClientTimeout(total=30)) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        # Salvar no cache
+                        if cache_key and api.redis_client:
+                            try:
+                                import pickle
+                                serialized = pickle.dumps(data)
+                                api.redis_client.setex(cache_key, api._cache_ttl, serialized)
+                            except:
+                                pass
+                        
+                        return {"endpoint": config["endpoint"], "data": data, "from_cache": False}
+                    else:
+                        return {"endpoint": config["endpoint"], "error": f"HTTP {response.status}", "from_cache": False}
+            except Exception as e:
+                return {"endpoint": config["endpoint"], "error": str(e), "from_cache": False}
+        
+        # Executar requisições em paralelo
+        async with aiohttp.ClientSession() as session:
+            tasks = [fetch_endpoint(session, config) for config in endpoints_config]
+            results = await asyncio.gather(*tasks)
+        
+        # Organizar resposta
+        dashboard_data = {}
+        cache_hits = 0
+        successful_requests = 0
+        
+        for result in results:
+            endpoint_url = result["endpoint"]
+            endpoint_name = endpoint_url.split("/")[-1].split("?")[0].replace("-", "_")
+            
+            if "data" in result:
+                dashboard_data[endpoint_name] = result["data"]
+                successful_requests += 1
+                if result.get("from_cache"):
+                    cache_hits += 1
+            else:
+                dashboard_data[endpoint_name] = {"error": result.get("error", "Unknown error")}
+        
+        total_time = time.time() - start_time
+        
+        return {
+            "dashboard_data": dashboard_data,
+            "performance_metrics": {
+                "total_time": round(total_time, 2),
+                "total_endpoints": len(endpoints_config),
+                "successful_requests": successful_requests,
+                "cache_hits": cache_hits,
+                "cache_hit_ratio": round((cache_hits / len(endpoints_config)) * 100, 1),
+                "loading_method": "parallel_optimized",
+                "redis_enabled": api.redis_client is not None,
+                "days": days
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro no dashboard otimizado: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+
+@router.delete("/cache/clear")
+async def clear_dashboard_cache():
+    """Limpa cache do dashboard"""
+    try:
+        from app.services.kommo_api import KommoAPI
+        api = KommoAPI()
+        api.clear_cache()
+        
+        return {
+            "message": "Cache limpo com sucesso",
+            "redis_enabled": api.redis_client is not None
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro ao limpar cache: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+
+@router.get("/cache/status")
+async def get_cache_status():
+    """Retorna status do cache Redis"""
+    try:
+        from app.services.kommo_api import KommoAPI
+        api = KommoAPI()
+        
+        redis_status = "disconnected"
+        redis_info = None
+        
+        if api.redis_client:
+            try:
+                info = api.redis_client.info()
+                redis_status = "connected"
+                redis_info = {
+                    "connected_clients": info.get("connected_clients"),
+                    "used_memory_human": info.get("used_memory_human"),
+                    "total_commands_processed": info.get("total_commands_processed")
+                }
+            except Exception as e:
+                redis_status = f"error: {str(e)}"
+        
+        return {
+            "redis_status": redis_status,
+            "redis_info": redis_info,
+            "cache_ttl": api._cache_ttl,
+            "memory_cache_keys": len(api._memory_cache) if hasattr(api, '_memory_cache') else 0
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro ao obter status do cache: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")

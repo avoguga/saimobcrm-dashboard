@@ -7,6 +7,13 @@ from concurrent.futures import ThreadPoolExecutor
 import time
 import hashlib
 from functools import lru_cache
+import redis
+import pickle
+import logging
+import asyncio
+import aiohttp
+
+logger = logging.getLogger(__name__)
 
 class KommoAPI:
     def __init__(self):
@@ -15,9 +22,29 @@ class KommoAPI:
             "Accept": "application/json",
             "Authorization": f"Bearer {config.KOMMO_TOKEN}"
         }
-        # Cache simples em memória com timestamp
-        self._cache = {}
-        self._cache_ttl = 300  # 5 minutos
+        # Redis cache
+        self.redis_client = None
+        self._cache_ttl = config.CACHE_TTL
+        self._init_redis()
+        
+        # Fallback cache em memória
+        self._memory_cache = {}
+        
+    def _init_redis(self):
+        """Inicializa conexão Redis"""
+        try:
+            self.redis_client = redis.from_url(
+                config.REDIS_URL, 
+                decode_responses=False,
+                socket_timeout=5,
+                socket_connect_timeout=5
+            )
+            # Testar conexão
+            self.redis_client.ping()
+            logger.info(f"✅ Redis conectado: {config.REDIS_URL[:50]}...")
+        except Exception as e:
+            logger.warning(f"⚠️ Redis não conectado, usando cache em memória: {e}")
+            self.redis_client = None
     
     def _get_cache_key(self, endpoint: str, params: Optional[Dict] = None) -> str:
         """Gera uma chave única para o cache baseada no endpoint e parâmetros"""
@@ -29,30 +56,65 @@ class KommoAPI:
             params_str = ""
         
         cache_string = f"{endpoint}|{params_str}"
-        return hashlib.md5(cache_string.encode()).hexdigest()
+        cache_hash = hashlib.md5(cache_string.encode()).hexdigest()
+        return f"kommo:{cache_hash}"
     
     def _get_from_cache(self, cache_key: str) -> Optional[Dict]:
-        """Recupera dados do cache se ainda válidos"""
-        if cache_key in self._cache:
-            cached_data, timestamp = self._cache[cache_key]
+        """Recupera dados do cache (Redis primeiro, memória como fallback)"""
+        # Tentar Redis primeiro
+        if self.redis_client:
+            try:
+                cached_data = self.redis_client.get(cache_key)
+                if cached_data:
+                    data = pickle.loads(cached_data)
+                    logger.info(f"💾 Redis Cache HIT para {cache_key[:8]}...")
+                    return data
+            except Exception as e:
+                logger.warning(f"⚠️ Erro no Redis cache: {e}")
+        
+        # Fallback para cache em memória
+        if cache_key in self._memory_cache:
+            cached_data, timestamp = self._memory_cache[cache_key]
             if time.time() - timestamp < self._cache_ttl:
-                print(f"💾 Cache HIT para {cache_key[:8]}...")
+                logger.info(f"💾 Memory Cache HIT para {cache_key[:8]}...")
                 return cached_data
             else:
                 # Cache expirado, remover
-                del self._cache[cache_key]
-                print(f"⏰ Cache EXPIRADO para {cache_key[:8]}...")
+                del self._memory_cache[cache_key]
         return None
     
     def _save_to_cache(self, cache_key: str, data: Dict):
-        """Salva dados no cache com timestamp"""
-        self._cache[cache_key] = (data, time.time())
-        print(f"💾 Cache SAVE para {cache_key[:8]}...")
+        """Salva dados no cache (Redis primeiro, memória como fallback)"""
+        # Tentar Redis primeiro
+        if self.redis_client:
+            try:
+                serialized_data = pickle.dumps(data)
+                self.redis_client.setex(cache_key, self._cache_ttl, serialized_data)
+                logger.info(f"💾 Redis Cache SAVE para {cache_key[:8]}...")
+                return
+            except Exception as e:
+                logger.warning(f"⚠️ Erro ao salvar no Redis: {e}")
+        
+        # Fallback para cache em memória
+        self._memory_cache[cache_key] = (data, time.time())
+        logger.info(f"💾 Memory Cache SAVE para {cache_key[:8]}...")
     
     def clear_cache(self):
         """Limpa todo o cache"""
-        self._cache.clear()
-        print("💾 Cache LIMPO")
+        # Limpar Redis
+        if self.redis_client:
+            try:
+                # Buscar chaves que começam com kommo:
+                keys = self.redis_client.keys("kommo:*")
+                if keys:
+                    self.redis_client.delete(*keys)
+                    logger.info(f"💾 Redis Cache LIMPO ({len(keys)} chaves)")
+            except Exception as e:
+                logger.warning(f"⚠️ Erro ao limpar Redis: {e}")
+        
+        # Limpar cache em memória
+        self._memory_cache.clear()
+        logger.info("💾 Memory Cache LIMPO")
     
     def _make_request(self, endpoint: str, params: Optional[Dict] = None, use_cache: bool = True, retry_on_429: bool = True) -> Dict:
         """Método genérico para fazer requisições à API Kommo com cache e tratamento de erro melhorado"""
@@ -425,3 +487,69 @@ class KommoAPI:
         if not start_timestamp or not end_timestamp:
             return 0
         return (end_timestamp - start_timestamp) / (60 * 60 * 24)
+    
+    async def fetch_multiple_endpoints_parallel(self, endpoints_config: List[Dict]) -> Dict:
+        """
+        Busca múltiplos endpoints em paralelo usando aiohttp
+        
+        Args:
+            endpoints_config: Lista de dicts com 'endpoint', 'params', 'cache_key' (opcional)
+        
+        Returns:
+            Dict com resultados de cada endpoint
+        """
+        async with aiohttp.ClientSession() as session:
+            tasks = []
+            
+            for config in endpoints_config:
+                endpoint = config['endpoint']
+                params = config.get('params', {})
+                cache_key = config.get('cache_key')
+                
+                task = self._fetch_endpoint_async(session, endpoint, params, cache_key)
+                tasks.append(task)
+            
+            # Executar todas em paralelo
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Organizar resultados
+            output = {}
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"Erro no endpoint {endpoints_config[i]['endpoint']}: {result}")
+                    output[endpoints_config[i]['endpoint']] = {"error": str(result)}
+                else:
+                    output[endpoints_config[i]['endpoint']] = result
+            
+            return output
+    
+    async def _fetch_endpoint_async(self, session: aiohttp.ClientSession, endpoint: str, params: Dict, cache_key: str = None) -> Dict:
+        """Busca um endpoint específico de forma assíncrona com cache"""
+        # Verificar cache primeiro se cache_key foi fornecido
+        if cache_key:
+            cached_data = self._get_from_cache(cache_key)
+            if cached_data:
+                return {"data": cached_data, "from_cache": True}
+        
+        # Fazer requisição
+        url = f"{self.base_url}/{endpoint}"
+        
+        try:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with session.get(url, headers=self.headers, params=params, timeout=timeout) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    # Salvar no cache se cache_key foi fornecido
+                    if cache_key:
+                        self._save_to_cache(cache_key, data)
+                    
+                    logger.info(f"✅ Sucesso async: {endpoint}")
+                    return {"data": data, "from_cache": False, "status": "success"}
+                else:
+                    logger.warning(f"⚠️ Erro async {endpoint}: {response.status}")
+                    return {"error": f"HTTP {response.status}", "status": "error"}
+                    
+        except Exception as e:
+            logger.error(f"❌ Exceção async {endpoint}: {str(e)}")
+            return {"error": str(e), "status": "error"}
