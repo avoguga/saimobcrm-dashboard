@@ -411,26 +411,22 @@ async def get_conversion_rates(
         # Calcular métricas de conversão
         total_leads = len(filtered_leads)
         meetings_leads = len([lead for lead in filtered_leads if lead.get("status_id") in [80689731, 80689727, 80645875]])
-        proposals_leads = len([lead for lead in filtered_leads if lead.get("status_id") == 80689735])
         sales_leads = len([lead for lead in filtered_leads if lead.get("status_id") == 142])
         
         # Calcular taxas de conversão
         meetings_rate = (meetings_leads / total_leads * 100) if total_leads > 0 else 0
-        proposals_rate = (proposals_leads / meetings_leads * 100) if meetings_leads > 0 else 0
-        sales_rate = (sales_leads / proposals_leads * 100) if proposals_leads > 0 else 0
+        sales_rate = (sales_leads / meetings_leads * 100) if meetings_leads > 0 else 0
         
         # Dados do funil
         funnel_data = [
             {"stage": "Leads", "value": total_leads, "rate": 100},
             {"stage": "Reuniões", "value": meetings_leads, "rate": round(meetings_rate, 1)},
-            {"stage": "Propostas", "value": proposals_leads, "rate": round(proposals_rate, 1)},
             {"stage": "Vendas", "value": sales_leads, "rate": round(sales_rate, 1)}
         ]
         
         return {
             "conversionRates": {
                 "meetings": round(meetings_rate, 1),
-                "prospects": round(proposals_rate, 1),
                 "sales": round(sales_rate, 1)
             },
             "funnelData": funnel_data,
@@ -550,7 +546,7 @@ async def get_pipeline_status(
                     status_name = status_map.get(status_id, f"Status {status_id}")
                     
                     # Agrupar status similares
-                    if "negociac" in status_name.lower() or "proposta" in status_name.lower():
+                    if "negociac" in status_name.lower():
                         grouped_status = "Leads em Negociação"
                     elif "remarketing" in status_name.lower() or "reativa" in status_name.lower():
                         grouped_status = "Leads em Remarketing"

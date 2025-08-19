@@ -19,6 +19,9 @@
       "Bash(awk:*)",
       "Bash(sed:*)"
     ],
-    "deny": []
+    "deny": [],
+    "additionalDirectories": [
+      "C:\\c\\Users\\avogu\\Documents"
+    ]
   }
 }
