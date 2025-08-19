@@ -309,6 +309,10 @@ async def get_leads_by_user_chart(
         CUSTOM_FIELD_FONTE = 837886
         CUSTOM_FIELD_PROPOSTA = 861100  # Novo campo boolean
         
+        # IDs dos pipelines
+        PIPELINE_VENDAS = 10516987
+        PIPELINE_REMARKETING = 11059911
+        
         # Função auxiliar para verificar se é proposta
         def is_proposta(lead):
             """Verifica se um lead é uma proposta usando o campo boolean 861100"""
@@ -353,14 +357,41 @@ async def get_leads_by_user_chart(
         try:
             users_data = kommo_api.get_users()
         except Exception as e:
-            logger.error(f"Erro ao buscar usuários: {e}")
+            logger.error(f"Erro ao buscar usuarios: {e}")
             users_data = {"_embedded": {"users": []}}
+        
+        # Buscar pipelines para mapear status para nomes de etapas
+        try:
+            pipelines_data = kommo_api.get_pipelines()
+        except Exception as e:
+            logger.error(f"Erro ao buscar pipelines: {e}")
+            pipelines_data = {"_embedded": {"pipelines": []}}
         
         # Criar mapa de usuários
         users_map = {}
         if users_data and "_embedded" in users_data:
             for user in users_data["_embedded"].get("users", []):
                 users_map[user["id"]] = user["name"]
+        
+        # Criar mapa de status e pipelines
+        status_map = {}
+        pipeline_map = {}
+        if pipelines_data and "_embedded" in pipelines_data:
+            for pipeline in pipelines_data["_embedded"].get("pipelines", []):
+                pipeline_id = pipeline.get("id")
+                pipeline_name = pipeline.get("name", f"Pipeline {pipeline_id}")
+                pipeline_map[pipeline_id] = pipeline_name
+                
+                # Mapear status dentro do pipeline
+                statuses = pipeline.get("_embedded", {}).get("statuses", [])
+                for status in statuses:
+                    status_id = status.get("id")
+                    status_name = status.get("name", f"Status {status_id}")
+                    status_map[status_id] = {
+                        "name": status_name,
+                        "pipeline_id": pipeline_id,
+                        "pipeline_name": pipeline_name
+                    }
         
         # Processar leads por corretor
         leads_by_user = {}
@@ -376,6 +407,9 @@ async def get_leads_by_user_chart(
                 custom_fields = lead.get("custom_fields_values", [])
                 corretor_lead = None
                 fonte_lead = None
+                anuncio_lead = None
+                publico_lead = None
+                produto_lead = None
                 
                 for field in custom_fields:
                     if not field:
@@ -387,6 +421,12 @@ async def get_leads_by_user_chart(
                         corretor_lead = values[0].get("value") if values[0] else None
                     elif field_id == CUSTOM_FIELD_FONTE and values:  # Fonte
                         fonte_lead = values[0].get("value") if values[0] else None
+                    elif field_id == 837846 and values:  # Anúncio
+                        anuncio_lead = values[0].get("value") if values[0] else None
+                    elif field_id == 837844 and values:  # Público (conjunto de anúncios)
+                        publico_lead = values[0].get("value") if values[0] else None
+                    elif field_id == 857264 and values:  # Produto
+                        produto_lead = values[0].get("value") if values[0] else None
                 
                 # Aplicar filtros
                 if corretor and corretor_lead != corretor:
@@ -407,7 +447,8 @@ async def get_leads_by_user_chart(
                         "meetingsHeld": 0,    # Reuniões realizadas (estimativa)
                         "proposalsHeld": 0,   # NOVO: Propostas usando campo boolean
                         "sales": 0,           # Vendas
-                        "lost": 0             # Leads perdidos
+                        "lost": 0,            # Leads perdidos
+                        "leads": []           # NOVO: Array com detalhes de cada lead
                     }
                 
                 # Incrementar contadores
@@ -416,6 +457,42 @@ async def get_leads_by_user_chart(
                 # Verificar se é uma proposta usando o campo boolean
                 if is_proposta(lead):
                     leads_by_user[final_corretor]["proposalsHeld"] += 1
+                
+                # NOVO: Criar objeto detalhado do lead
+                lead_id = lead.get("id")
+                lead_name = lead.get("name", "Lead sem nome")
+                created_at = lead.get("created_at")
+                pipeline_id = lead.get("pipeline_id")
+                
+                # Formatar data de criação
+                if created_at:
+                    from datetime import datetime
+                    created_date = datetime.fromtimestamp(created_at).strftime("%Y-%m-%d")
+                else:
+                    created_date = "N/A"
+                
+                # Obter informações de pipeline e status
+                status_info = status_map.get(status_id, {})
+                pipeline_name = status_info.get("pipeline_name", pipeline_map.get(pipeline_id, "Funil Desconhecido"))
+                etapa_name = status_info.get("name", f"Status {status_id}")
+                
+                # Montar objeto detalhado do lead
+                lead_detail = {
+                    "id": lead_id,
+                    "leadName": lead_name,
+                    "fonte": fonte_lead or "N/A",
+                    "anuncio": anuncio_lead or "N/A",
+                    "publico": publico_lead or "N/A",
+                    "produto": produto_lead or "N/A",
+                    "funil": pipeline_name,
+                    "etapa": etapa_name,
+                    "createdDate": created_date,
+                    "status_id": status_id,
+                    "is_proposta": is_proposta(lead)
+                }
+                
+                # Adicionar ao array de leads do corretor
+                leads_by_user[final_corretor]["leads"].append(lead_detail)
                 
                 # Classificar por status
                 status_id = lead.get("status_id")
