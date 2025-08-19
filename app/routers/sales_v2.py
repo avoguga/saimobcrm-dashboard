@@ -544,3 +544,395 @@ async def get_leads_by_user_chart(
         logger.error(f"Erro ao gerar dados de leads por usuario: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+
+@router.get("/sales/conversion-rates")
+async def get_conversion_rates(
+    days: int = Query(30, description="Periodo em dias para analise"),
+    corretor: Optional[str] = Query(None, description="Nome do corretor para filtrar dados"),
+    fonte: Optional[str] = Query(None, description="Fonte para filtrar dados"),
+    start_date: Optional[str] = Query(None, description="Data de inicio (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Data de fim (YYYY-MM-DD)")
+):
+    """
+    Retorna taxas de conversao otimizadas com dados de funil (SEM PROPOSTAS).
+    """
+    try:
+        logger.info(f"Buscando taxas de conversao para {days} dias, corretor: {corretor}, fonte: {fonte}")
+        
+        from app.services.kommo_api import KommoAPI
+        kommo_api = KommoAPI()
+        
+        # Calcular parametros de tempo
+        import time
+        
+        if start_date and end_date:
+            try:
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+                end_dt = end_dt.replace(hour=23, minute=59, second=59)
+                start_time = int(start_dt.timestamp())
+                end_time = int(end_dt.timestamp())
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de data invalido. Use YYYY-MM-DD")
+        else:
+            end_time = int(time.time())
+            start_time = end_time - (days * 24 * 60 * 60)
+        
+        # IDs importantes
+        PIPELINE_VENDAS = 10516987
+        PIPELINE_REMARKETING = 11059911
+        STATUS_CONTRATO_ASSINADO = 80689759
+        STATUS_VENDA_FINAL = 142
+        CUSTOM_FIELD_DATA_FECHAMENTO = 858126
+        
+        # Buscar leads de AMBOS os pipelines
+        leads_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,
+            "filter[created_at][from]": start_time,
+            "filter[created_at][to]": end_time,
+            "limit": 500,
+            "with": "custom_fields_values"
+        }
+        
+        leads_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,
+            "filter[created_at][from]": start_time,
+            "filter[created_at][to]": end_time,
+            "limit": 500,
+            "with": "custom_fields_values"
+        }
+        
+        # Buscar tarefas de reuniao concluidas
+        tasks_params = {
+            'filter[task_type_id]': 2,
+            'filter[is_completed]': 1,
+            'filter[complete_till][from]': start_time,
+            'filter[complete_till][to]': end_time,
+            'limit': 250
+        }
+        
+        # Buscar dados
+        try:
+            leads_vendas_data = kommo_api.get_leads(leads_vendas_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads de vendas: {e}")
+            leads_vendas_data = {"_embedded": {"leads": []}}
+            
+        try:
+            leads_remarketing_data = kommo_api.get_leads(leads_remarketing_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads de remarketing: {e}")
+            leads_remarketing_data = {"_embedded": {"leads": []}}
+        
+        try:
+            all_tasks = kommo_api.get_all_tasks(tasks_params)
+            tasks_data = {"_embedded": {"tasks": all_tasks}}
+        except Exception as e:
+            logger.error(f"Erro ao buscar tarefas: {e}")
+            tasks_data = {"_embedded": {"tasks": []}}
+        
+        # Combinar leads de ambos os pipelines
+        all_leads = []
+        if leads_vendas_data and "_embedded" in leads_vendas_data:
+            vendas_leads = leads_vendas_data["_embedded"].get("leads", [])
+            if isinstance(vendas_leads, list):
+                all_leads.extend(vendas_leads)
+                
+        if leads_remarketing_data and "_embedded" in leads_remarketing_data:
+            remarketing_leads = leads_remarketing_data["_embedded"].get("leads", [])
+            if isinstance(remarketing_leads, list):
+                all_leads.extend(remarketing_leads)
+        
+        # Criar mapa de leads
+        leads_map = {}
+        for lead in all_leads:
+            if lead and lead.get("id"):
+                leads_map[lead.get("id")] = lead
+        
+        # Criar mapa de reunioes realizadas por lead
+        meetings_by_lead = {}
+        if tasks_data and "_embedded" in tasks_data:
+            tasks_list = tasks_data["_embedded"].get("tasks", [])
+            if isinstance(tasks_list, list):
+                for task in tasks_list:
+                    if (task and isinstance(task, dict) and 
+                        task.get('entity_type') == 'leads'):
+                        lead_id = task.get('entity_id')
+                        if lead_id and lead_id in leads_map:
+                            meetings_by_lead[lead_id] = meetings_by_lead.get(lead_id, 0) + 1
+        
+        # Processar leads com filtros
+        filtered_leads = []
+        for lead in all_leads:
+            if not lead or not isinstance(lead, dict):
+                continue
+            
+            # Extrair valores de forma segura
+            corretor_lead = get_custom_field_value(lead, 837920)  # Corretor
+            fonte_lead = get_custom_field_value(lead, 837886)     # Fonte
+            
+            # Aplicar filtros
+            if corretor and isinstance(corretor, str) and corretor.strip():
+                if ',' in corretor:
+                    corretores_list = [c.strip() for c in corretor.split(',')]
+                    if corretor_lead not in corretores_list:
+                        continue
+                else:
+                    if corretor_lead != corretor:
+                        continue
+            
+            if fonte and isinstance(fonte, str) and fonte.strip():
+                if ',' in fonte:
+                    fontes_list = [f.strip() for f in fonte.split(',')]
+                    if fonte_lead not in fontes_list:
+                        continue
+                else:
+                    if fonte_lead != fonte:
+                        continue
+            
+            filtered_leads.append(lead)
+        
+        # Calcular metricas de conversao (SEM PROPOSTAS)
+        total_leads = len(filtered_leads)
+        
+        # Reunioes: contar leads que tiveram reuniao realizada
+        meetings_leads = len([lead for lead in filtered_leads if lead.get("id") in meetings_by_lead])
+        
+        # Vendas: apenas status de venda + data valida
+        valid_sale_status_conversion = [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO]
+        sales_leads = len([
+            lead for lead in filtered_leads 
+            if validate_sale_in_period(lead, start_time, end_time, CUSTOM_FIELD_DATA_FECHAMENTO, valid_sale_status_conversion)
+        ])
+        
+        # Calcular taxas de conversao (SEM PROPOSTAS)
+        meetings_rate = (meetings_leads / total_leads * 100) if total_leads > 0 else 0
+        sales_rate = (sales_leads / meetings_leads * 100) if meetings_leads > 0 else 0
+        
+        # Dados do funil (SEM PROPOSTAS)
+        funnel_data = [
+            {"stage": "Leads", "value": total_leads, "rate": 100},
+            {"stage": "Reunioes", "value": meetings_leads, "rate": round(meetings_rate, 1)},
+            {"stage": "Vendas", "value": sales_leads, "rate": round(sales_rate, 1)}
+        ]
+        
+        return {
+            "conversionRates": {
+                "meetings": round(meetings_rate, 1),
+                "sales": round(sales_rate, 1)
+            },
+            "funnelData": funnel_data,
+            "_metadata": {
+                "period_days": days,
+                "corretor_filter": corretor,
+                "fonte_filter": fonte,
+                "generated_at": datetime.now().isoformat(),
+                "total_leads_analyzed": total_leads,
+                "optimized": True,
+                "endpoint_version": "v2_without_proposals",
+                "sales_validation": "data_fechamento_required",
+                "status_ids_used": {
+                    "vendas": [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO]
+                },
+                "breakdown": {
+                    "total_leads": total_leads,
+                    "meetings_leads": meetings_leads,
+                    "sales_leads": sales_leads,
+                    "total_meetings_found": sum(meetings_by_lead.values())
+                }
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao gerar taxas de conversao: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+
+@router.get("/sales/pipeline-status")
+async def get_pipeline_status(
+    days: int = Query(30, description="Periodo em dias para analise"),
+    corretor: Optional[str] = Query(None, description="Nome do corretor para filtrar dados"),
+    fonte: Optional[str] = Query(None, description="Fonte para filtrar dados"),
+    start_date: Optional[str] = Query(None, description="Data de inicio (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Data de fim (YYYY-MM-DD)")
+):
+    """
+    Retorna status do pipeline otimizado para dashboard (SEM PROPOSTAS).
+    """
+    try:
+        logger.info(f"Buscando status do pipeline para {days} dias, corretor: {corretor}, fonte: {fonte}")
+        
+        from app.services.kommo_api import KommoAPI
+        kommo_api = KommoAPI()
+        
+        # Calcular parametros de tempo
+        import time
+        
+        if start_date and end_date:
+            try:
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+                end_dt = end_dt.replace(hour=23, minute=59, second=59)
+                start_time = int(start_dt.timestamp())
+                end_time = int(end_dt.timestamp())
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de data invalido. Use YYYY-MM-DD")
+        else:
+            end_time = int(time.time())
+            start_time = end_time - (days * 24 * 60 * 60)
+        
+        # IDs importantes
+        PIPELINE_VENDAS = 10516987
+        PIPELINE_REMARKETING = 11059911
+        STATUS_CONTRATO_ASSINADO = 80689759
+        STATUS_VENDA_FINAL = 142
+        
+        # Buscar leads de AMBOS os pipelines
+        leads_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,
+            "filter[created_at][from]": start_time,
+            "filter[created_at][to]": end_time,
+            "limit": 500,
+            "with": "custom_fields_values"
+        }
+        
+        leads_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,
+            "filter[created_at][from]": start_time,
+            "filter[created_at][to]": end_time,
+            "limit": 500,
+            "with": "custom_fields_values"
+        }
+        
+        # Buscar pipelines para mapear status
+        try:
+            pipelines_data = kommo_api.get_pipelines()
+        except Exception as e:
+            logger.error(f"Erro ao buscar pipelines: {e}")
+            pipelines_data = {"_embedded": {"pipelines": []}}
+        
+        # Buscar dados
+        try:
+            leads_vendas_data = kommo_api.get_leads(leads_vendas_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads de vendas: {e}")
+            leads_vendas_data = {"_embedded": {"leads": []}}
+            
+        try:
+            leads_remarketing_data = kommo_api.get_leads(leads_remarketing_params)
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads de remarketing: {e}")
+            leads_remarketing_data = {"_embedded": {"leads": []}}
+        
+        # Combinar leads de ambos os pipelines
+        all_leads = []
+        if leads_vendas_data and "_embedded" in leads_vendas_data:
+            vendas_leads = leads_vendas_data["_embedded"].get("leads", [])
+            if isinstance(vendas_leads, list):
+                all_leads.extend(vendas_leads)
+                
+        if leads_remarketing_data and "_embedded" in leads_remarketing_data:
+            remarketing_leads = leads_remarketing_data["_embedded"].get("leads", [])
+            if isinstance(remarketing_leads, list):
+                all_leads.extend(remarketing_leads)
+        
+        # Criar mapa de status
+        status_map = {}
+        if pipelines_data and "_embedded" in pipelines_data:
+            for pipeline in pipelines_data["_embedded"].get("pipelines", []):
+                statuses = pipeline.get("_embedded", {}).get("statuses", [])
+                for status in statuses:
+                    status_id = status.get("id")
+                    status_name = status.get("name", f"Status {status_id}")
+                    status_map[status_id] = status_name
+        
+        # Processar leads com filtros
+        filtered_leads = []
+        for lead in all_leads:
+            if not lead or not isinstance(lead, dict):
+                continue
+            
+            # Extrair valores de forma segura
+            corretor_lead = get_custom_field_value(lead, 837920)  # Corretor
+            fonte_lead = get_custom_field_value(lead, 837886)     # Fonte
+            
+            # Aplicar filtros
+            if corretor and isinstance(corretor, str) and corretor.strip():
+                if ',' in corretor:
+                    corretores_list = [c.strip() for c in corretor.split(',')]
+                    if corretor_lead not in corretores_list:
+                        continue
+                else:
+                    if corretor_lead != corretor:
+                        continue
+            
+            if fonte and isinstance(fonte, str) and fonte.strip():
+                if ',' in fonte:
+                    fontes_list = [f.strip() for f in fonte.split(',')]
+                    if fonte_lead not in fontes_list:
+                        continue
+                else:
+                    if fonte_lead != fonte:
+                        continue
+            
+            filtered_leads.append(lead)
+        
+        # Agrupar leads por status
+        status_counts = {}
+        for lead in filtered_leads:
+            status_id = lead.get("status_id")
+            
+            if status_id not in [142, 143]:  # Nao eh won nem lost
+                status_name = status_map.get(status_id, f"Status {status_id}")
+                
+                # Agrupar status similares (SEM PROPOSTAS)
+                if "negociac" in status_name.lower():
+                    grouped_status = "Leads em Negociacao"
+                elif "remarketing" in status_name.lower() or "reativa" in status_name.lower():
+                    grouped_status = "Leads em Remarketing"
+                elif "reativad" in status_name.lower():
+                    grouped_status = "Leads Reativados"
+                elif "reuniao" in status_name.lower() or "agend" in status_name.lower():
+                    grouped_status = "Leads com Reuniao"
+                elif "contato" in status_name.lower():
+                    grouped_status = "Leads em Contato"
+                else:
+                    grouped_status = status_name
+                
+                status_counts[grouped_status] = status_counts.get(grouped_status, 0) + 1
+        
+        # Converter para lista ordenada
+        status_list = [
+            {"status": status, "count": count}
+            for status, count in sorted(status_counts.items(), key=lambda x: x[1], reverse=True)
+        ]
+        
+        total_active_leads = sum(status_counts.values())
+        
+        return {
+            "pipelineStatus": status_list,
+            "totalActiveLeads": total_active_leads,
+            "_metadata": {
+                "period_days": days,
+                "corretor_filter": corretor,
+                "fonte_filter": fonte,
+                "generated_at": datetime.now().isoformat(),
+                "total_leads_analyzed": len(filtered_leads),
+                "active_leads_analyzed": total_active_leads,
+                "optimized": True,
+                "endpoint_version": "v2_without_proposals",
+                "pipelines_analyzed": [PIPELINE_VENDAS, PIPELINE_REMARKETING],
+                "status_ids_used": {
+                    "vendas": [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO]
+                }
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao gerar status do pipeline: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
