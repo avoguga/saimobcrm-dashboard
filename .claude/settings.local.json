@@ -17,7 +17,8 @@
       "Bash(curl:*)",
       "Bash(./test_kpis_simple.sh:*)",
       "Bash(awk:*)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "additionalDirectories": [

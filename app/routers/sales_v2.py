@@ -347,11 +347,37 @@ async def get_leads_by_user_chart(
             "with": "custom_fields_values"
         }
         
+        # NOVO: Buscar tarefas de reunião realizadas para contagem real
+        # Para reuniões: incluir 23:59 do dia anterior para capturar reuniões agendadas na virada do dia
+        if start_date and end_date:
+            meetings_start_dt = datetime.strptime(start_date, '%Y-%m-%d') - timedelta(days=1)
+            meetings_start_dt = meetings_start_dt.replace(hour=23, minute=59, second=0)
+            meetings_start_time = int(meetings_start_dt.timestamp())
+        else:
+            meetings_start_time = start_time - (24 * 60 * 60) + (23 * 60 * 60 + 59 * 60)  # -1 dia + 23:59
+        
+        tasks_params = {
+            'filter[task_type_id]': 2,  # Tipo de tarefa: reunião
+            'filter[is_completed]': 1,  # Apenas concluídas
+            'filter[complete_till][from]': meetings_start_time,  # Incluir 23:59 do dia anterior
+            'filter[complete_till][to]': end_time,              # Filtro de data
+            'limit': 500
+        }
+        
         try:
             leads_data = kommo_api.get_leads(leads_params)
         except Exception as e:
             logger.error(f"Erro ao buscar leads: {e}")
             leads_data = {"_embedded": {"leads": []}}
+            
+        # NOVO: Buscar tarefas de reunião
+        try:
+            all_tasks = kommo_api.get_all_tasks(tasks_params)
+            tasks_data = {"_embedded": {"tasks": all_tasks}}
+            logger.info(f"Total de tarefas de reunião encontradas: {len(all_tasks)}")
+        except Exception as e:
+            logger.error(f"Erro ao buscar tarefas de reunião: {e}")
+            tasks_data = {"_embedded": {"tasks": []}}
             
         # Buscar usuários para fallback
         try:
@@ -392,6 +418,66 @@ async def get_leads_by_user_chart(
                         "pipeline_id": pipeline_id,
                         "pipeline_name": pipeline_name
                     }
+        
+        # NOVO: Criar mapa de leads para busca rápida das reuniões
+        leads_map = {}
+        if leads_data and "_embedded" in leads_data:
+            for lead in leads_data["_embedded"].get("leads", []):
+                if lead and lead.get("id"):
+                    leads_map[lead.get("id")] = lead
+        
+        # NOVO: Processar reuniões reais e contar por corretor
+        meetings_by_corretor = {}
+        if tasks_data and "_embedded" in tasks_data:
+            reunion_tasks = tasks_data["_embedded"].get("tasks", [])
+            logger.info(f"Processando {len(reunion_tasks)} tarefas de reunião")
+            
+            # Coletar IDs de leads que não estão no mapa atual
+            missing_lead_ids = set()
+            for task in reunion_tasks:
+                if task and task.get('entity_type') == 'leads':
+                    lead_id = task.get('entity_id')
+                    if lead_id and lead_id not in leads_map:
+                        missing_lead_ids.add(lead_id)
+            
+            # Buscar leads faltantes se necessário
+            if missing_lead_ids:
+                logger.info(f"Buscando {len(missing_lead_ids)} leads adicionais para reuniões")
+                try:
+                    for lead_id in missing_lead_ids:
+                        additional_lead = kommo_api.get_lead(lead_id)
+                        if additional_lead:
+                            leads_map[lead_id] = additional_lead
+                except Exception as e:
+                    logger.error(f"Erro ao buscar leads adicionais: {e}")
+            
+            for task in reunion_tasks:
+                if not task or task.get('entity_type') != 'leads':
+                    continue
+                
+                lead_id = task.get('entity_id')
+                lead = leads_map.get(lead_id)
+                
+                if not lead:
+                    continue
+                
+                # Extrair corretor do lead usando custom field
+                corretor_lead = get_custom_field_value(lead, CUSTOM_FIELD_CORRETOR)
+                fonte_lead = get_custom_field_value(lead, CUSTOM_FIELD_FONTE)
+                
+                # Aplicar mesmos filtros que serão aplicados nos leads
+                if corretor and corretor_lead != corretor:
+                    continue
+                if fonte and fonte_lead != fonte:
+                    continue
+                
+                # Determinar corretor final (mesma lógica dos leads)
+                final_corretor = corretor_lead or users_map.get(lead.get("responsible_user_id"), "Usuário Sem Nome")
+                
+                # Contar reunião para este corretor
+                meetings_by_corretor[final_corretor] = meetings_by_corretor.get(final_corretor, 0) + 1
+            
+            logger.info(f"Reuniões contadas por corretor: {meetings_by_corretor}")
         
         # Processar leads por corretor
         leads_by_user = {}
@@ -504,9 +590,13 @@ async def get_leads_by_user_chart(
                     leads_by_user[final_corretor]["active"] += 1
                 else:  # Outros status ativos
                     leads_by_user[final_corretor]["active"] += 1
-                
-                # Estimativa de reuniões realizadas (30% dos leads)
-                leads_by_user[final_corretor]["meetingsHeld"] = round(leads_by_user[final_corretor]["value"] * 0.3)
+        
+        # NOVO: Aplicar contagem real de reuniões em vez da estimativa
+        for corretor_name in leads_by_user.keys():
+            # Usar contagem real de reuniões do mapa meetings_by_corretor
+            real_meetings = meetings_by_corretor.get(corretor_name, 0)
+            leads_by_user[corretor_name]["meetingsHeld"] = real_meetings
+            logger.info(f"Corretor {corretor_name}: {real_meetings} reuniões reais")
         
         # Converter para lista e ordenar por total de leads
         leads_by_user_list = list(leads_by_user.values())
@@ -514,8 +604,10 @@ async def get_leads_by_user_chart(
         
         # Calcular totais para estatísticas
         total_propostas = sum(user["proposalsHeld"] for user in leads_by_user_list)
-        total_meetings_held = sum(user["meetingsHeld"] for user in leads_by_user_list)
+        total_meetings_held = sum(user["meetingsHeld"] for user in leads_by_user_list)  # Agora usando dados reais
         total_leads = sum(user["value"] for user in leads_by_user_list)
+        
+        logger.info(f"Totais calculados - Leads: {total_leads}, Reuniões realizadas: {total_meetings_held}, Propostas: {total_propostas}")
         
         return {
             "leadsByUser": leads_by_user_list,
@@ -528,8 +620,9 @@ async def get_leads_by_user_chart(
                 "generated_at": datetime.now().isoformat(),
                 "total_users": len(leads_by_user_list),
                 "total_leads": total_leads,
+                "total_meetings_real": total_meetings_held,  # NOVO: Reuniões reais
                 "optimized": True,
-                "endpoint_version": "v2_with_proposals",
+                "endpoint_version": "v2_with_real_meetings_and_proposals",
                 "custom_fields_used": {
                     "corretor": CUSTOM_FIELD_CORRETOR,
                     "fonte": CUSTOM_FIELD_FONTE,
