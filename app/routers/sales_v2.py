@@ -466,7 +466,6 @@ async def get_leads_by_user_chart(
                 
                 # Formatar data de criação
                 if created_at:
-                    from datetime import datetime
                     created_date = datetime.fromtimestamp(created_at).strftime("%Y-%m-%d")
                 else:
                     created_date = "N/A"
