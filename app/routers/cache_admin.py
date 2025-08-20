@@ -61,7 +61,7 @@ async def get_cache_info() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Erro ao acessar cache: {str(e)}")
 
 @router.delete("/flush")
-async def flush_cache() -> Dict[str, str]:
+async def flush_cache() -> Dict[str, Any]:
     """Limpa todo o cache Redis (CUIDADO: Remove todas as chaves!)"""
     try:
         redis_client = get_redis_client()
@@ -87,7 +87,7 @@ async def flush_cache() -> Dict[str, str]:
         raise HTTPException(status_code=500, detail=f"Erro ao limpar cache: {str(e)}")
 
 @router.delete("/flush/kommo")
-async def flush_kommo_cache() -> Dict[str, str]:
+async def flush_kommo_cache() -> Dict[str, Any]:
     """Limpa apenas as chaves do cache relacionadas ao Kommo"""
     try:
         redis_client = get_redis_client()
