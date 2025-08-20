@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from app.routers import leads, tags, pipelines, users, custom_fields, sources, events, analytics, facebook_ads, meetings, sales, corretor_dashboard, dashboard, sales_v2, tasks
+from app.routers import leads, tags, pipelines, users, custom_fields, sources, events, analytics, facebook_ads, meetings, sales, corretor_dashboard, dashboard, sales_v2, tasks, cache_admin
 import config
 
 app = FastAPI(
@@ -35,6 +35,7 @@ app.include_router(corretor_dashboard.router)
 app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard Completo"])
 app.include_router(sales_v2.router, tags=["Sales V2 - Optimized"])
 app.include_router(tasks.router, prefix="/tasks", tags=["Tasks"])
+app.include_router(cache_admin.router, tags=["Cache Admin"])
 
 @app.get("/", tags=["Root"])
 async def root():
