@@ -303,7 +303,7 @@ class KommoAPI:
         """Obtém todos os leads usando paginação automática (MÉTODO ANTIGO LENTO)"""
         all_leads = []
         page = 1
-        max_pages = 20  # LIMITE DE SEGURANÇA: máximo 20 páginas = 5000 leads
+        max_pages = 30  # LIMITE DE SEGURANÇA: máximo 30 páginas = 7500 leads
         
         if params is None:
             params = {}

@@ -129,14 +129,14 @@ async def get_sales_kpis(
         
         # Buscar dados de vendas atuais
         try:
-            current_vendas_vendas_leads = kommo_api.get_all_leads({k: v for k, v in current_vendas_vendas_params.items() if k != 'limit'})
+            current_vendas_vendas_leads = kommo_api.get_all_leads_old({k: v for k, v in current_vendas_vendas_params.items() if k != 'limit'})
             current_vendas_vendas_data = {"_embedded": {"leads": current_vendas_vendas_leads}}
         except Exception as e:
             logger.error(f"Erro ao buscar vendas atuais: {e}")
             current_vendas_vendas_data = {"_embedded": {"leads": []}}
 
         try:
-            current_vendas_remarketing_leads = kommo_api.get_all_leads({k: v for k, v in current_vendas_remarketing_params.items() if k != 'limit'})
+            current_vendas_remarketing_leads = kommo_api.get_all_leads_old({k: v for k, v in current_vendas_remarketing_params.items() if k != 'limit'})
             current_vendas_remarketing_data = {"_embedded": {"leads": current_vendas_remarketing_leads}}
         except Exception as e:
             logger.error(f"Erro ao buscar vendas remarketing atuais: {e}")
@@ -144,14 +144,14 @@ async def get_sales_kpis(
         
         # Buscar dados de vendas anteriores
         try:
-            previous_vendas_vendas_leads = kommo_api.get_all_leads({k: v for k, v in previous_vendas_vendas_params.items() if k != 'limit'})
+            previous_vendas_vendas_leads = kommo_api.get_all_leads_old({k: v for k, v in previous_vendas_vendas_params.items() if k != 'limit'})
             previous_vendas_vendas_data = {"_embedded": {"leads": previous_vendas_vendas_leads}}
         except Exception as e:
             logger.error(f"Erro ao buscar vendas anteriores: {e}")
             previous_vendas_vendas_data = {"_embedded": {"leads": []}}
 
         try:
-            previous_vendas_remarketing_leads = kommo_api.get_all_leads({k: v for k, v in previous_vendas_remarketing_params.items() if k != 'limit'})
+            previous_vendas_remarketing_leads = kommo_api.get_all_leads_old({k: v for k, v in previous_vendas_remarketing_params.items() if k != 'limit'})
             previous_vendas_remarketing_data = {"_embedded": {"leads": previous_vendas_remarketing_leads}}
         except Exception as e:
             logger.error(f"Erro ao buscar vendas remarketing anteriores: {e}")
@@ -315,11 +315,12 @@ async def get_leads_by_user_chart(
         
         # Função auxiliar para verificar se é proposta
         def is_proposta(lead):
-            """Verifica se um lead é uma proposta usando o campo boolean 861100"""
+            """Verifica se um lead é uma proposta usando APENAS o campo boolean 861100"""
             try:
                 if not lead or not isinstance(lead, dict):
                     return False
-                    
+                
+                # Verificar APENAS o campo boolean 861100
                 custom_fields = lead.get("custom_fields_values", [])
                 if not custom_fields or not isinstance(custom_fields, list):
                     return False
@@ -368,7 +369,10 @@ async def get_leads_by_user_chart(
         }
         
         try:
-            leads_data = kommo_api.get_leads(leads_params)
+            # Usar paginação automática para buscar todos os leads do período
+            all_leads = kommo_api.get_all_leads_old(leads_params)
+            leads_data = {"_embedded": {"leads": all_leads}}
+            logger.info(f"Total de leads encontrados: {len(all_leads)}")
         except Exception as e:
             logger.error(f"Erro ao buscar leads: {e}")
             leads_data = {"_embedded": {"leads": []}}

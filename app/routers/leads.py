@@ -243,9 +243,35 @@ async def get_leads_by_advertisement(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/by-user")
-async def get_leads_by_user():
+async def get_leads_by_user(
+    days: Optional[int] = Query(None, description="Número de dias para filtrar (opcional)"),
+    start_date: Optional[str] = Query(None, description="Data de início (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Data de fim (YYYY-MM-DD)")
+):
     """Retorna leads agrupados por usuário responsável"""
     try:
+        from datetime import datetime, timedelta
+        
+        # Calcular parâmetros de tempo
+        params = {}
+        
+        if start_date and end_date:
+            # Usar datas específicas
+            try:
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+                end_dt = end_dt.replace(hour=23, minute=59, second=59)  # Fim do dia
+                params['filter[created_at][from]'] = int(start_dt.timestamp())
+                params['filter[created_at][to]'] = int(end_dt.timestamp())
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de data inválido. Use YYYY-MM-DD")
+        elif days:
+            # Usar período relativo em dias
+            end_time = datetime.now()
+            start_time = end_time - timedelta(days=days)
+            params['filter[created_at][from]'] = int(start_time.timestamp())
+            params['filter[created_at][to]'] = int(end_time.timestamp())
+        
         # Obter usuários para mapear IDs para nomes
         users_data = api.get_users()
         
@@ -263,25 +289,22 @@ async def get_leads_by_user():
                     user_name = f"{user.get('name', '')} {user.get('lastname', '')}"
                     users_map[str(user_id)] = user_name.strip() or f"Usuário {user_id}"
         
-        # Obter leads
-        data = api.get_leads({"limit": 250})
+        # Usar método sequencial diretamente para garantir paginação
+        all_leads = api.get_all_leads_old(params)
         
         # Verificar se obtivemos uma resposta válida
-        if not data:
+        if not all_leads:
             return {"leads_by_user": {}, "message": "Não foi possível obter leads"}
             
         results = {}
-        embedded = data.get("_embedded", {})
-        if embedded:
-            leads = embedded.get("leads", [])
-            for lead in leads:
-                user_id = lead.get("responsible_user_id")
-                if user_id is not None:
-                    user_id_str = str(user_id)
-                    user_name = users_map.get(user_id_str, f"Usuário {user_id}")
-                    results[user_name] = results.get(user_name, 0) + 1
-                else:
-                    results["Sem responsável"] = results.get("Sem responsável", 0) + 1
+        for lead in all_leads:
+            user_id = lead.get("responsible_user_id")
+            if user_id is not None:
+                user_id_str = str(user_id)
+                user_name = users_map.get(user_id_str, f"Usuário {user_id}")
+                results[user_name] = results.get(user_name, 0) + 1
+            else:
+                results["Sem responsável"] = results.get("Sem responsável", 0) + 1
             
         return {"leads_by_user": results}
     except Exception as e:
@@ -644,33 +667,30 @@ async def get_recent_leads(
         cutoff_date = datetime.now() - timedelta(days=days)
         cutoff_timestamp = int(cutoff_date.timestamp())
         
-        # Buscar leads com filtro de data
+        # Buscar leads com filtro de data usando paginação automática
         params = {
             'filter[created_at][from]': cutoff_timestamp,
-            'limit': 250,
             'order[created_at]': 'desc'
         }
         
-        data = api.get_leads(params)
+        # Usar método sequencial diretamente para garantir paginação
+        all_leads = api.get_all_leads_old(params)
         
-        if not data:
+        if not all_leads:
             return {"recent_leads": [], "total": 0, "days": days}
             
+        # Formatar leads para retorno
         leads = []
-        if "_embedded" in data:
-            raw_leads = data.get("_embedded", {}).get("leads", [])
-            
-            # Formatar leads para retorno
-            for lead in raw_leads:
-                leads.append({
-                    "id": lead.get("id"),
-                    "name": lead.get("name"),
-                    "price": lead.get("price", 0),
-                    "created_at": lead.get("created_at"),
-                    "responsible_user_id": lead.get("responsible_user_id"),
-                    "status_id": lead.get("status_id"),
-                    "pipeline_id": lead.get("pipeline_id")
-                })
+        for lead in all_leads:
+            leads.append({
+                "id": lead.get("id"),
+                "name": lead.get("name"),
+                "price": lead.get("price", 0),
+                "created_at": lead.get("created_at"),
+                "responsible_user_id": lead.get("responsible_user_id"),
+                "status_id": lead.get("status_id"),
+                "pipeline_id": lead.get("pipeline_id")
+            })
         
         return {
             "recent_leads": leads,
