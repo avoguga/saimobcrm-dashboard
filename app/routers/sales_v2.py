@@ -317,12 +317,15 @@ async def get_leads_by_user_chart(
         def is_proposta(lead):
             """Verifica se um lead é uma proposta usando o campo boolean 861100"""
             try:
+                if not lead or not isinstance(lead, dict):
+                    return False
+                    
                 custom_fields = lead.get("custom_fields_values", [])
-                if not custom_fields:
+                if not custom_fields or not isinstance(custom_fields, list):
                     return False
                     
                 for field in custom_fields:
-                    if not field:
+                    if not field or not isinstance(field, dict):
                         continue
                     if field.get("field_id") == CUSTOM_FIELD_PROPOSTA:
                         values = field.get("values")
@@ -485,8 +488,12 @@ async def get_leads_by_user_chart(
         if leads_data and "_embedded" in leads_data:
             all_leads = leads_data["_embedded"].get("leads", [])
             
+            # Proteção adicional contra None na lista
+            if not all_leads or not isinstance(all_leads, list):
+                all_leads = []
+            
             for lead in all_leads:
-                if not lead:
+                if not lead or not isinstance(lead, dict):
                     continue
                 
                 # Extrair custom fields
@@ -497,22 +504,23 @@ async def get_leads_by_user_chart(
                 publico_lead = None
                 produto_lead = None
                 
-                for field in custom_fields:
-                    if not field:
-                        continue
-                    field_id = field.get("field_id")
-                    values = field.get("values", [])
-                    
-                    if field_id == CUSTOM_FIELD_CORRETOR and values:  # Corretor
-                        corretor_lead = values[0].get("value") if values[0] else None
-                    elif field_id == CUSTOM_FIELD_FONTE and values:  # Fonte
-                        fonte_lead = values[0].get("value") if values[0] else None
-                    elif field_id == 837846 and values:  # Anúncio
-                        anuncio_lead = values[0].get("value") if values[0] else None
-                    elif field_id == 837844 and values:  # Público (conjunto de anúncios)
-                        publico_lead = values[0].get("value") if values[0] else None
-                    elif field_id == 857264 and values:  # Produto
-                        produto_lead = values[0].get("value") if values[0] else None
+                if custom_fields and isinstance(custom_fields, list):
+                    for field in custom_fields:
+                        if not field or not isinstance(field, dict):
+                            continue
+                        field_id = field.get("field_id")
+                        values = field.get("values", [])
+                        
+                        if field_id == CUSTOM_FIELD_CORRETOR and values:  # Corretor
+                            corretor_lead = values[0].get("value") if values[0] else None
+                        elif field_id == CUSTOM_FIELD_FONTE and values:  # Fonte
+                            fonte_lead = values[0].get("value") if values[0] else None
+                        elif field_id == 837846 and values:  # Anúncio
+                            anuncio_lead = values[0].get("value") if values[0] else None
+                        elif field_id == 837844 and values:  # Público (conjunto de anúncios)
+                            publico_lead = values[0].get("value") if values[0] else None
+                        elif field_id == 857264 and values:  # Produto
+                            produto_lead = values[0].get("value") if values[0] else None
                 
                 # Aplicar filtros
                 if corretor and corretor_lead != corretor:
@@ -549,6 +557,7 @@ async def get_leads_by_user_chart(
                 lead_name = lead.get("name", "Lead sem nome")
                 created_at = lead.get("created_at")
                 pipeline_id = lead.get("pipeline_id")
+                status_id = lead.get("status_id")  # Adicionar definição de status_id
                 
                 # Formatar data de criação
                 if created_at:

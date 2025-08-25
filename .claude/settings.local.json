@@ -18,11 +18,17 @@
       "Bash(./test_kpis_simple.sh:*)",
       "Bash(awk:*)",
       "Bash(sed:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Read(/c:\\Users\\avogu\\Documents\\saimobc\\app\\routers/**)",
+      "Read(/c:\\Users\\avogu\\Documents\\saimobc/**)",
+      "Read(/c:\\Users\\avogu\\Documents\\saimobc\\app\\routers/**)",
+      "Read(/c:\\Users\\avogu\\Documents\\saimobc\\app\\routers/**)",
+      "Read(/c:\\Users\\avogu\\Documents\\saimobc\\app\\routers/**)"
     ],
     "deny": [],
     "additionalDirectories": [
-      "C:\\c\\Users\\avogu\\Documents"
+      "C:\\c\\Users\\avogu\\Documents",
+      "c:\\Users\\avogu\\Documents\\saimobc"
     ]
   }
 }
