@@ -2,7 +2,7 @@
 
 API backend para integração com o Kommo CRM, desenvolvida com FastAPI para fornecer dados para dashboards de marketing e vendas.
 
-## 📋 Descrição
+## Descrição
 
 Esta API fornece endpoints para acessar dados do Kommo CRM, permitindo a visualização de métricas importantes como:
 
@@ -13,7 +13,7 @@ Esta API fornece endpoints para acessar dados do Kommo CRM, permitindo a visuali
 - Leads por corretor
 - E outras métricas relevantes para dashboards de marketing e vendas
 
-## 🚀 Instalação
+## Instalação
 
 ### Pré-requisitos
 
@@ -48,7 +48,7 @@ KOMMO_SUBDOMAIN=seu-subdominio
 KOMMO_TOKEN=seu-token-long-lived
 ```
 
-## ⚙️ Configuração
+## Configuração
 
 1. Obtenha um token de longa duração (Long-lived Token) no Kommo:
    - Acesse sua conta Kommo
@@ -58,7 +58,7 @@ KOMMO_TOKEN=seu-token-long-lived
 
 2. Verifique se o token tem as permissões necessárias para acessar leads, pipelines, usuários e outras entidades do Kommo
 
-## 🏃‍♂️ Executando o projeto
+## Executando o projeto
 
 Execute o servidor de desenvolvimento:
 ```bash
@@ -69,7 +69,7 @@ A API estará disponível em `http://localhost:8000`
 
 A documentação interativa da API (Swagger) estará disponível em `http://localhost:8000/docs`
 
-## 🔌 Principais Endpoints
+## Principais Endpoints
 
 ### Leads
 
@@ -93,7 +93,7 @@ A documentação interativa da API (Swagger) estará disponível em `http://loca
 
 - `GET /users/` - Lista de todos os usuários/corretores
 
-## 📝 Exemplos de uso
+## Exemplos de uso
 
 ### Obter o número total de leads
 ```bash
@@ -105,14 +105,14 @@ curl -X 'GET' 'http://localhost:8000/leads/count' -H 'accept: application/json'
 curl -X 'GET' 'http://localhost:8000/leads/by-source' -H 'accept: application/json'
 ```
 
-## 🔧 Tecnologias utilizadas
+## Tecnologias utilizadas
 
 - [FastAPI](https://fastapi.tiangolo.com/) - Framework web moderno e rápido para construção de APIs
 - [Uvicorn](https://www.uvicorn.org/) - Servidor ASGI de alta performance
 - [Python-dotenv](https://github.com/theskumar/python-dotenv) - Carregamento de variáveis de ambiente
 - [Requests](https://docs.python-requests.org/en/latest/) - Biblioteca para fazer requisições HTTP
 
-## 📁 Estrutura do projeto
+## Estrutura do projeto
 
 ```
 kommo-dashboard/

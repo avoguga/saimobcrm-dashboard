@@ -877,7 +877,7 @@ def get_all_leads_with_custom_fields():
         from app.services.kommo_api import KommoAPI
         kommo_api = KommoAPI()
         
-        print("🚀 get_all_leads_with_custom_fields: Usando método OTIMIZADO...")
+        print("get_all_leads_with_custom_fields: Usando método OTIMIZADO...")
         
         params = {
             'limit': 250,
@@ -887,7 +887,7 @@ def get_all_leads_with_custom_fields():
         # Usar método otimizado com limite moderado (função geral de leads)
         all_leads = kommo_api.get_all_leads(params, use_parallel=True, max_workers=6, max_pages=12)
         
-        print(f"✅ get_all_leads_with_custom_fields: {len(all_leads)} leads obtidos via método OTIMIZADO")
+        print(f"get_all_leads_with_custom_fields: {len(all_leads)} leads obtidos via método OTIMIZADO")
         
         return all_leads if all_leads else []
         

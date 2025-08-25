@@ -41,9 +41,9 @@ class KommoAPI:
             )
             # Testar conexão
             self.redis_client.ping()
-            logger.info(f"✅ Redis conectado: {config.REDIS_URL[:50]}...")
+            logger.info(f"Redis conectado: {config.REDIS_URL[:50]}...")
         except Exception as e:
-            logger.warning(f"⚠️ Redis não conectado, usando cache em memória: {e}")
+            logger.warning(f"Redis não conectado, usando cache em memória: {e}")
             self.redis_client = None
     
     def _get_cache_key(self, endpoint: str, params: Optional[Dict] = None) -> str:
@@ -67,16 +67,16 @@ class KommoAPI:
                 cached_data = self.redis_client.get(cache_key)
                 if cached_data:
                     data = pickle.loads(cached_data)
-                    logger.info(f"💾 Redis Cache HIT para {cache_key[:8]}...")
+                    logger.info(f"Redis Cache HIT para {cache_key[:8]}...")
                     return data
             except Exception as e:
-                logger.warning(f"⚠️ Erro no Redis cache: {e}")
+                logger.warning(f"Erro no Redis cache: {e}")
         
         # Fallback para cache em memória
         if cache_key in self._memory_cache:
             cached_data, timestamp = self._memory_cache[cache_key]
             if time.time() - timestamp < self._cache_ttl:
-                logger.info(f"💾 Memory Cache HIT para {cache_key[:8]}...")
+                logger.info(f"Memory Cache HIT para {cache_key[:8]}...")
                 return cached_data
             else:
                 # Cache expirado, remover
@@ -90,14 +90,14 @@ class KommoAPI:
             try:
                 serialized_data = pickle.dumps(data)
                 self.redis_client.setex(cache_key, self._cache_ttl, serialized_data)
-                logger.info(f"💾 Redis Cache SAVE para {cache_key[:8]}...")
+                logger.info(f"Redis Cache SAVE para {cache_key[:8]}...")
                 return
             except Exception as e:
-                logger.warning(f"⚠️ Erro ao salvar no Redis: {e}")
+                logger.warning(f"Erro ao salvar no Redis: {e}")
         
         # Fallback para cache em memória
         self._memory_cache[cache_key] = (data, time.time())
-        logger.info(f"💾 Memory Cache SAVE para {cache_key[:8]}...")
+        logger.info(f"Memory Cache SAVE para {cache_key[:8]}...")
     
     def clear_cache(self):
         """Limpa todo o cache"""
@@ -108,13 +108,13 @@ class KommoAPI:
                 keys = self.redis_client.keys("kommo:*")
                 if keys:
                     self.redis_client.delete(*keys)
-                    logger.info(f"💾 Redis Cache LIMPO ({len(keys)} chaves)")
+                    logger.info(f"Redis Cache LIMPO ({len(keys)} chaves)")
             except Exception as e:
-                logger.warning(f"⚠️ Erro ao limpar Redis: {e}")
+                logger.warning(f"Erro ao limpar Redis: {e}")
         
         # Limpar cache em memória
         self._memory_cache.clear()
-        logger.info("💾 Memory Cache LIMPO")
+        logger.info("Memory Cache LIMPO")
     
     def _make_request(self, endpoint: str, params: Optional[Dict] = None, use_cache: bool = True, retry_on_429: bool = True) -> Dict:
         """Método genérico para fazer requisições à API Kommo com cache e tratamento de erro melhorado"""
@@ -143,7 +143,7 @@ class KommoAPI:
                 # Se receber 429, fazer retry com delay
                 if response.status_code == 429 and attempt < max_retries - 1:
                     delay = base_delay * (2 ** attempt)  # Backoff exponencial
-                    print(f"⚠️ Rate limit atingido (429) - Tentativa {attempt + 1}/{max_retries}. Aguardando {delay}s...")
+                    print(f"Rate limit atingido (429) - Tentativa {attempt + 1}/{max_retries}. Aguardando {delay}s...")
                     time.sleep(delay)
                     continue
                 
@@ -177,7 +177,7 @@ class KommoAPI:
                     # Se for 429 e não for a última tentativa, tentar novamente
                     if e.response.status_code == 429 and attempt < max_retries - 1:
                         delay = base_delay * (2 ** attempt)
-                        print(f"⚠️ Rate limit atingido (429) - Tentativa {attempt + 1}/{max_retries}. Aguardando {delay}s...")
+                        print(f"Rate limit atingido (429) - Tentativa {attempt + 1}/{max_retries}. Aguardando {delay}s...")
                         time.sleep(delay)
                         continue
                 
@@ -191,12 +191,12 @@ class KommoAPI:
         
         # Validação adicional para evitar erros downstream
         if not isinstance(result, dict):
-            print(f"⚠️ get_leads: Retorno inválido (tipo: {type(result)}) - retornando estrutura vazia")
+            print(f"get_leads: Retorno inválido (tipo: {type(result)}) - retornando estrutura vazia")
             return {"_embedded": {"leads": []}, "_page": {"total": 0}}
         
         # Se há indicador de erro, retornar estrutura vazia
         if result.get("_error"):
-            print(f"⚠️ get_leads: Erro na API - {result.get('_error_message', 'Erro desconhecido')}")
+            print(f"get_leads: Erro na API - {result.get('_error_message', 'Erro desconhecido')}")
             return {"_embedded": {"leads": []}, "_page": {"total": 0}}
         
         return result
@@ -260,42 +260,42 @@ class KommoAPI:
         if params is None:
             params = {}
         
-        print(f"🔍 get_all_tasks: Iniciando busca com params: {params}")
+        print(f"get_all_tasks: Iniciando busca com params: {params}")
         
         while page <= max_pages:
             params_copy = params.copy()
             params_copy['page'] = page
             params_copy['limit'] = 250  # Máximo por página
             
-            print(f"📄 get_all_tasks: Buscando página {page}...")
+            print(f"get_all_tasks: Buscando página {page}...")
             response = self.get_tasks(params_copy)
             
             if not response or '_embedded' not in response or 'tasks' not in response['_embedded']:
-                print(f"❌ get_all_tasks: Página {page} sem dados")
+                print(f"get_all_tasks: Página {page} sem dados")
                 break
             
             tasks = response['_embedded']['tasks']
             if not tasks:
-                print(f"❌ get_all_tasks: Página {page} lista vazia")
+                print(f"get_all_tasks: Página {page} lista vazia")
                 break
                 
             all_tasks.extend(tasks)
-            print(f"✅ get_all_tasks: Página {page} adicionou {len(tasks)} tarefas (total: {len(all_tasks)})")
+            print(f"get_all_tasks: Página {page} adicionou {len(tasks)} tarefas (total: {len(all_tasks)})")
             
             # Verificar se há mais páginas
             if '_links' in response and 'next' in response['_links']:
                 if len(tasks) < 250:
-                    print(f"🏁 get_all_tasks: Página {page} incompleta, parando")
+                    print(f"get_all_tasks: Página {page} incompleta, parando")
                     break
                 page += 1
             else:
-                print(f"🏁 get_all_tasks: Página {page} sem 'next' link, parando")
+                print(f"get_all_tasks: Página {page} sem 'next' link, parando")
                 break
         
         if page > max_pages:
-            print(f"⚠️ get_all_tasks: ATINGIU LIMITE de {max_pages} páginas!")
+            print(f"get_all_tasks: ATINGIU LIMITE de {max_pages} páginas!")
         
-        print(f"📊 get_all_tasks: CONCLUÍDO - {len(all_tasks)} tarefas em {page-1} páginas")
+        print(f"get_all_tasks: CONCLUÍDO - {len(all_tasks)} tarefas em {page-1} páginas")
         return all_tasks
     
     # Método para buscar leads com paginação completa (versão antiga sequencial)
@@ -308,41 +308,41 @@ class KommoAPI:
         if params is None:
             params = {}
         
-        print(f"🔍 get_all_leads_old: Iniciando busca com params: {params}")
+        print(f"get_all_leads_old: Iniciando busca com params: {params}")
         
         while page <= max_pages:
             params['page'] = page
             params['limit'] = 250  # Máximo por página
             
-            print(f"📄 get_all_leads_old: Buscando página {page}...")
+            print(f"get_all_leads_old: Buscando página {page}...")
             response = self.get_leads(params)
             
             if not response or '_embedded' not in response or 'leads' not in response['_embedded']:
-                print(f"❌ get_all_leads_old: Página {page} sem dados")
+                print(f"get_all_leads_old: Página {page} sem dados")
                 break
             
             leads = response['_embedded']['leads']
             if not leads:
-                print(f"❌ get_all_leads_old: Página {page} lista vazia")
+                print(f"get_all_leads_old: Página {page} lista vazia")
                 break
                 
             all_leads.extend(leads)
-            print(f"✅ get_all_leads_old: Página {page} adicionou {len(leads)} leads (total: {len(all_leads)})")
+            print(f"get_all_leads_old: Página {page} adicionou {len(leads)} leads (total: {len(all_leads)})")
             
             # Verificar se há mais páginas
             if '_links' in response and 'next' in response['_links']:
                 if len(leads) < 250:
-                    print(f"🏁 get_all_leads_old: Página {page} incompleta, parando")
+                    print(f"get_all_leads_old: Página {page} incompleta, parando")
                     break
                 page += 1
             else:
-                print(f"🏁 get_all_leads_old: Página {page} sem 'next' link, parando")
+                print(f"get_all_leads_old: Página {page} sem 'next' link, parando")
                 break
         
         if page > max_pages:
-            print(f"⚠️ get_all_leads_old: ATINGIU LIMITE de {max_pages} páginas!")
+            print(f"get_all_leads_old: ATINGIU LIMITE de {max_pages} páginas!")
         
-        print(f"📊 get_all_leads_old: CONCLUÍDO - {len(all_leads)} leads em {page-1} páginas")
+        print(f"get_all_leads_old: CONCLUÍDO - {len(all_leads)} leads em {page-1} páginas")
         return all_leads
     
     
@@ -356,14 +356,14 @@ class KommoAPI:
         
         try:
             response = requests.get(url, headers=self.headers, params=params_copy, timeout=30)
-            print(f"📄 Página {page}: Status {response.status_code}")
+            print(f"Página {page}: Status {response.status_code}")
             if response.status_code == 200:
                 return response.json()
             else:
-                print(f"❌ Página {page}: Erro {response.status_code}")
+                print(f"Página {page}: Erro {response.status_code}")
                 return {}
         except Exception as e:
-            print(f"❌ Página {page}: Exceção {str(e)}")
+            print(f"Página {page}: Exceção {str(e)}")
             return {}
     
     def get_all_leads(self, params: Optional[Dict] = None, use_parallel: bool = True, max_workers: int = 8, max_pages: Optional[int] = None) -> List[Dict]:
@@ -378,34 +378,34 @@ class KommoAPI:
             params = {}
         
         start_time = time.time()
-        print(f"🚀 get_all_leads: Iniciando busca PARALELA com params: {params}")
+        print(f"get_all_leads: Iniciando busca PARALELA com params: {params}")
         
         # Primeiro, fazer uma requisição para descobrir quantas páginas existem
         test_params = params.copy()
         test_params['page'] = 1
         test_params['limit'] = 250
         
-        print(f"🔍 Descobrindo número total de páginas...")
+        print(f"Descobrindo número total de páginas...")
         first_response = self.get_leads(test_params)
         
         # Validação robusta do retorno da API
         if not first_response:
-            print(f"❌ Erro: Resposta vazia da API")
+            print(f"Erro: Resposta vazia da API")
             return []
         
         if not isinstance(first_response, dict):
-            print(f"❌ Erro: Resposta inválida da API (tipo: {type(first_response)})")
+            print(f"Erro: Resposta inválida da API (tipo: {type(first_response)})")
             return []
         
         if '_embedded' not in first_response:
-            print(f"❌ Erro: Resposta sem '_embedded' - estrutura inválida")
+            print(f"Erro: Resposta sem '_embedded' - estrutura inválida")
             return []
         
         # Calcular número total de páginas com limite inteligente
         page_info = first_response.get('_page', {})
         total_count = page_info.get('total', 0) if isinstance(page_info, dict) else 0
         
-        print(f"📊 Total de leads encontrados: {total_count}")
+        print(f"Total de leads encontrados: {total_count}")
         
         items_per_page = 250
         calculated_pages = (total_count + items_per_page - 1) // items_per_page if total_count > 0 else 1
@@ -413,23 +413,23 @@ class KommoAPI:
         # Usar max_pages customizado ou padrão baseado na quantidade de dados
         if max_pages is not None:
             total_pages = min(calculated_pages, max_pages)
-            print(f"🎯 Limite personalizado: {max_pages} páginas")
+            print(f"Limite personalizado: {max_pages} páginas")
         else:
             # Limite inteligente baseado no volume de dados
             if total_count <= 1000:  # Poucos dados
                 total_pages = min(calculated_pages, 5)
-                print(f"🚀 Limite RÁPIDO: {total_pages} páginas (dados pequenos)")
+                print(f"Limite RÁPIDO: {total_pages} páginas (dados pequenos)")
             elif total_count <= 3000:  # Dados moderados
                 total_pages = min(calculated_pages, 12)
-                print(f"⚡ Limite MÉDIO: {total_pages} páginas (dados moderados)")
+                print(f"Limite MÉDIO: {total_pages} páginas (dados moderados)")
             else:  # Muitos dados
                 total_pages = min(calculated_pages, 20)
-                print(f"🔥 Limite PADRÃO: {total_pages} páginas (dados extensos)")
+                print(f"Limite PADRÃO: {total_pages} páginas (dados extensos)")
         
         if total_pages == 0:
             return []
         
-        print(f"📊 Total estimado: {total_count} leads em {total_pages} páginas")
+        print(f"Total estimado: {total_count} leads em {total_pages} páginas")
         
         if not use_parallel or total_pages == 1:
             # Se não usar paralelo ou só tem 1 página, usar método sequencial otimizado
@@ -441,13 +441,13 @@ class KommoAPI:
         # Adicionar leads da primeira página
         if 'leads' in first_response['_embedded']:
             all_leads.extend(first_response['_embedded']['leads'])
-            print(f"✅ Página 1: {len(first_response['_embedded']['leads'])} leads")
+            print(f"Página 1: {len(first_response['_embedded']['leads'])} leads")
         
         # Se há mais páginas, buscar em paralelo
         if total_pages > 1:
             pages_to_fetch = list(range(2, total_pages + 1))
             
-            print(f"🔄 Buscando páginas {pages_to_fetch} em paralelo com {max_workers} threads...")
+            print(f"Buscando páginas {pages_to_fetch} em paralelo com {max_workers} threads...")
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Submeter todas as requisições
@@ -464,14 +464,14 @@ class KommoAPI:
                         if response and '_embedded' in response and 'leads' in response['_embedded']:
                             leads = response['_embedded']['leads']
                             all_leads.extend(leads)
-                            print(f"✅ Página {page}: {len(leads)} leads")
+                            print(f"Página {page}: {len(leads)} leads")
                         else:
-                            print(f"⚠️ Página {page}: Sem dados")
+                            print(f"Página {page}: Sem dados")
                     except Exception as e:
-                        print(f"❌ Página {page}: Erro {str(e)}")
+                        print(f"Página {page}: Erro {str(e)}")
         
         elapsed_time = time.time() - start_time
-        print(f"🎉 get_all_leads: CONCLUÍDO - {len(all_leads)} leads em {total_pages} páginas em {elapsed_time:.2f}s")
+        print(f"get_all_leads: CONCLUÍDO - {len(all_leads)} leads em {total_pages} páginas em {elapsed_time:.2f}s")
         
         return all_leads
     
@@ -544,12 +544,12 @@ class KommoAPI:
                     if cache_key:
                         self._save_to_cache(cache_key, data)
                     
-                    logger.info(f"✅ Sucesso async: {endpoint}")
+                    logger.info(f"Sucesso async: {endpoint}")
                     return {"data": data, "from_cache": False, "status": "success"}
                 else:
-                    logger.warning(f"⚠️ Erro async {endpoint}: {response.status}")
+                    logger.warning(f"Erro async {endpoint}: {response.status}")
                     return {"error": f"HTTP {response.status}", "status": "error"}
                     
         except Exception as e:
-            logger.error(f"❌ Exceção async {endpoint}: {str(e)}")
+            logger.error(f"Exceção async {endpoint}: {str(e)}")
             return {"error": str(e), "status": "error"}

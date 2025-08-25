@@ -338,10 +338,10 @@ async def get_marketing_dashboard_complete(
                         "clicks": basic_metrics.get('clicks', 0),
                         "ctr": basic_metrics.get('ctr', 0),
                         "cpc": basic_metrics.get('cpc', 0),
-                        "cpm": round(cpm, 2),  # ✅ NOVO: CPM calculado
+                        "cpm": round(cpm, 2),  # NOVO: CPM calculado
                         "totalSpent": spend,
                         "costPerLead": lead_metrics.get('cost_per_lead', 0),
-                        "leadsGenerated": facebook_leads,  # ✅ NOVO: Leads gerados pelo Facebook
+                        "leadsGenerated": facebook_leads,  # NOVO: Leads gerados pelo Facebook
                         "engagement": {
                             "likes": engagement_metrics.get('likes', 0),
                             "comments": engagement_metrics.get('comments', 0),
@@ -380,13 +380,13 @@ async def get_marketing_dashboard_complete(
         # Montar resposta completa
         response = {
             "totalLeads": total_leads,
-            "leadsBySource": leads_by_source_array,  # ✅ USANDO CUSTOM FIELD "Fonte"
+            "leadsBySource": leads_by_source_array,  # USANDO CUSTOM FIELD "Fonte"
             "leadsByTag": leads_by_tag_array,
             "leadsByAd": [],  # TODO: Implementar por anúncio específico
-            "facebookMetrics": facebook_metrics,  # ✅ INCLUI CPM e leadsGenerated
+            "facebookMetrics": facebook_metrics,  # INCLUI CPM e leadsGenerated
             "facebookCampaigns": [],  # TODO: Implementar campanhas específicas
             "metricsTrend": metrics_trend,
-            "customFields": {  # ✅ NOVO: Custom fields implementados
+            "customFields": {  # NOVO: Custom fields implementados
                 "fonte": leads_by_source_array,
                 "available_fontes": [
                     "Tráfego Meta", "Escritório Patacho", "Canal Pro", "Site", 
@@ -830,8 +830,8 @@ async def get_sales_dashboard_complete(
         response = {
             "totalLeads": total_leads,
             "leadsByUser": leads_by_user,
-            "leadsByStage": leads_by_stage_array,  # ✅ AGORA IMPLEMENTADO
-            "leadsBySource": leads_by_source_sales,  # ✅ NOVO: Leads por fonte (custom field)
+            "leadsByStage": leads_by_stage_array,  # AGORA IMPLEMENTADO
+            "leadsBySource": leads_by_source_sales,  # NOVO: Leads por fonte (custom field)
             "conversionRates": {
                 "meetings": round(conversion_rate_meetings, 1),
                 "prospects": round(conversion_rate_prospects, 1),
@@ -842,7 +842,7 @@ async def get_sales_dashboard_complete(
             "averageDealSize": round(average_deal_size, 2),
             "salesbotRecovery": 0,  # TODO: Implementar busca por tag de recuperação
             "salesTrend": [],
-            "customFields": {  # ✅ NOVO: Custom fields implementados
+            "customFields": {  # NOVO: Custom fields implementados
                 "fonte": leads_by_source_sales,
                 "available_fontes": [
                     "Tráfego Meta", "Escritório Patacho", "Canal Pro", "Site", 
