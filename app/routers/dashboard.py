@@ -441,6 +441,7 @@ async def get_sales_dashboard_complete(
     start_date: Optional[str] = Query(None, description="Data de início (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Data de fim (YYYY-MM-DD)"),
     fonte: Optional[str] = Query(None, description="Fonte para filtrar dados"),
+    produto: Optional[str] = Query(None, description="Produto para filtrar dados"),
 ):
     """
     Endpoint otimizado que retorna todos os dados do dashboard de vendas
@@ -481,30 +482,87 @@ async def get_sales_dashboard_complete(
             end_time = int(time.time())
             start_time = end_time - (days * 24 * 60 * 60)
         
-        # Buscar dados básicos
-        leads_params = {"filter[created_at][from]": start_time, "filter[created_at][to]": end_time, "limit": 250}
+        # CORREÇÃO: Buscar leads APENAS dos pipelines Vendas + Remarketing (igual charts/leads-by-user)
+        # IDs dos pipelines necessários
+        PIPELINE_VENDAS = 10516987
+        PIPELINE_REMARKETING = 11059911
+        CUSTOM_FIELD_CORRETOR = 837920
+        CUSTOM_FIELD_FONTE = 837886
+        CUSTOM_FIELD_PRODUTO = 857264
         
+        # Parâmetros para buscar leads do Funil de Vendas
+        leads_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,
+            "filter[created_at][from]": start_time,
+            "filter[created_at][to]": end_time,
+            "limit": 250,
+            "with": "contacts,tags,custom_fields_values"
+        }
         
-        # Buscar dados básicos - incluindo custom fields para filtro por corretor
+        # Parâmetros para buscar leads do Remarketing
+        leads_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,
+            "filter[created_at][from]": start_time,
+            "filter[created_at][to]": end_time,
+            "limit": 250,
+            "with": "contacts,tags,custom_fields_values"
+        }
+        
+        # Calcular filtro de reuniões: incluir 23:59 do dia anterior (igual charts/leads-by-user)
+        meetings_start_time = start_time - (24 * 60 * 60) + (23 * 60 * 60 + 59 * 60)  # -1 dia + 23:59
+        
+        # Parâmetros para buscar reuniões REAIS
+        tasks_params = {
+            'filter[task_type_id]': 2,  # Tipo de tarefa: reunião
+            'filter[is_completed]': 1,  # Apenas concluídas
+            'filter[complete_till][from]': meetings_start_time,  # IGUAL CHARTS
+            'filter[complete_till][to]': end_time,
+            'limit': 250
+        }
+        
+        # Buscar dados REAIS - USAR PAGINAÇÃO COMPLETA
         try:
-            logger.info(f"Buscando leads com parâmetros: {leads_params}")
-            leads_data = safe_get_data(kommo_api.get_leads, leads_params)
-            logger.info(f"Leads data obtido: {type(leads_data)}, keys: {list(leads_data.keys()) if leads_data else 'None'}")
-            
-            # Não buscar users_data por agora para simplificar debug
-            users_data = {}
-            logger.info(f"Users data obtido: {type(users_data)}")
+            all_leads_vendas = kommo_api.get_all_leads_old(leads_vendas_params)
+            leads_vendas_data = {"_embedded": {"leads": all_leads_vendas}}
+            logger.info(f"Leads Vendas (paginação completa): {len(all_leads_vendas)}")
         except Exception as e:
-            logger.error(f"Erro ao buscar dados básicos: {e}")
-            import traceback
-            logger.error(f"Traceback busca dados: {traceback.format_exc()}")
-            leads_data = {}
-            users_data = {}
+            logger.error(f"Erro ao buscar leads vendas: {e}")
+            all_leads_vendas = []
+            
+        try:
+            all_leads_remarketing = kommo_api.get_all_leads_old(leads_remarketing_params)
+            leads_remarketing_data = {"_embedded": {"leads": all_leads_remarketing}}
+            logger.info(f"Leads Remarketing (paginação completa): {len(all_leads_remarketing)}")
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads remarketing: {e}")
+            all_leads_remarketing = []
+        
+        # Combinar leads de ambos os pipelines (igual charts/leads-by-user)
+        all_leads = all_leads_vendas + all_leads_remarketing
+        leads_data = {"_embedded": {"leads": all_leads}}
+        logger.info(f"Total de leads combinados: {len(all_leads)}")
+            
+        # BUSCAR REUNIÕES REAIS usando get_all_tasks
+        try:
+            all_tasks = kommo_api.get_all_tasks(tasks_params)
+            tasks_data = {"_embedded": {"tasks": all_tasks}}
+            logger.info(f"Total de tarefas de reunião encontradas: {len(all_tasks)}")
+        except Exception as e:
+            logger.error(f"Erro ao buscar tarefas de reunião: {e}")
+            tasks_data = {"_embedded": {"tasks": []}}
+            
+        # Buscar usuários para fallback
+        try:
+            users_data = kommo_api.get_users()
+        except Exception as e:
+            logger.error(f"Erro ao buscar usuarios: {e}")
+            users_data = {"_embedded": {"users": []}}
         
         # Função para filtrar leads por corretor usando custom field (igual aos outros endpoints)
-        def filter_leads_by_corretor(leads: list, corretor_name: str) -> list:
+        def filter_leads_by_corretor(leads: list, corretor_name) -> list:
             """Filtra leads pelo campo personalizado 'Corretor' (field_id: 837920)"""
-            if not corretor_name or not leads:
+            # Garantir que corretor_name seja string
+            if not corretor_name or not isinstance(corretor_name, str) or not leads:
                 return leads if leads else []
             
             filtered_leads = []
@@ -539,9 +597,10 @@ async def get_sales_dashboard_complete(
             return filtered_leads
         
         # Função para filtrar leads por fonte usando custom field
-        def filter_leads_by_fonte(leads: list, fonte_name: str) -> list:
+        def filter_leads_by_fonte(leads: list, fonte_name) -> list:
             """Filtra leads pelo campo personalizado 'Fonte' (field_id: 837886)"""
-            if not fonte_name or not leads:
+            # Garantir que fonte_name seja string
+            if not fonte_name or not isinstance(fonte_name, str) or not leads:
                 return leads if leads else []
             
             filtered_leads = []
@@ -621,24 +680,112 @@ async def get_sales_dashboard_complete(
         # Processar contagem de leads (após filtro se aplicável)
         total_leads = len(all_leads) if all_leads else 0
         
+        # Criar mapa de usuários
+        users_map = {}
+        if users_data and "_embedded" in users_data:
+            for user in users_data["_embedded"].get("users", []):
+                users_map[user["id"]] = user["name"]
+        
+        # NOVO: Criar mapa de leads para busca rápida das reuniões (igual charts/leads-by-user)
+        leads_map = {}
+        if leads_data and "_embedded" in leads_data:
+            for lead in leads_data["_embedded"].get("leads", []):
+                if lead and lead.get("id"):
+                    leads_map[lead.get("id")] = lead
+        
+        # NOVO: Processar reuniões REAIS e contar por corretor (igual charts/leads-by-user)
+        meetings_by_corretor = {}
+        if tasks_data and "_embedded" in tasks_data:
+            reunion_tasks = tasks_data["_embedded"].get("tasks", [])
+            logger.info(f"Processando {len(reunion_tasks)} tarefas de reunião")
+            
+            # Coletar IDs de leads que não estão no mapa atual
+            missing_lead_ids = set()
+            for task in reunion_tasks:
+                if task and task.get('entity_type') == 'leads':
+                    lead_id = task.get('entity_id')
+                    if lead_id and lead_id not in leads_map:
+                        missing_lead_ids.add(lead_id)
+            
+            # Buscar leads faltantes se necessário
+            if missing_lead_ids:
+                logger.info(f"Buscando {len(missing_lead_ids)} leads adicionais para reuniões")
+                try:
+                    for lead_id in missing_lead_ids:
+                        additional_lead = kommo_api.get_lead(lead_id)
+                        if additional_lead:
+                            leads_map[lead_id] = additional_lead
+                except Exception as e:
+                    logger.error(f"Erro ao buscar leads adicionais: {e}")
+            
+            # Processar cada reunião e contar por corretor
+            for task in reunion_tasks:
+                if not task or task.get('entity_type') != 'leads':
+                    continue
+                
+                lead_id = task.get('entity_id')
+                lead = leads_map.get(lead_id)
+                
+                if not lead:
+                    continue
+                
+                # Extrair corretor do lead (mesma lógica dos leads)
+                custom_fields = lead.get("custom_fields_values", [])
+                corretor_lead = None
+                fonte_lead = None
+                produto_lead = None
+                
+                if custom_fields and isinstance(custom_fields, list):
+                    for field in custom_fields:
+                        if not field or not isinstance(field, dict):
+                            continue
+                        field_id = field.get("field_id")
+                        values = field.get("values", [])
+                        
+                        if field_id == CUSTOM_FIELD_CORRETOR and values:
+                            corretor_lead = values[0].get("value")
+                        elif field_id == CUSTOM_FIELD_FONTE and values:
+                            fonte_lead = values[0].get("value")
+                        elif field_id == CUSTOM_FIELD_PRODUTO and values:
+                            produto_lead = values[0].get("value")
+                
+                # Aplicar filtros APENAS se especificados (igual charts/leads-by-user)
+                if corretor and isinstance(corretor, str) and corretor.strip() and corretor_lead != corretor:
+                    continue
+                if fonte and isinstance(fonte, str) and fonte.strip() and fonte_lead != fonte:
+                    continue
+                if produto and isinstance(produto, str) and produto.strip() and produto_lead != produto:
+                    continue
+                
+                # Determinar corretor final (mesma lógica dos leads)
+                final_corretor = corretor_lead or users_map.get(lead.get("responsible_user_id"), "Usuário Sem Nome")
+                
+                # Contar reunião para este corretor
+                meetings_by_corretor[final_corretor] = meetings_by_corretor.get(final_corretor, 0) + 1
+            
+            logger.info(f"Reuniões contadas por corretor: {meetings_by_corretor}")
+        
         # Processar dados por corretor usando custom field
         leads_by_user = []
         
         if all_leads:
             # Se filtrou por corretor específico, mostrar apenas esse corretor
             if corretor:
-                # Calcular métricas para o corretor específico
+                # Calcular métricas REAIS para o corretor específico
                 active_leads = len([lead for lead in all_leads if lead and lead.get("status_id") not in [142, 143]])
                 won_leads = len([lead for lead in all_leads if lead and lead.get("status_id") == 142])
                 lost_leads = len([lead for lead in all_leads if lead and lead.get("status_id") == 143])
+                
+                # Usar dados REAIS de reuniões
+                real_meetings = meetings_by_corretor.get(corretor, 0)
                 
                 leads_by_user = [{
                     "name": corretor,
                     "value": total_leads,
                     "active": active_leads,
                     "lost": lost_leads,
-                    "meetings": round(total_leads * 0.4),  # Estimativa
-                    "meetingsHeld": round(total_leads * 0.3),  # Estimativa
+                    "meetings": real_meetings,  # DADOS REAIS
+                    "meetingsHeld": real_meetings,  # DADOS REAIS
                     "sales": won_leads
                 }]
             else:
@@ -682,15 +829,18 @@ async def get_sales_dashboard_complete(
                     else:  # Active
                         corretor_counts[corretor_name]["active"] += 1
                 
-                # Criar array de dados por corretor
+                # Criar array de dados por corretor com DADOS REAIS
                 for corretor_name, counts in corretor_counts.items():
+                    # Usar dados REAIS de reuniões do mapa meetings_by_corretor
+                    real_meetings = meetings_by_corretor.get(corretor_name, 0)
+                    
                     leads_by_user.append({
                         "name": corretor_name,
                         "value": counts["total"],
                         "active": counts["active"],
                         "lost": counts["lost"],
-                        "meetings": round(counts["total"] * 0.4),  # Estimativa
-                        "meetingsHeld": round(counts["total"] * 0.3),  # Estimativa
+                        "meetings": real_meetings,  # DADOS REAIS
+                        "meetingsHeld": real_meetings,  # DADOS REAIS
                         "sales": counts["won"]
                     })
         
@@ -798,12 +948,15 @@ async def get_sales_dashboard_complete(
             won_leads_count = len([lead for lead in all_leads if lead and lead.get("status_id") == 142])
             lost_leads_count = len([lead for lead in all_leads if lead and lead.get("status_id") == 143])
             
-            # Calcular taxas de conversão reais
+            # Calcular taxas de conversão REAIS (sem estimativas)
             conversion_rate_sales = (won_leads_count / total_leads * 100) if total_leads > 0 else 0
-            conversion_rate_meetings = min(45, total_leads * 0.4 / max(total_leads, 1) * 100) if total_leads > 0 else 0
             
-            # Calcular taxa de conversão em contatos qualificados
-            conversion_rate_prospects = min(35, total_leads * 0.35 / max(total_leads, 1) * 100) if total_leads > 0 else 0
+            # Taxa de reuniões REAL: total de reuniões realizadas / total de leads
+            total_meetings_held = sum(meetings_by_corretor.values())
+            conversion_rate_meetings = (total_meetings_held / total_leads * 100) if total_leads > 0 else 0
+            
+            # Taxa de prospects: considerando leads ativos como prospects
+            conversion_rate_prospects = (active_leads_count / total_leads * 100) if total_leads > 0 else 0
             
             # Calcular win rate (vendas vs perdas)
             total_closed = won_leads_count + lost_leads_count
