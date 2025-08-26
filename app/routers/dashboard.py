@@ -1582,6 +1582,7 @@ async def get_detailed_tables(
             corretor_custom = extract_custom_field_value(lead, 837920)  # Corretor
             anuncio_lead = extract_custom_field_value(lead, 837846) or "N/A"  # Anúncio
             publico_lead = extract_custom_field_value(lead, 837844) or "N/A"  # Público (conjunto de anúncios)
+            produto_lead = extract_custom_field_value(lead, CUSTOM_FIELD_PRODUTO) or "N/A"  # Produto
             
             # Obter timestamp da data de fechamento para formatação
             data_timestamp = get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
