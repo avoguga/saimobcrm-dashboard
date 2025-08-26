@@ -39,6 +39,7 @@ async def get_sales_kpis(
     days: int = Query(30, description="Período em dias para análise"),
     corretor: Optional[str] = Query(None, description="Nome do corretor para filtrar dados"),
     fonte: Optional[str] = Query(None, description="Fonte para filtrar dados"),
+    produto: Optional[str] = Query(None, description="Produto para filtrar dados"),
     start_date: Optional[str] = Query(None, description="Data de início (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Data de fim (YYYY-MM-DD)")
 ):
@@ -692,6 +693,7 @@ async def get_conversion_rates(
     days: int = Query(30, description="Periodo em dias para analise"),
     corretor: Optional[str] = Query(None, description="Nome do corretor para filtrar dados"),
     fonte: Optional[str] = Query(None, description="Fonte para filtrar dados"),
+    produto: Optional[str] = Query(None, description="Produto para filtrar dados"),
     start_date: Optional[str] = Query(None, description="Data de inicio (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Data de fim (YYYY-MM-DD)")
 ):
@@ -902,6 +904,7 @@ async def get_pipeline_status(
     days: int = Query(30, description="Periodo em dias para analise"),
     corretor: Optional[str] = Query(None, description="Nome do corretor para filtrar dados"),
     fonte: Optional[str] = Query(None, description="Fonte para filtrar dados"),
+    produto: Optional[str] = Query(None, description="Produto para filtrar dados"),
     start_date: Optional[str] = Query(None, description="Data de inicio (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Data de fim (YYYY-MM-DD)")
 ):
