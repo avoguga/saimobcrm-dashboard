@@ -10,6 +10,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v2", tags=["Sales V2 API"])
 
+# Constantes globais
+PIPELINE_VENDAS = 10516987
+PIPELINE_REMARKETING = 11059911
+STATUS_CONTRATO_ASSINADO = 80689759
+STATUS_VENDA_FINAL = 142
+CUSTOM_FIELD_CORRETOR = 837920
+CUSTOM_FIELD_FONTE = 837886
+CUSTOM_FIELD_PRODUTO = 857264
+CUSTOM_FIELD_PROPOSTA = 861100
+CUSTOM_FIELD_DATA_FECHAMENTO = 858126
+
 # Função auxiliar para extrair valores de custom fields
 def get_custom_field_value(lead, field_id):
     """Extrai valor de custom field de forma segura"""
@@ -81,11 +92,7 @@ async def get_sales_kpis(
         previous_start_time = start_time - period_duration
         previous_end_time = start_time
         
-        # IDs importantes
-        PIPELINE_VENDAS = 10516987
-        PIPELINE_REMARKETING = 11059911
-        STATUS_CONTRATO_ASSINADO = 80689759
-        STATUS_VENDA_FINAL = 142
+        # IDs importantes (usando constantes globais)
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126
         CUSTOM_FIELD_ESTADO = 851638  # Campo ESTADO
 
@@ -317,9 +324,7 @@ async def get_leads_by_user_chart(
         CUSTOM_FIELD_FONTE = 837886
         CUSTOM_FIELD_PROPOSTA = 861100  # Novo campo boolean
         
-        # IDs dos pipelines
-        PIPELINE_VENDAS = 10516987
-        PIPELINE_REMARKETING = 11059911
+        # IDs dos pipelines (usando constantes globais)
         
         # Função auxiliar para verificar se é proposta
         def is_proposta(lead):
@@ -722,11 +727,7 @@ async def get_conversion_rates(
             end_time = int(time.time())
             start_time = end_time - (days * 24 * 60 * 60)
         
-        # IDs importantes
-        PIPELINE_VENDAS = 10516987
-        PIPELINE_REMARKETING = 11059911
-        STATUS_CONTRATO_ASSINADO = 80689759
-        STATUS_VENDA_FINAL = 142
+        # IDs importantes (usando constantes globais)
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126
         
         # Buscar leads de AMBOS os pipelines
