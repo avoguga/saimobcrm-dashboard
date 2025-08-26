@@ -186,8 +186,8 @@ async def get_sales_kpis(
         logger.info(f"Total vendas anteriores: {len(previous_vendas_all)}")
 
         # Função para aplicar filtros
-        def apply_filters(leads, corretor_filter=None, fonte_filter=None):
-            """Aplica filtros de corretor e fonte"""
+        def apply_filters(leads, corretor_filter=None, fonte_filter=None, produto_filter=None):
+            """Aplica filtros de corretor, fonte e produto"""
             filtered = []
             for lead in leads:
                 if not lead:
@@ -205,12 +205,18 @@ async def get_sales_kpis(
                     if fonte_lead != fonte_filter:
                         continue
                 
+                # Filtrar por produto se especificado
+                if produto_filter:
+                    produto_lead = get_custom_field_value(lead, 857264)  # Campo Produto
+                    if not produto_lead or produto_filter.lower() not in produto_lead.lower():
+                        continue
+                
                 filtered.append(lead)
             
             return filtered
 
         # Aplicar filtros nas vendas
-        filtered_vendas = apply_filters(current_vendas_all, corretor, fonte)
+        filtered_vendas = apply_filters(current_vendas_all, corretor, fonte, produto)
         
         # Filtrar vendas por data_fechamento no período
         valid_sales = []
@@ -226,7 +232,7 @@ async def get_sales_kpis(
         avg_deal_size = (total_revenue / sales_leads) if sales_leads > 0 else 0
 
         # Aplicar filtros nas vendas anteriores
-        filtered_previous_vendas = apply_filters(previous_vendas_all, corretor, fonte)
+        filtered_previous_vendas = apply_filters(previous_vendas_all, corretor, fonte, produto)
         
         # Filtrar vendas anteriores por data_fechamento no período
         previous_valid_sales = []
@@ -275,6 +281,7 @@ async def get_leads_by_user_chart(
     days: int = Query(30, description="Período em dias para análise"),
     corretor: Optional[str] = Query(None, description="Nome do corretor para filtrar dados"),
     fonte: Optional[str] = Query(None, description="Fonte para filtrar dados"),
+    produto: Optional[str] = Query(None, description="Produto para filtrar dados"),
     start_date: Optional[str] = Query(None, description="Data de início (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Data de fim (YYYY-MM-DD)")
 ):
@@ -343,12 +350,22 @@ async def get_leads_by_user_chart(
                 logger.error(f"Erro ao verificar se lead é proposta: {e}")
                 return False
         
-        # Buscar leads
-        leads_params = {
+        # CORREÇÃO: Buscar leads de ambos os pipelines separadamente (igual ao dashboard)
+        # Não fazer busca geral sem filtro de pipeline
+        leads_vendas_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,
             "filter[created_at][from]": start_time,
             "filter[created_at][to]": end_time,
             "limit": 500,
-            "with": "custom_fields_values"
+            "with": "contacts,tags,custom_fields_values"
+        }
+        
+        leads_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,
+            "filter[created_at][from]": start_time,
+            "filter[created_at][to]": end_time,
+            "limit": 500,
+            "with": "contacts,tags,custom_fields_values"
         }
         
         # NOVO: Buscar tarefas de reunião realizadas para contagem real
@@ -369,13 +386,25 @@ async def get_leads_by_user_chart(
         }
         
         try:
-            # Usar paginação automática para buscar todos os leads do período
-            all_leads = kommo_api.get_all_leads_old(leads_params)
-            leads_data = {"_embedded": {"leads": all_leads}}
-            logger.info(f"Total de leads encontrados: {len(all_leads)}")
+            # Buscar leads de VENDAS com paginação completa
+            all_leads_vendas = kommo_api.get_all_leads_old(leads_vendas_params)
+            logger.info(f"Total de leads VENDAS encontrados: {len(all_leads_vendas)}")
         except Exception as e:
-            logger.error(f"Erro ao buscar leads: {e}")
-            leads_data = {"_embedded": {"leads": []}}
+            logger.error(f"Erro ao buscar leads vendas: {e}")
+            all_leads_vendas = []
+            
+        try:
+            # Buscar leads de REMARKETING com paginação completa
+            all_leads_remarketing = kommo_api.get_all_leads_old(leads_remarketing_params)
+            logger.info(f"Total de leads REMARKETING encontrados: {len(all_leads_remarketing)}")
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads remarketing: {e}")
+            all_leads_remarketing = []
+        
+        # Combinar leads de ambos os pipelines
+        all_leads = all_leads_vendas + all_leads_remarketing
+        leads_data = {"_embedded": {"leads": all_leads}}
+        logger.info(f"Total de leads combinados: {len(all_leads)}")
             
         # NOVO: Buscar tarefas de reunião
         try:
@@ -477,6 +506,10 @@ async def get_leads_by_user_chart(
                     continue
                 if fonte and fonte_lead != fonte:
                     continue
+                if produto:
+                    produto_lead = get_custom_field_value(lead, CUSTOM_FIELD_PRODUTO)
+                    if not produto_lead or produto.lower() not in produto_lead.lower():
+                        continue
                 
                 # Determinar corretor final (mesma lógica dos leads)
                 final_corretor = corretor_lead or users_map.get(lead.get("responsible_user_id"), "Usuário Sem Nome")
@@ -531,6 +564,9 @@ async def get_leads_by_user_chart(
                     continue
                 if fonte and fonte_lead != fonte:
                     continue
+                if produto and produto_lead:
+                    if produto.lower() not in produto_lead.lower():
+                        continue
                 
                 # Determinar corretor final
                 final_corretor = corretor_lead or users_map.get(lead.get("responsible_user_id"), "Usuário Sem Nome")
@@ -776,6 +812,7 @@ async def get_conversion_rates(
             # Extrair valores de forma segura
             corretor_lead = get_custom_field_value(lead, 837920)  # Corretor
             fonte_lead = get_custom_field_value(lead, 837886)     # Fonte
+            produto_lead = get_custom_field_value(lead, 857264)   # Produto
             
             # Aplicar filtros
             if corretor and isinstance(corretor, str) and corretor.strip():
@@ -795,6 +832,10 @@ async def get_conversion_rates(
                 else:
                     if fonte_lead != fonte:
                         continue
+            
+            if produto and isinstance(produto, str) and produto.strip():
+                if not produto_lead or produto.lower() not in produto_lead.lower():
+                    continue
             
             filtered_leads.append(lead)
         
@@ -890,27 +931,7 @@ async def get_pipeline_status(
             start_time = end_time - (days * 24 * 60 * 60)
         
         # IDs importantes
-        PIPELINE_VENDAS = 10516987
-        PIPELINE_REMARKETING = 11059911
-        STATUS_CONTRATO_ASSINADO = 80689759
-        STATUS_VENDA_FINAL = 142
-        
-        # Buscar leads de AMBOS os pipelines
-        leads_vendas_params = {
-            "filter[pipeline_id]": PIPELINE_VENDAS,
-            "filter[created_at][from]": start_time,
-            "filter[created_at][to]": end_time,
-            "limit": 500,
-            "with": "custom_fields_values"
-        }
-        
-        leads_remarketing_params = {
-            "filter[pipeline_id]": PIPELINE_REMARKETING,
-            "filter[created_at][from]": start_time,
-            "filter[created_at][to]": end_time,
-            "limit": 500,
-            "with": "custom_fields_values"
-        }
+        # CONSTANTES JÁ DEFINIDAS NO INÍCIO - removendo duplicação
         
         # Buscar pipelines para mapear status
         try:
@@ -963,6 +984,7 @@ async def get_pipeline_status(
             # Extrair valores de forma segura
             corretor_lead = get_custom_field_value(lead, 837920)  # Corretor
             fonte_lead = get_custom_field_value(lead, 837886)     # Fonte
+            produto_lead = get_custom_field_value(lead, 857264)   # Produto
             
             # Aplicar filtros
             if corretor and isinstance(corretor, str) and corretor.strip():
@@ -982,6 +1004,10 @@ async def get_pipeline_status(
                 else:
                     if fonte_lead != fonte:
                         continue
+            
+            if produto and isinstance(produto, str) and produto.strip():
+                if not produto_lead or produto.lower() not in produto_lead.lower():
+                    continue
             
             filtered_leads.append(lead)
         

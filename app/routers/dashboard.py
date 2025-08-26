@@ -102,9 +102,22 @@ async def get_marketing_dashboard_complete(
             "with": "contacts,tags,custom_fields_values"
         }
         
-        # Buscar dados de ambos os pipelines
-        leads_vendas_data = safe_get_data(kommo_api.get_leads, leads_vendas_params)
-        leads_remarketing_data = safe_get_data(kommo_api.get_leads, leads_remarketing_params)
+        # Buscar dados de ambos os pipelines - USAR PAGINAÇÃO COMPLETA
+        try:
+            leads_vendas_all = kommo_api.get_all_leads_old(leads_vendas_params)
+            leads_vendas_data = {"_embedded": {"leads": leads_vendas_all}}
+            logger.info(f"Leads Vendas (paginação completa): {len(leads_vendas_all)}")
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads vendas: {e}")
+            leads_vendas_data = {"_embedded": {"leads": []}}
+
+        try:
+            leads_remarketing_all = kommo_api.get_all_leads_old(leads_remarketing_params)
+            leads_remarketing_data = {"_embedded": {"leads": leads_remarketing_all}}
+            logger.info(f"Leads Remarketing (paginação completa): {len(leads_remarketing_all)}")
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads remarketing: {e}")
+            leads_remarketing_data = {"_embedded": {"leads": []}}
         
         # Combinar leads de ambos os pipelines
         combined_leads = []
@@ -1041,9 +1054,22 @@ async def get_detailed_tables(
         }
         
         
-        # Buscar VENDAS de ambos os pipelines
-        vendas_vendas_data = safe_get_data(kommo_api.get_leads, vendas_vendas_params)
-        vendas_remarketing_data = safe_get_data(kommo_api.get_leads, vendas_remarketing_params)
+        # Buscar VENDAS de ambos os pipelines - USAR PAGINAÇÃO COMPLETA
+        try:
+            vendas_vendas_all = kommo_api.get_all_leads_old(vendas_vendas_params)
+            vendas_vendas_data = {"_embedded": {"leads": vendas_vendas_all}}
+            logger.info(f"Vendas Vendas (paginação completa): {len(vendas_vendas_all)}")
+        except Exception as e:
+            logger.error(f"Erro ao buscar vendas vendas: {e}")
+            vendas_vendas_data = {"_embedded": {"leads": []}}
+
+        try:
+            vendas_remarketing_all = kommo_api.get_all_leads_old(vendas_remarketing_params)
+            vendas_remarketing_data = {"_embedded": {"leads": vendas_remarketing_all}}
+            logger.info(f"Vendas Remarketing (paginação completa): {len(vendas_remarketing_all)}")
+        except Exception as e:
+            logger.error(f"Erro ao buscar vendas remarketing: {e}")
+            vendas_remarketing_data = {"_embedded": {"leads": []}}
         
         users_data = safe_get_data(kommo_api.get_users)
         pipelines_data = safe_get_data(kommo_api.get_pipelines)
@@ -1104,9 +1130,22 @@ async def get_detailed_tables(
             "with": "contacts,tags,custom_fields_values"
         }
         
-        # Buscar todos os leads
-        all_leads_vendas_data = safe_get_data(kommo_api.get_leads, all_leads_params)
-        all_leads_remarketing_data = safe_get_data(kommo_api.get_leads, all_leads_remarketing_params)
+        # Buscar todos os leads - USAR PAGINAÇÃO COMPLETA
+        try:
+            all_leads_vendas_all = kommo_api.get_all_leads_old(all_leads_params)
+            all_leads_vendas_data = {"_embedded": {"leads": all_leads_vendas_all}}
+            logger.info(f"Todos os Leads Vendas (paginação completa): {len(all_leads_vendas_all)}")
+        except Exception as e:
+            logger.error(f"Erro ao buscar todos os leads vendas: {e}")
+            all_leads_vendas_data = {"_embedded": {"leads": []}}
+
+        try:
+            all_leads_remarketing_all = kommo_api.get_all_leads_old(all_leads_remarketing_params)
+            all_leads_remarketing_data = {"_embedded": {"leads": all_leads_remarketing_all}}
+            logger.info(f"Todos os Leads Remarketing (paginação completa): {len(all_leads_remarketing_all)}")
+        except Exception as e:
+            logger.error(f"Erro ao buscar todos os leads remarketing: {e}")
+            all_leads_remarketing_data = {"_embedded": {"leads": []}}
         
         # Combinar TODOS os leads
         all_leads_for_details = []
