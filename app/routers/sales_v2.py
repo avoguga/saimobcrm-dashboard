@@ -518,7 +518,13 @@ async def get_leads_by_user_chart(
                         continue
                 
                 # Determinar corretor final (mesma lógica dos leads)
-                final_corretor = corretor_lead or users_map.get(lead.get("responsible_user_id"), "Usuário Sem Nome")
+                responsible_user_id = lead.get("responsible_user_id")
+                if corretor_lead:
+                    final_corretor = corretor_lead
+                elif responsible_user_id and responsible_user_id in users_map:
+                    final_corretor = users_map[responsible_user_id]
+                else:
+                    final_corretor = "Vazio"
                 
                 # Contar reunião para este corretor
                 meetings_by_corretor[final_corretor] = meetings_by_corretor.get(final_corretor, 0) + 1
@@ -575,7 +581,13 @@ async def get_leads_by_user_chart(
                         continue
                 
                 # Determinar corretor final
-                final_corretor = corretor_lead or users_map.get(lead.get("responsible_user_id"), "Usuário Sem Nome")
+                responsible_user_id = lead.get("responsible_user_id")
+                if corretor_lead:
+                    final_corretor = corretor_lead
+                elif responsible_user_id and responsible_user_id in users_map:
+                    final_corretor = users_map[responsible_user_id]
+                else:
+                    final_corretor = "Vazio"
                 
                 # Inicializar contador se não existir
                 if final_corretor not in leads_by_user:
