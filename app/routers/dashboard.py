@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta
 from app.services.kommo_api import KommoAPI
 from app.services.facebook_api import FacebookAPI
-from app.utils.date_helpers import validate_sale_in_period, get_lead_closure_date, extract_custom_field_value, format_proposal_date
+from app.utils.date_helpers import validate_sale_in_period, get_lead_closure_date, extract_custom_field_value, format_proposal_date, format_timestamp_brazil, BRAZIL_TIMEZONE
 import config
 
 router = APIRouter()
@@ -1164,12 +1164,12 @@ async def get_detailed_tables(
             # Usar período em dias
             end_timestamp = int(time.time())
             start_timestamp = end_timestamp - (days * 24 * 60 * 60)
-            start_dt = datetime.fromtimestamp(start_timestamp)
-            end_dt = datetime.fromtimestamp(end_timestamp)
+            start_dt = datetime.fromtimestamp(start_timestamp, tz=BRAZIL_TIMEZONE)
+            end_dt = datetime.fromtimestamp(end_timestamp, tz=BRAZIL_TIMEZONE)
             
             # Para reuniões: incluir 23:59 do dia anterior
             meetings_start_timestamp = start_timestamp - (24 * 60 * 60) + (23 * 60 * 60 + 59 * 60)  # -1 dia + 23:59
-            meetings_start_dt = datetime.fromtimestamp(meetings_start_timestamp)
+            meetings_start_dt = datetime.fromtimestamp(meetings_start_timestamp, tz=BRAZIL_TIMEZONE)
             
             logger.info(f"Filtro por {days} dias: {start_dt.strftime('%Y-%m-%d')} a {end_dt.strftime('%Y-%m-%d')}")
             logger.info(f"Filtro reuniões: {meetings_start_dt.strftime('%Y-%m-%d %H:%M')} a {end_dt.strftime('%Y-%m-%d %H:%M')}")
@@ -1538,11 +1538,11 @@ async def get_detailed_tables(
                         continue
             
             # Formatar data com a data real de conclusão
-            data_formatada = datetime.fromtimestamp(data_reuniao).strftime("%d/%m/%Y %H:%M")
+            data_formatada = format_timestamp_brazil(data_reuniao)
             
             # Adicionar informação sobre quando a reunião estava agendada originalmente
             data_agendada = task.get('complete_till')
-            data_agendada_formatada = datetime.fromtimestamp(data_agendada).strftime("%d/%m/%Y %H:%M") if data_agendada else "N/A"
+            data_agendada_formatada = format_timestamp_brazil(data_agendada) if data_agendada else "N/A"
             
             # Criar objeto da reunião
             reuniao_obj = {
@@ -1618,12 +1618,12 @@ async def get_detailed_tables(
                         continue
             
             # Formatar data usando data_fechamento
-            data_formatada = datetime.fromtimestamp(data_timestamp).strftime("%d/%m/%Y %H:%M")
+            data_formatada = format_timestamp_brazil(data_timestamp)
             valor_formatado = f"R$ {price:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
             
             # Formatar data de criação
             if created_at:
-                data_criacao_formatada = datetime.fromtimestamp(created_at).strftime("%Y-%m-%d")
+                data_criacao_formatada = format_timestamp_brazil(created_at, "%Y-%m-%d")
             else:
                 data_criacao_formatada = "N/A"
             
@@ -1730,7 +1730,7 @@ async def get_detailed_tables(
             
             # Formatar data de criação
             if created_at:
-                data_criacao_formatada = datetime.fromtimestamp(created_at).strftime("%Y-%m-%d")
+                data_criacao_formatada = format_timestamp_brazil(created_at, "%Y-%m-%d")
             else:
                 data_criacao_formatada = "N/A"
             

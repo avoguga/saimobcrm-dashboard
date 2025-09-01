@@ -1,11 +1,14 @@
 """
 Funções auxiliares para processamento de datas no sistema
 """
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Union, Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Timezone do Brasil (UTC-3)
+BRAZIL_TIMEZONE = timezone(timedelta(hours=-3))
 
 
 def extract_custom_field_value(lead: Dict[str, Any], field_id: int) -> Optional[Any]:
@@ -79,6 +82,9 @@ def parse_closure_date(date_value: Any) -> Optional[int]:
             for fmt in date_formats:
                 try:
                     dt = datetime.strptime(date_value, fmt)
+                    # Assumir que a data está no timezone do Brasil se não especificado
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=BRAZIL_TIMEZONE)
                     return int(dt.timestamp())
                 except ValueError:
                     continue
@@ -154,7 +160,7 @@ def format_proposal_date(lead: Dict[str, Any], field_id: int = 882618) -> str:
     """
     timestamp = get_lead_proposal_date(lead, field_id)
     if timestamp:
-        return datetime.fromtimestamp(timestamp).strftime("%d/%m/%Y %H:%M")
+        return datetime.fromtimestamp(timestamp, tz=BRAZIL_TIMEZONE).strftime("%d/%m/%Y %H:%M")
     return "N/A"
 
 
@@ -193,3 +199,29 @@ def validate_sale_in_period(
         
     # Verificar se está no período
     return is_date_in_period(closure_timestamp, start_timestamp, end_timestamp)
+
+
+def format_timestamp_brazil(timestamp: int, format_str: str = "%d/%m/%Y %H:%M") -> str:
+    """
+    Formata um timestamp Unix para o timezone do Brasil
+    
+    Args:
+        timestamp: Timestamp Unix
+        format_str: String de formato (padrão: "%d/%m/%Y %H:%M")
+        
+    Returns:
+        Data formatada no timezone do Brasil
+    """
+    if not timestamp:
+        return "N/A"
+    return datetime.fromtimestamp(timestamp, tz=BRAZIL_TIMEZONE).strftime(format_str)
+
+
+def now_brazil_timestamp() -> int:
+    """
+    Retorna o timestamp atual no timezone do Brasil
+    
+    Returns:
+        Timestamp Unix atual
+    """
+    return int(datetime.now(tz=BRAZIL_TIMEZONE).timestamp())
