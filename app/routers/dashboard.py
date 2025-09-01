@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta
 from app.services.kommo_api import KommoAPI
 from app.services.facebook_api import FacebookAPI
-from app.utils.date_helpers import validate_sale_in_period, get_lead_closure_date, extract_custom_field_value
+from app.utils.date_helpers import validate_sale_in_period, get_lead_closure_date, extract_custom_field_value, format_proposal_date
 import config
 
 router = APIRouter()
@@ -1078,9 +1078,9 @@ async def get_detailed_tables(
     limit: int = Query(250, description="Limite de registros por página"),
 ):
     """
-    Endpoint que retorna dados detalhados para 5 tabelas:
-    - Leads: Data de Criação, Nome do Lead, Corretor, Fonte, Anúncio, Público, Produto, Funil, Etapa, Status
-    - Leads Orgânicos: Data de Criação, Nome do Lead, Corretor, Fonte, Anúncio, Público, Produto, Funil, Etapa, Status
+    Endpoint que retorna dados detalhados para 5 tabelas (COM DATA PROPOSTA):
+    - Leads: Data de Criação, Nome do Lead, Corretor, Fonte, Anúncio, Público, Produto, Data da Proposta, Funil, Etapa, Status
+    - Leads Orgânicos: Data de Criação, Nome do Lead, Corretor, Fonte, Anúncio, Público, Produto, Data da Proposta, Funil, Etapa, Status
     - Reuniões: Data da Reunião, Nome do Lead, Corretor, Fonte, Anúncio, Público, Produto, Funil, Etapa, Status
     - Vendas: Data da Venda, Nome do Lead, Corretor, Fonte, Anúncio, Público, Produto, Valor da Venda
     
@@ -1100,6 +1100,7 @@ async def get_detailed_tables(
         CUSTOM_FIELD_PUBLICO = 837844  # Campo "Público" (conjunto de anúncios)
         CUSTOM_FIELD_PRODUTO = 857264  # Campo "Produto"
         CUSTOM_FIELD_PROPOSTA = 861100  # Campo "Proposta" (boolean)
+        CUSTOM_FIELD_DATA_PROPOSTA = 882618  # Campo "Data da Proposta"
         
         # Função auxiliar para extrair valores de custom fields
         def get_custom_field_value(lead, field_id):
@@ -1480,6 +1481,7 @@ async def get_detailed_tables(
             anuncio_lead = "N/A"  # Novo campo
             publico_lead = "N/A"  # Novo campo (conjunto de anúncios)
             produto_lead = "N/A"  # Campo Produto
+            data_proposta_lead = format_proposal_date(lead, CUSTOM_FIELD_DATA_PROPOSTA)  # Campo Data da Proposta
             
             if custom_fields and isinstance(custom_fields, list):
                 for field in custom_fields:
@@ -1552,6 +1554,7 @@ async def get_detailed_tables(
                 "Anúncio": anuncio_lead,  # Novo campo
                 "Público": publico_lead,  # Novo campo (conjunto de anúncios)
                 "Produto": produto_lead,  # Campo Produto
+                "Data da Proposta": data_proposta_lead,  # Campo Data da Proposta
                 "Funil": funil,
                 "Etapa": etapa,
                 "Status": "Realizada"  # Confirmação visual de que a reunião aconteceu
@@ -1572,6 +1575,7 @@ async def get_detailed_tables(
             lead_id = lead.get("id")
             lead_name = lead.get("name", "")
             price = lead.get("price", 0)
+            created_at = lead.get("created_at")
             
             # Validar se a venda deve ser incluída (status + data no período)
             if not validate_sale_in_period(lead, start_timestamp, end_timestamp, CUSTOM_FIELD_DATA_FECHAMENTO):
@@ -1583,6 +1587,7 @@ async def get_detailed_tables(
             anuncio_lead = extract_custom_field_value(lead, 837846) or "N/A"  # Anúncio
             publico_lead = extract_custom_field_value(lead, 837844) or "N/A"  # Público (conjunto de anúncios)
             produto_lead = extract_custom_field_value(lead, CUSTOM_FIELD_PRODUTO) or "N/A"  # Produto
+            data_proposta_lead = format_proposal_date(lead, CUSTOM_FIELD_DATA_PROPOSTA)  # Campo Data da Proposta
             
             # Obter timestamp da data de fechamento para formatação
             data_timestamp = get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
@@ -1616,8 +1621,14 @@ async def get_detailed_tables(
             data_formatada = datetime.fromtimestamp(data_timestamp).strftime("%d/%m/%Y %H:%M")
             valor_formatado = f"R$ {price:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
             
-            # Adicionar à lista de vendas
-            vendas_detalhes.append({
+            # Formatar data de criação
+            if created_at:
+                data_criacao_formatada = datetime.fromtimestamp(created_at).strftime("%Y-%m-%d")
+            else:
+                data_criacao_formatada = "N/A"
+            
+            venda_dict = {
+                "Data de Criação": data_criacao_formatada,  # Data de criação do lead
                 "Data da Venda": data_formatada,  # PO: usando data_fechamento
                 "Nome do Lead": lead_name,
                 "Corretor": corretor_final,
@@ -1625,8 +1636,12 @@ async def get_detailed_tables(
                 "Anúncio": anuncio_lead,  # Novo campo
                 "Público": publico_lead,  # Novo campo (conjunto de anúncios)
                 "Produto": produto_lead,  # Campo Produto
+                "Data da Proposta": data_proposta_lead,  # Campo Data da Proposta
                 "Valor da Venda": valor_formatado
-            })
+            }
+            
+            # Adicionar à lista de vendas
+            vendas_detalhes.append(venda_dict)
         
         # NOVO: Processar todos os leads para leadsDetalhes
         logger.info("Processando todos os leads para leadsDetalhes...")
@@ -1646,6 +1661,7 @@ async def get_detailed_tables(
             anuncio_lead = "N/A"  # Novo campo
             publico_lead = "N/A"  # Novo campo (conjunto de anúncios)
             produto_lead = "N/A"  # Campo Produto
+            data_proposta_lead = format_proposal_date(lead, CUSTOM_FIELD_DATA_PROPOSTA)  # Campo Data da Proposta
             
             if custom_fields and isinstance(custom_fields, list):
                 for field in custom_fields:
@@ -1730,6 +1746,7 @@ async def get_detailed_tables(
                 "Anúncio": anuncio_lead,  # Novo campo
                 "Público": publico_lead,  # Novo campo (conjunto de anúncios)
                 "Produto": produto_lead,  # Campo Produto
+                "Data da Proposta": data_proposta_lead,  # Campo Data da Proposta
                 "Funil": funil,
                 "Etapa": etapa,
                 "Status": status_name,

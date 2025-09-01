@@ -126,6 +126,38 @@ def get_lead_closure_date(lead: Dict[str, Any], field_id: int = 858126) -> Optio
     return parse_closure_date(date_value)
 
 
+def get_lead_proposal_date(lead: Dict[str, Any], field_id: int = 882618) -> Optional[int]:
+    """
+    Obtém a data da proposta de um lead de forma padronizada
+    
+    Args:
+        lead: Dicionário do lead
+        field_id: ID do campo de data da proposta (padrão: 882618)
+        
+    Returns:
+        Timestamp Unix da data da proposta ou None
+    """
+    date_value = extract_custom_field_value(lead, field_id)
+    return parse_closure_date(date_value)
+
+
+def format_proposal_date(lead: Dict[str, Any], field_id: int = 882618) -> str:
+    """
+    Formata a data da proposta de um lead no formato brasileiro
+    
+    Args:
+        lead: Dicionário do lead
+        field_id: ID do campo de data da proposta (padrão: 882618)
+        
+    Returns:
+        Data formatada (DD/MM/YYYY HH:MM) ou "N/A" se não encontrada
+    """
+    timestamp = get_lead_proposal_date(lead, field_id)
+    if timestamp:
+        return datetime.fromtimestamp(timestamp).strftime("%d/%m/%Y %H:%M")
+    return "N/A"
+
+
 def validate_sale_in_period(
     lead: Dict[str, Any], 
     start_timestamp: int, 

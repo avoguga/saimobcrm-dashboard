@@ -24,7 +24,9 @@
       "Read(/c:\\Users\\avogu\\Documents\\saimobc\\app\\routers/**)",
       "Read(/c:\\Users\\avogu\\Documents\\saimobc\\app\\routers/**)",
       "Read(/c:\\Users\\avogu\\Documents\\saimobc\\app\\routers/**)",
-      "Bash(timeout 5 python:*)"
+      "Bash(timeout 5 python:*)",
+      "Bash(taskkill:*)",
+      "Bash(dir)"
     ],
     "deny": [],
     "additionalDirectories": [
