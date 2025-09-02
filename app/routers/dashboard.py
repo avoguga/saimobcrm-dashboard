@@ -1137,6 +1137,39 @@ async def get_detailed_tables(
                 logger.error(f"Erro ao verificar se lead é proposta: {e}")
                 return False
         
+        def validate_proposta_in_period(lead, start_timestamp, end_timestamp):
+            """Valida se a proposta deve ser incluída baseado na Data da Proposta"""
+            try:
+                # Verificar se é uma proposta
+                if not is_proposta(lead):
+                    return False
+                
+                # Extrair data da proposta
+                data_proposta_timestamp = get_custom_field_value(lead, CUSTOM_FIELD_DATA_PROPOSTA)
+                
+                if not data_proposta_timestamp:
+                    return False
+                
+                # Converter para timestamp se necessário
+                if isinstance(data_proposta_timestamp, str):
+                    try:
+                        # Assumir formato ISO ou timestamp string
+                        if data_proposta_timestamp.isdigit():
+                            data_proposta_timestamp = int(data_proposta_timestamp)
+                        else:
+                            # Tentar parsing de data ISO
+                            dt = datetime.fromisoformat(data_proposta_timestamp.replace('Z', '+00:00'))
+                            data_proposta_timestamp = int(dt.timestamp())
+                    except:
+                        return False
+                
+                # Verificar se está no período
+                return start_timestamp <= data_proposta_timestamp <= end_timestamp
+                
+            except Exception as e:
+                logger.error(f"Erro ao validar proposta no período: {e}")
+                return False
+        
         # ABORDAGEM SIMPLIFICADA: Buscar TODOS os leads sem filtro
         # Calcular filtros de data
         import time
@@ -1321,6 +1354,7 @@ async def get_detailed_tables(
         vendas_detalhes = []
         leads_detalhes = []  # Lista para leads não-orgânicos
         organicos_detalhes = []  # NOVA lista para leads orgânicos
+        propostas_detalhes = []  # NOVA lista para propostas (unificada)
         
         # NOVO: Buscar tarefas de reunião realizadas COM filtro de data
         logger.info("Buscando tarefas de reunião realizadas...")
@@ -1759,6 +1793,8 @@ async def get_detailed_tables(
             else:
                 leads_detalhes.append(lead_obj)
         
+        # PROPOSTAS serão processadas depois dos totais serem calculados
+        
         # Ordenar leads por data de criação (mais recentes primeiro)
         leads_detalhes.sort(key=lambda x: x["Data de Criação"], reverse=True)
         organicos_detalhes.sort(key=lambda x: x["Data de Criação"], reverse=True)
@@ -1768,6 +1804,9 @@ async def get_detailed_tables(
         reunioes_organicas_detalhes.sort(key=lambda x: datetime.strptime(x["Data da Reunião"], "%d/%m/%Y %H:%M"), reverse=True)
         vendas_detalhes.sort(key=lambda x: datetime.strptime(x["Data da Venda"], "%d/%m/%Y %H:%M"), reverse=True)
         
+        # NOVO: Ordenar propostas por data da proposta (mais recentes primeiro)
+        propostas_detalhes.sort(key=lambda x: datetime.strptime(x["Data da Proposta"], "%d/%m/%Y %H:%M") if x["Data da Proposta"] != "N/A" else datetime.min, reverse=True)
+        
         # Calcular totais
         total_leads = len(leads_detalhes)  # Leads não-orgânicos
         total_organicos = len(organicos_detalhes)  # NOVO: Leads orgânicos
@@ -1775,10 +1814,131 @@ async def get_detailed_tables(
         total_reunioes_organicas = len(reunioes_organicas_detalhes)  # NOVO: Reuniões orgânicas
         total_vendas = len(vendas_detalhes)
         
-        # NOVO: Contar propostas usando o campo boolean
-        total_propostas_leads = sum(1 for lead in leads_detalhes if lead.get("É Proposta") == True)
-        total_propostas_organicos = sum(1 for lead in organicos_detalhes if lead.get("É Proposta") == True)
-        total_propostas_geral = total_propostas_leads + total_propostas_organicos
+        # NOVO: Contar propostas usando o campo boolean (contagem anterior para compatibilidade)
+        total_propostas_leads_boolean = sum(1 for lead in leads_detalhes if lead.get("É Proposta") == True)
+        total_propostas_organicos_boolean = sum(1 for lead in organicos_detalhes if lead.get("É Proposta") == True)
+        total_propostas_geral_boolean = total_propostas_leads_boolean + total_propostas_organicos_boolean
+        
+        # NOVO: Processar propostas detalhadas DEPOIS dos totais serem calculados
+        logger.info("Processando propostas detalhadas buscando TODOS os leads...")
+        
+        # Buscar TODOS os leads sem filtro de data de criação para encontrar todas as propostas
+        params_propostas_vendas = {
+            'filter[pipeline_id]': PIPELINE_VENDAS,
+            'limit': 500,
+            'with': 'contacts,custom_fields_values'
+        }
+        
+        params_propostas_remarketing = {
+            'filter[pipeline_id]': PIPELINE_REMARKETING,
+            'limit': 500,
+            'with': 'contacts,custom_fields_values'
+        }
+        
+        try:
+            # Buscar TODOS os leads (sem filtro de data de criação)
+            leads_vendas_propostas = kommo_api.get_all_leads(params_propostas_vendas)
+            leads_remarketing_propostas = kommo_api.get_all_leads(params_propostas_remarketing)
+            
+            # Combinar todos os leads
+            all_leads_propostas = leads_vendas_propostas + leads_remarketing_propostas
+            
+            # Processar propostas
+            for lead in all_leads_propostas:
+                if not lead:
+                    continue
+                    
+                # Validar se é proposta no período correto
+                if not validate_proposta_in_period(lead, start_timestamp, end_timestamp):
+                    continue
+                
+                lead_name = lead.get("name", "")
+                created_at = lead.get("created_at")
+                status_id = lead.get("status_id")
+                pipeline_id = lead.get("pipeline_id")
+                
+                # Extrair campos customizados
+                fonte_lead = extract_custom_field_value(lead, 837886) or "N/A"
+                corretor_custom = extract_custom_field_value(lead, 837920)
+                anuncio_lead = extract_custom_field_value(lead, 837846) or "N/A"
+                publico_lead = extract_custom_field_value(lead, 837844) or "N/A"
+                produto_lead = extract_custom_field_value(lead, CUSTOM_FIELD_PRODUTO) or "N/A"
+                data_proposta_lead = format_proposal_date(lead, CUSTOM_FIELD_DATA_PROPOSTA)
+                
+                # Determinar corretor final
+                corretor_final = corretor_custom or "Vazio"
+                
+                # Filtrar por corretor se especificado
+                if corretor and isinstance(corretor, str) and corretor.strip():
+                    if ',' in corretor:
+                        corretores_list = [c.strip() for c in corretor.split(',')]
+                        if corretor_final not in corretores_list:
+                            continue
+                    else:
+                        if corretor_final != corretor:
+                            continue
+                
+                # Filtrar por fonte se especificado
+                if fonte and isinstance(fonte, str) and fonte.strip():
+                    if ',' in fonte:
+                        fontes_list = [f.strip() for f in fonte.split(',')]
+                        if fonte_lead not in fontes_list:
+                            continue
+                    else:
+                        if fonte_lead != fonte:
+                            continue
+                
+                # Determinar funil baseado no pipeline_id
+                if pipeline_id == PIPELINE_VENDAS:
+                    funil = "Funil de Vendas"
+                elif pipeline_id == PIPELINE_REMARKETING:
+                    funil = "Remarketing"
+                else:
+                    funil = "Desconhecido"
+                
+                # Mapear status_id para nome do status
+                status_name = "Ativo"
+                if status_id == 142:
+                    status_name = "Venda Concluída"
+                elif status_id == 143:
+                    status_name = "Perdido"
+                elif status_id == STATUS_CONTRATO_ASSINADO:
+                    status_name = "Contrato Assinado"
+                elif status_id in [80689711, 80689715, 80689719, 80689723, 80689727]:
+                    status_name = "Em Negociação"
+                
+                # Determinar etapa baseado no status_id
+                etapa = status_map.get(status_id, f"Status {status_id}")
+                
+                # Formatar data de criação do lead
+                if created_at:
+                    data_criacao_formatada = format_timestamp_brazil(created_at, "%Y-%m-%d")
+                else:
+                    data_criacao_formatada = "N/A"
+                
+                # Criar objeto da proposta
+                proposta_dict = {
+                    "Data de Criação do Lead": data_criacao_formatada,
+                    "Data da Proposta": data_proposta_lead,
+                    "Nome do Lead": lead_name,
+                    "Corretor": corretor_final,
+                    "Fonte": fonte_lead,
+                    "Anúncio": anuncio_lead,
+                    "Público": publico_lead,
+                    "Produto": produto_lead,
+                    "Funil": funil,
+                    "Etapa": etapa,
+                    "Status": status_name
+                }
+                
+                # Adicionar proposta à lista
+                propostas_detalhes.append(proposta_dict)
+                
+        except Exception as e:
+            logger.error(f"Erro ao processar propostas: {e}")
+        
+        # Contar propostas detalhadas finais
+        total_propostas_detalhes = len(propostas_detalhes)
         
         valor_total_vendas = sum(
             float(v["Valor da Venda"].replace("R$ ", "").replace(".", "").replace(",", "."))
@@ -1792,6 +1952,7 @@ async def get_detailed_tables(
             "reunioesDetalhes": reunioes_detalhes,  # Reuniões não-orgânicas
             "reunioesOrganicasDetalhes": reunioes_organicas_detalhes,  # NOVO: Reuniões orgânicas
             "vendasDetalhes": vendas_detalhes,
+            "propostasDetalhes": propostas_detalhes,  # NOVO: Propostas unificadas (filtradas por Data da Proposta)
             "summary": {
                 "total_leads": total_leads,  # Leads não-orgânicos
                 "total_organicos": total_organicos,  # NOVO: Leads orgânicos
@@ -1799,10 +1960,12 @@ async def get_detailed_tables(
                 "total_reunioes_organicas": total_reunioes_organicas,  # NOVO: Reuniões orgânicas
                 "total_vendas": total_vendas,
                 "valor_total_vendas": valor_total_vendas,
-                # NOVO: Estatísticas de propostas usando campo boolean
-                "total_propostas": total_propostas_geral,
-                "propostas_leads": total_propostas_leads,
-                "propostas_organicos": total_propostas_organicos
+                # NOVO: Estatísticas de propostas usando campo boolean (compatibilidade)
+                "total_propostas": total_propostas_geral_boolean,
+                "propostas_leads": total_propostas_leads_boolean,
+                "propostas_organicos": total_propostas_organicos_boolean,
+                # NOVO: Estatísticas de propostas detalhadas (filtradas por Data da Proposta - unificada)
+                "total_propostas_detalhes": total_propostas_detalhes
             },
             "_metadata": {
                 "periodo_dias": days if not (start_date and end_date) else "periodo_customizado",
@@ -1837,7 +2000,7 @@ async def get_detailed_tables(
             }
         }
         
-        logger.info(f"Tabelas detalhadas geradas: {total_reunioes} reuniões, {total_vendas} vendas, {total_propostas_geral} propostas (campo boolean)")
+        logger.info(f"Tabelas detalhadas geradas: {total_reunioes} reuniões, {total_vendas} vendas, {total_propostas_geral_boolean} propostas (boolean), {total_propostas_detalhes} propostas detalhadas (filtradas por Data da Proposta)")
         return response
         
     except Exception as e:
