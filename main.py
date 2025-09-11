@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from app.routers import leads, tags, pipelines, users, custom_fields, sources, events, analytics, facebook_ads, meetings, sales, corretor_dashboard, dashboard, sales_v2, tasks, cache_admin
+from app.routers import leads, tags, pipelines, users, custom_fields, sources, dashboard, cache_admin
 import config
 
 app = FastAPI(
@@ -26,15 +26,7 @@ app.include_router(pipelines.router)
 app.include_router(users.router)
 app.include_router(custom_fields.router)
 app.include_router(sources.router)
-app.include_router(events.router)
-app.include_router(analytics.router)
-app.include_router(facebook_ads.router)
-app.include_router(meetings.router)
-app.include_router(sales.router)
-app.include_router(corretor_dashboard.router)
 app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard Completo"])
-app.include_router(sales_v2.router, tags=["Sales V2 - Optimized"])
-app.include_router(tasks.router, prefix="/tasks", tags=["Tasks"])
 app.include_router(cache_admin.router, tags=["Cache Admin"])
 
 @app.get("/", tags=["Root"])

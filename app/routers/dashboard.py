@@ -4,7 +4,6 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 from app.services.kommo_api import KommoAPI
-from app.services.facebook_api import FacebookAPI
 from app.utils.date_helpers import validate_sale_in_period, get_lead_closure_date, extract_custom_field_value, format_proposal_date, format_timestamp_brazil, BRAZIL_TIMEZONE
 import config
 
@@ -13,15 +12,6 @@ logger = logging.getLogger(__name__)
 
 # Instanciar APIs uma vez
 kommo_api = KommoAPI()
-# Inicializar FacebookAPI com token do config (se disponível)
-facebook_api = None
-try:
-    if config.settings.FACEBOOK_ACCESS_TOKEN:
-        facebook_api = FacebookAPI(config.settings.FACEBOOK_ACCESS_TOKEN)
-    else:
-        logger.warning("Facebook Access Token não configurado")
-except Exception as e:
-    logger.warning(f"Erro ao inicializar FacebookAPI: {e}")
 
 # Função auxiliar global para buscar dados com fallback
 def safe_get_data(func, *args, **kwargs):
@@ -54,8 +44,6 @@ async def get_marketing_dashboard_complete(
     - /leads/count
     - /leads/by-source  
     - /leads/by-tag
-    - /facebook-ads/insights/summary
-    - /facebook-ads/campaigns
     - /analytics/trends
     """
     try:
@@ -249,7 +237,7 @@ async def get_marketing_dashboard_complete(
                 for name, count in tag_counts.items()
             ]
         
-        # Buscar métricas do Facebook se API estiver disponível
+        # Métricas do Facebook removidas - dados zerados
         facebook_metrics = {
             "impressions": 0,
             "reach": 0,
@@ -267,126 +255,6 @@ async def get_marketing_dashboard_complete(
             }
         }
         
-        # Tentar buscar dados do Facebook se a API estiver configurada
-        if facebook_api:
-            try:
-                # Calcular parâmetros do Facebook
-                facebook_params = {}
-                if days <= 90:
-                    facebook_params = {"date_preset": f"last_{days}d"}
-                else:
-                    end_date = datetime.now()
-                    start_date = end_date - timedelta(days=days)
-                    facebook_params = {
-                        "since": start_date.strftime('%Y-%m-%d'),
-                        "until": end_date.strftime('%Y-%m-%d')
-                    }
-                
-                # Buscar insights do Facebook usando o AD_ACCOUNT_ID do config
-                facebook_insights = None
-                try:
-                    if hasattr(config.settings, 'FACEBOOK_AD_ACCOUNT_ID'):
-                        ad_account_id = config.settings.FACEBOOK_AD_ACCOUNT_ID
-                        if ad_account_id:
-                            # Buscar insights da conta de anúncios
-                            insights_response = facebook_api.get_campaign_insights(
-                                object_id=ad_account_id,
-                                date_preset=facebook_params.get('date_preset'),
-                                time_range=facebook_params.get('since') and {
-                                    'since': facebook_params['since'],
-                                    'until': facebook_params['until']
-                                } or None,
-                                level="account"
-                            )
-                            
-                            if insights_response and 'data' in insights_response and insights_response['data']:
-                                # Pegar primeiro item (dados da conta)
-                                account_data = insights_response['data'][0]
-                                
-                                # Extrair métricas básicas
-                                basic_metrics = {
-                                    'impressions': int(account_data.get('impressions', 0)),
-                                    'reach': int(account_data.get('reach', 0)),
-                                    'clicks': int(account_data.get('clicks', 0)),
-                                    'ctr': float(account_data.get('ctr', 0)),
-                                    'cpc': float(account_data.get('cpc', 0)),
-                                    'spend': float(account_data.get('spend', 0))
-                                }
-                                
-                                # Extrair métricas de leads
-                                lead_metrics = facebook_api.get_lead_metrics(account_data)
-                                
-                                # Extrair métricas de engajamento  
-                                engagement_metrics = facebook_api.get_engagement_metrics(account_data)
-                                
-                                facebook_insights = {
-                                    'basic_metrics': basic_metrics,
-                                    'lead_metrics': lead_metrics,
-                                    'engagement_metrics': engagement_metrics
-                                }
-                            
-                except Exception as fb_error:
-                    logger.warning(f"Erro ao buscar dados do Facebook API: {fb_error}")
-                    facebook_insights = None
-                
-                if facebook_insights:
-                    basic_metrics = facebook_insights.get('basic_metrics', {})
-                    lead_metrics = facebook_insights.get('lead_metrics', {})
-                    engagement_metrics = facebook_insights.get('engagement_metrics', {})
-                    
-                    # Calcular CPM (Cost Per Mille) se não estiver disponível
-                    impressions = basic_metrics.get('impressions', 0)
-                    spend = basic_metrics.get('spend', 0)
-                    cpm = (spend / impressions * 1000) if impressions > 0 else 0
-                    
-                    # Contar leads do Facebook a partir das fontes
-                    facebook_leads = 0
-                    for source in leads_by_source_array:
-                        if 'meta' in source['name'].lower() or 'facebook' in source['name'].lower() or 'tráfego meta' in source['name'].lower():
-                            facebook_leads += source['value']
-                    
-                    facebook_metrics = {
-                        "impressions": impressions,
-                        "reach": basic_metrics.get('reach', 0),
-                        "clicks": basic_metrics.get('clicks', 0),
-                        "ctr": basic_metrics.get('ctr', 0),
-                        "cpc": basic_metrics.get('cpc', 0),
-                        "cpm": round(cpm, 2),  # NOVO: CPM calculado
-                        "totalSpent": spend,
-                        "costPerLead": lead_metrics.get('cost_per_lead', 0),
-                        "leadsGenerated": facebook_leads,  # NOVO: Leads gerados pelo Facebook
-                        "engagement": {
-                            "likes": engagement_metrics.get('likes', 0),
-                            "comments": engagement_metrics.get('comments', 0),
-                            "shares": engagement_metrics.get('shares', 0),
-                            "videoViews": engagement_metrics.get('video_views', 0),
-                            "profileVisits": engagement_metrics.get('profile_views', 0)
-                        }
-                    }
-                    logger.info(f"Dados do Facebook carregados: impressões={facebook_metrics['impressions']}")
-                else:
-                    logger.warning("Não foi possível carregar dados do Facebook")
-            except Exception as e:
-                logger.warning(f"Erro ao buscar dados do Facebook: {e}")
-                # Usar valores de exemplo para demonstração se não conseguir buscar do Facebook
-                facebook_metrics = {
-                    "impressions": 15000 + (total_leads * 50),  # Estimativa baseada em leads
-                    "reach": 8000 + (total_leads * 30),
-                    "clicks": 500 + (total_leads * 2),
-                    "ctr": 3.2,
-                    "cpc": 1.50,
-                    "totalSpent": (500 + (total_leads * 2)) * 1.50,  # clicks * cpc
-                    "costPerLead": ((500 + (total_leads * 2)) * 1.50) / max(total_leads, 1),
-                    "engagement": {
-                        "likes": 200 + (total_leads * 3),
-                        "comments": 50 + total_leads,
-                        "shares": 25 + (total_leads // 2),
-                        "videoViews": 1200 + (total_leads * 8),
-                        "profileVisits": 300 + (total_leads * 2)
-                    }
-                }
-                logger.info(f"Usando dados estimados do Facebook baseados em {total_leads} leads")
-        
         # Tendência simples baseada nos leads obtidos
         metrics_trend = []
         
@@ -396,8 +264,8 @@ async def get_marketing_dashboard_complete(
             "leadsBySource": leads_by_source_array,  # USANDO CUSTOM FIELD "Fonte"
             "leadsByTag": leads_by_tag_array,
             "leadsByAd": [],  # TODO: Implementar por anúncio específico
-            "facebookMetrics": facebook_metrics,  # INCLUI CPM e leadsGenerated
-            "facebookCampaigns": [],  # TODO: Implementar campanhas específicas
+            "facebookMetrics": facebook_metrics,
+            "facebookCampaigns": [],
             "metricsTrend": metrics_trend,
             "customFields": {  # NOVO: Custom fields implementados
                 "fonte": leads_by_source_array,
@@ -415,11 +283,11 @@ async def get_marketing_dashboard_complete(
             "_metadata": {
                 "period_days": days,
                 "generated_at": datetime.now().isoformat(),
-                "data_sources": ["kommo_api", "facebook_api"],
+                "data_sources": ["kommo_api"],
                 "optimized": True,
                 "single_request": True,
                 "custom_fields_implemented": True,
-                "facebook_enhanced": True
+                "facebook_enhanced": False
             }
         }
         

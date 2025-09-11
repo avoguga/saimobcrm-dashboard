@@ -26,7 +26,8 @@
       "Read(/c:\\Users\\avogu\\Documents\\saimobc\\app\\routers/**)",
       "Bash(timeout 5 python:*)",
       "Bash(taskkill:*)",
-      "Bash(dir)"
+      "Bash(dir)",
+      "Bash(dir approuters)"
     ],
     "deny": [],
     "additionalDirectories": [
