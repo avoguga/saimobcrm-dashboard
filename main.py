@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from app.routers import leads, tags, pipelines, users, custom_fields, sources, dashboard, cache_admin
+from app.routers import leads, tags, pipelines, users, custom_fields, sources, dashboard, cache_admin, facebook
 import config
 
 app = FastAPI(
@@ -28,6 +28,7 @@ app.include_router(custom_fields.router)
 app.include_router(sources.router)
 app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard Completo"])
 app.include_router(cache_admin.router, tags=["Cache Admin"])
+app.include_router(facebook.router, prefix="/facebook", tags=["Facebook Analytics"])
 
 @app.get("/", tags=["Root"])
 async def root():

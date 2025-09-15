@@ -1,0 +1,383 @@
+{
+  "success": true,
+  "data": {
+    "metricsOverview": {
+      "alcance": {
+        "valor": 18498,
+        "mudanca": -31.0,
+        "trend": "↘"
+      },
+      "impressoes": {
+        "valor": 26574,
+        "mudanca": 12.4,
+        "trend": "↗"
+      },
+      "custo_por_lead": {
+        "valor": 6.38,
+        "mudanca": -15.5,
+        "trend": "↘"
+      },
+      "custo_por_clique": {
+        "valor": 1.35,
+        "mudanca": -8.2,
+        "trend": "↘"
+      },
+      "cpm": {
+        "valor": 38.15,
+        "mudanca": -5.7,
+        "trend": "↘"
+      },
+      "cliques": {
+        "valor": 751,
+        "mudanca": 18.9,
+        "trend": "↗"
+      },
+      "cliques_link": {
+        "valor": 514,
+        "mudanca": 22.7,
+        "trend": "↗"
+      },
+      "valor_investido": {
+        "valor": 1013.72,
+        "mudanca": -3.2,
+        "trend": "↘"
+      }
+    },
+    "metricsMain": {
+      "total_leads": {
+        "valor": 159,
+        "mudanca": 25.8,
+        "trend": "↗"
+      },
+      "total_visitas_perfil": {
+        "valor": 87,
+        "mudanca": 15.2,
+        "trend": "↗"
+      },
+      "conversas_whatsapp": {
+        "valor": 23,
+        "mudanca": 8.7,
+        "trend": "↗"
+      }
+    },
+    "engagementMetrics": {
+      "page_engagement": {
+        "valor": 6293,
+        "mudanca": 14.3,
+        "trend": "↗"
+      },
+      "reactions": {
+        "valor": 142,
+        "mudanca": 9.6,
+        "trend": "↗"
+      },
+      "comments": {
+        "valor": 2,
+        "mudanca": -2.1,
+        "trend": "↘"
+      },
+      "shares": {
+        "valor": 8,
+        "mudanca": 12.5,
+        "trend": "↗"
+      }
+    },
+    "demographicBreakdown": {
+      "male": {
+        "leads": 113,
+        "reach": 12500,
+        "spend": 680.50,
+        "clicks": 487,
+        "impressions": 18200,
+        "percentage": 71.1
+      },
+      "female": {
+        "leads": 46,
+        "reach": 5998,
+        "spend": 333.22,
+        "clicks": 264,
+        "impressions": 8374,
+        "percentage": 28.9
+      },
+      "unknown": {
+        "leads": 0,
+        "reach": 0,
+        "spend": 0,
+        "clicks": 0,
+        "impressions": 0,
+        "percentage": 0
+      }
+    },
+    "campaignsData": [
+      {
+        "campaign_id": "120230104014510558",
+        "campaign_name": "[NANO] [CADASTRO] PRODUTOS MACEIÓ - 18/06/2025",
+        "reach": 8500,
+        "impressions": 15200,
+        "spend": 587.45,
+        "clicks": 425,
+        "cpc": 1.38,
+        "cpm": 38.65,
+        "leads": 92,
+        "cost_per_lead": 6.38,
+        "status": "ACTIVE",
+        "objective": "OUTCOME_LEADS"
+      },
+      {
+        "campaign_id": "120230100827010558",
+        "campaign_name": "[NANO] [CADASTRO] BOSSA - 18/06/2025",
+        "reach": 5200,
+        "impressions": 7890,
+        "spend": 298.67,
+        "clicks": 198,
+        "cpc": 1.51,
+        "cpm": 37.85,
+        "leads": 47,
+        "cost_per_lead": 6.35,
+        "status": "ACTIVE",
+        "objective": "OUTCOME_LEADS"
+      },
+      {
+        "campaign_id": "120228986725710558",
+        "campaign_name": "[NANO] [CADASTRO] PRODUTOS - FUNDO - 15/08/2025",
+        "reach": 4798,
+        "impressions": 3484,
+        "spend": 127.60,
+        "clicks": 128,
+        "cpc": 0.997,
+        "cpm": 36.64,
+        "leads": 20,
+        "cost_per_lead": 6.38,
+        "status": "PAUSED",
+        "objective": "OUTCOME_LEADS"
+      }
+    ],
+    "hierarchy": {
+      "campaigns": [
+        {
+          "id": "120230104014510558",
+          "name": "[NANO] [CADASTRO] PRODUTOS MACEIÓ - 18/06/2025",
+          "status": "ACTIVE",
+          "objective": "OUTCOME_LEADS",
+          "metrics": {
+            "reach": 8500,
+            "impressions": 15200,
+            "spend": 587.45,
+            "leads": 92
+          },
+          "adsets": [
+            {
+              "id": "120234671161050558",
+              "name": "[MACEIÓ] Viaj int & Luxo & Imóveis e ações - 30 à 65+ [MATCH]",
+              "status": "PAUSED",
+              "metrics": {
+                "reach": 4250,
+                "impressions": 7600,
+                "spend": 293.72,
+                "leads": 46
+              },
+              "ads": [
+                {
+                  "id": "120234671161040558",
+                  "name": "AD01 - Match",
+                  "status": "PAUSED",
+                  "metrics": {
+                    "reach": 2125,
+                    "impressions": 3800,
+                    "spend": 146.86,
+                    "leads": 23
+                  }
+                },
+                {
+                  "id": "120234671161060558",
+                  "name": "AD02 - Match",
+                  "status": "PAUSED",
+                  "metrics": {
+                    "reach": 2125,
+                    "impressions": 3800,
+                    "spend": 146.86,
+                    "leads": 23
+                  }
+                }
+              ]
+            },
+            {
+              "id": "120233863418370558",
+              "name": "[MACEIÓ] LAL 5% Forms + Leads quentes - 30 à 65+ [MATCH]",
+              "status": "ACTIVE",
+              "metrics": {
+                "reach": 4250,
+                "impressions": 7600,
+                "spend": 293.73,
+                "leads": 46
+              },
+              "ads": [
+                {
+                  "id": "120234671039830558",
+                  "name": "AD02 - Match",
+                  "status": "ACTIVE",
+                  "metrics": {
+                    "reach": 2125,
+                    "impressions": 3800,
+                    "spend": 146.86,
+                    "leads": 23
+                  }
+                },
+                {
+                  "id": "120233863418380558",
+                  "name": "AD01 - Match",
+                  "status": "ACTIVE",
+                  "metrics": {
+                    "reach": 2125,
+                    "impressions": 3800,
+                    "spend": 146.87,
+                    "leads": 23
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "total_campaigns": 6,
+      "total_adsets": 34,
+      "total_ads": 105
+    },
+    "temporalData": {
+      "daily_breakdown": [
+        {
+          "date": "2025-09-04",
+          "reach": 2640,
+          "impressions": 3780,
+          "spend": 144.82,
+          "clicks": 107,
+          "leads": 23
+        },
+        {
+          "date": "2025-09-05",
+          "reach": 2789,
+          "impressions": 3956,
+          "spend": 152.14,
+          "clicks": 112,
+          "leads": 24
+        },
+        {
+          "date": "2025-09-06",
+          "reach": 2856,
+          "impressions": 4012,
+          "spend": 155.33,
+          "clicks": 115,
+          "leads": 25
+        },
+        {
+          "date": "2025-09-07",
+          "reach": 2634,
+          "impressions": 3734,
+          "spend": 143.67,
+          "clicks": 106,
+          "leads": 22
+        },
+        {
+          "date": "2025-09-08",
+          "reach": 2689,
+          "impressions": 3812,
+          "spend": 146.84,
+          "clicks": 108,
+          "leads": 23
+        },
+        {
+          "date": "2025-09-09",
+          "reach": 2445,
+          "impressions": 3468,
+          "spend": 133.56,
+          "clicks": 98,
+          "leads": 21
+        },
+        {
+          "date": "2025-09-10",
+          "reach": 2445,
+          "impressions": 3812,
+          "spend": 137.36,
+          "clicks": 105,
+          "leads": 21
+        }
+      ]
+    },
+    "summary": {
+      "account_id": "act_1051414772388438",
+      "total_campaigns": 6,
+      "total_adsets": 34,
+      "total_ads": 105,
+      "total_leads": 159,
+      "total_spend": 1013.72,
+      "total_reach": 18498,
+      "total_impressions": 26574,
+      "total_clicks": 751,
+      "average_cpc": 1.35,
+      "average_cpm": 38.15,
+      "average_cpl": 6.38,
+      "period_start": "2025-09-04",
+      "period_end": "2025-09-11",
+      "days": 7,
+      "comparison_enabled": true
+    },
+    "comparison": {
+      "enabled": true,
+      "current_period": {
+        "reach": 18498,
+        "impressions": 26574,
+        "spend": 1013.72,
+        "clicks": 751,
+        "leads": 159,
+        "page_engagement": 6293,
+        "reactions": 142,
+        "comments": 2
+      },
+      "previous_period": {
+        "reach": 26820,
+        "impressions": 40518,
+        "spend": 1584.32,
+        "clicks": 1115,
+        "leads": 127,
+        "page_engagement": 5502,
+        "reactions": 129,
+        "comments": 3
+      },
+      "changes": {
+        "reach": {
+          "current": 18498,
+          "previous": 26820,
+          "change_percent": -31.0,
+          "trend": "↘"
+        },
+        "impressions": {
+          "current": 26574,
+          "previous": 40518,
+          "change_percent": -34.4,
+          "trend": "↘"
+        },
+        "spend": {
+          "current": 1013.72,
+          "previous": 1584.32,
+          "change_percent": -36.0,
+          "trend": "↘"
+        },
+        "leads": {
+          "current": 159,
+          "previous": 127,
+          "change_percent": 25.2,
+          "trend": "↗"
+        }
+      }
+    },
+    "period": {
+      "start_date": "2025-09-04",
+      "end_date": "2025-09-11",
+      "days": 7,
+      "timezone": "America/Sao_Paulo"
+    }
+  },
+  "message": "Analytics do Facebook obtidos com sucesso!",
+  "timestamp": "2025-09-11T04:15:32Z",
+  "version": "1.0.0"
+}

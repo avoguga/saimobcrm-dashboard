@@ -27,7 +27,17 @@
       "Bash(timeout 5 python:*)",
       "Bash(taskkill:*)",
       "Bash(dir)",
-      "Bash(dir approuters)"
+      "Bash(dir approuters)",
+      "WebSearch",
+      "WebFetch(domain:developers.facebook.com)",
+      "Bash(timeout:*)",
+      "Read(//c/Users/avogu/Pictures/Screenshots/**)",
+      "Bash(dir app)",
+      "Bash(dir appmodels)",
+      "Bash(dir app/models)",
+      "Bash(mongod:*)",
+      "Bash(tasklist)",
+      "Bash(/bashes)"
     ],
     "deny": [],
     "additionalDirectories": [

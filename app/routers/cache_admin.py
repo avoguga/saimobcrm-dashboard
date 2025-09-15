@@ -116,6 +116,36 @@ async def flush_kommo_cache() -> Dict[str, Any]:
         logger.error(f"Erro ao limpar cache Kommo: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao limpar cache Kommo: {str(e)}")
 
+@router.delete("/flush/facebook")
+async def flush_facebook_cache() -> Dict[str, Any]:
+    """Limpa apenas as chaves do cache relacionadas ao Facebook"""
+    try:
+        redis_client = get_redis_client()
+        if not redis_client:
+            raise HTTPException(status_code=503, detail="Redis não está disponível")
+        
+        # Buscar chaves do Facebook
+        facebook_keys = redis_client.keys("facebook:*")
+        
+        if facebook_keys:
+            # Deletar chaves do Facebook
+            redis_client.delete(*facebook_keys)
+            keys_removed = len(facebook_keys)
+        else:
+            keys_removed = 0
+        
+        logger.info(f"Cache Facebook limpo: {keys_removed} chaves removidas")
+        
+        return {
+            "status": "success",
+            "message": f"Cache Facebook limpo com sucesso. {keys_removed} chaves removidas.",
+            "keys_removed": keys_removed
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro ao limpar cache Facebook: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao limpar cache Facebook: {str(e)}")
+
 @router.get("/keys")
 async def get_cache_keys(pattern: str = "*", limit: int = 100) -> Dict[str, Any]:
     """Lista chaves do cache com padrão opcional"""
