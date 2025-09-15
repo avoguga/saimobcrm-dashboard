@@ -1497,6 +1497,7 @@ async def get_unified_facebook_data(
             cached_data["data_source"] = "Cache Redis"
             return cached_data
 
+
         # Validar datas
         try:
             start_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
@@ -1518,6 +1519,14 @@ async def get_unified_facebook_data(
         campaigns_data = await campaigns_cursor.to_list(None)
 
         logger.info(f"📊 Encontradas {len(campaigns_data)} campanhas no MongoDB")
+
+        # DEBUG: Log das campanhas encontradas
+        if len(campaigns_data) > 1:
+            logger.info(f"🔍 DEBUG: Campanhas encontradas:")
+            for i, camp in enumerate(campaigns_data[:3]):  # Mostrar primeiras 3
+                logger.info(f"   {i+1}. {camp['campaign_id']} - {camp.get('name', 'N/A')[:50]}")
+            if len(campaigns_data) > 3:
+                logger.info(f"   ... e mais {len(campaigns_data) - 3} campanhas")
 
         if not campaigns_data:
             # Retornar estrutura vazia mas válida
@@ -1673,6 +1682,7 @@ async def get_unified_facebook_data(
             })
 
             # Consolidar totais
+
             for metric, value in campaign_metrics.items():
                 if isinstance(value, (int, float)) and metric in consolidated_totals:
                     if metric in ['cpc', 'cpm', 'ctr', 'cost_per_lead']:
@@ -1689,6 +1699,7 @@ async def get_unified_facebook_data(
         if consolidated_totals['leads'] > 0:
             consolidated_totals['cost_per_lead'] = consolidated_totals['spend'] / consolidated_totals['leads']
 
+        logger.info(f"📈 DEBUG: Totais finais consolidados: {consolidated_totals['leads']} leads, R$ {consolidated_totals['spend']:.2f}")
         logger.info(f"✅ Dados processados com sucesso: {len(result_campaigns)} campanhas")
 
         result = {
