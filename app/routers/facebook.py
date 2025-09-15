@@ -32,98 +32,89 @@ sync_status = {
     "errors": []
 }
 
-# Redis-based cache for Facebook metrics
-class FacebookCache:
-    def __init__(self):
-        self.redis_client = None
-        self.key_prefix = "facebook:"
-    
-    def _get_redis(self):
-        """Get Redis client"""
-        if not self.redis_client:
-            self.redis_client = get_redis_client()
-        return self.redis_client
-    
-    def _generate_key(self, campaign_id, start_date, end_date, adset_id=None, ad_id=None):
-        """Generate cache key from parameters"""
-        key_data = f"{campaign_id}_{start_date}_{end_date}_{adset_id}_{ad_id}"
-        hash_key = hashlib.md5(key_data.encode()).hexdigest()
-        return f"{self.key_prefix}{hash_key}"
-    
-    def _get_ttl_seconds(self, end_date):
-        """Determine TTL based on period type"""
-        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
-        today = datetime.now().date()
-        
-        if end_dt.date() < today:
-            # Historical data - longer TTL
-            return 24 * 60 * 60  # 24 hours
-        elif end_dt.date() == today:
-            # Current data - shorter TTL
-            return 30 * 60  # 30 minutes
-        else:
-            # Future data - medium TTL
-            return 2 * 60 * 60  # 2 hours
-    
-    def get(self, campaign_id, start_date, end_date, adset_id=None, ad_id=None):
-        """Get cached data if available and not expired"""
-        try:
-            redis_client = self._get_redis()
-            if not redis_client:
-                logger.warning("Redis not available, cache miss")
-                return None
-                
-            key = self._generate_key(campaign_id, start_date, end_date, adset_id, ad_id)
-            cached_data = redis_client.get(key)
-            
-            if cached_data:
-                logger.info(f"Redis Cache HIT for key: {key[:20]}...")
-                return json.loads(cached_data)
-            
-            logger.info(f"Redis Cache MISS for key: {key[:20]}...")
-            return None
-            
-        except Exception as e:
-            logger.error(f"Redis cache get error: {e}")
-            return None
-    
-    def set(self, campaign_id, start_date, end_date, data, adset_id=None, ad_id=None):
-        """Cache data with TTL"""
-        try:
-            redis_client = self._get_redis()
-            if not redis_client:
-                logger.warning("Redis not available, skipping cache")
-                return
-                
-            key = self._generate_key(campaign_id, start_date, end_date, adset_id, ad_id)
-            ttl_seconds = self._get_ttl_seconds(end_date)
-            
-            redis_client.setex(key, ttl_seconds, json.dumps(data))
-            logger.info(f"Cached data to Redis: {key[:20]}... (TTL: {ttl_seconds//60}min)")
-            
-        except Exception as e:
-            logger.error(f"Redis cache set error: {e}")
-    
-    def clear_all(self):
-        """Clear all Facebook cache entries"""
-        try:
-            redis_client = self._get_redis()
-            if not redis_client:
-                logger.warning("Redis not available")
-                return 0
-                
-            keys = redis_client.keys(f"{self.key_prefix}*")
-            if keys:
-                deleted = redis_client.delete(*keys)
-                logger.info(f"Cleared {deleted} Facebook cache entries")
-                return deleted
-            return 0
-            
-        except Exception as e:
-            logger.error(f"Redis cache clear error: {e}")
-            return 0
+# Configurações Redis Cache
+try:
+    import redis
+    from config import REDIS_URL, CACHE_TTL
 
-# Global cache instance
+    if REDIS_URL:
+        redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+        logger.info("✓ Redis conectado para cache Facebook")
+    else:
+        redis_client = None
+        logger.warning("Redis URL não configurada - cache desabilitado")
+except Exception as e:
+    redis_client = None
+    logger.warning(f"Erro ao conectar Redis: {e} - cache desabilitado")
+
+class FacebookCache:
+    """Cache Redis para dados do Facebook"""
+
+    def __init__(self):
+        self.redis = redis_client
+        self.ttl = getattr(config, 'CACHE_TTL', 600)  # 10 minutos default
+
+    def _get_cache_key(self, key_parts: list) -> str:
+        """Gera chave do cache"""
+        return f"facebook:{':'.join(str(part) for part in key_parts)}"
+
+    def get(self, key_parts: list):
+        """Busca dados do cache"""
+        if not self.redis:
+            return None
+
+        try:
+            key = self._get_cache_key(key_parts)
+            data = self.redis.get(key)
+            if data:
+                return json.loads(data)
+        except Exception as e:
+            logger.warning(f"Erro ao ler cache: {e}")
+        return None
+
+    def set(self, key_parts: list, data, ttl=None):
+        """Salva dados no cache"""
+        if not self.redis:
+            return False
+
+        try:
+            key = self._get_cache_key(key_parts)
+            ttl = ttl or self.ttl
+            self.redis.setex(key, ttl, json.dumps(data, default=str))
+            return True
+        except Exception as e:
+            logger.warning(f"Erro ao salvar cache: {e}")
+        return False
+
+    def delete(self, key_parts: list):
+        """Remove dados do cache"""
+        if not self.redis:
+            return False
+
+        try:
+            key = self._get_cache_key(key_parts)
+            self.redis.delete(key)
+            return True
+        except Exception as e:
+            logger.warning(f"Erro ao deletar cache: {e}")
+        return False
+
+    def clear_all(self):
+        """Limpa todo o cache do Facebook"""
+        if not self.redis:
+            return False
+
+        try:
+            keys = self.redis.keys("facebook:*")
+            if keys:
+                self.redis.delete(*keys)
+                logger.info(f"Cache limpo: {len(keys)} chaves removidas")
+            return True
+        except Exception as e:
+            logger.warning(f"Erro ao limpar cache: {e}")
+        return False
+
+# Cache global
 facebook_cache = FacebookCache()
 
 # Configurações do Facebook (similar ao padrão do projeto)
@@ -523,14 +514,7 @@ class FacebookDashboardService:
         Busca métricas do dashboard com cache inteligente e rate limiting
         """
         try:
-            # 1. Verificar cache primeiro
-            cached_data = facebook_cache.get(campaign_id, start_date, end_date, adset_id, ad_id)
-            if cached_data:
-                return cached_data
-            
-            # 2. Cache Redis gerencia TTL automaticamente
-            
-            # 3. Buscar dados frescos da API
+            # Buscar dados diretos do MongoDB
             logger.info(f"Fetching fresh data for campaign {campaign_id}, period {start_date} to {end_date}")
             
             # Delay para rate limiting
@@ -579,8 +563,7 @@ class FacebookDashboardService:
                 result_data['previous_period'] = previous_period
                 result_data['previous_metrics'] = previous_metrics
             
-            # 5. Cachear resultado
-            facebook_cache.set(campaign_id, start_date, end_date, result_data, adset_id, ad_id)
+            # Cache removido - dados diretos do MongoDB
             
             return result_data
             
@@ -1505,22 +1488,14 @@ async def get_unified_facebook_data(
 
         logger.info(f"🚀 Buscando dados unificados para período {start_date} a {end_date}")
 
-        # Gerar chave de cache baseada nos parâmetros
-        cache_key = f"facebook:unified:{hashlib.md5(f'{start_date}_{end_date}_{campaign_id}_{adset_id}_{ad_id}_{status_filter}'.encode()).hexdigest()}"
+        # Verificar cache primeiro
+        cache_key_parts = ["unified", start_date, end_date, campaign_id or "all", adset_id or "all", ad_id or "all", status_filter or "all"]
+        cached_data = facebook_cache.get(cache_key_parts)
 
-        # Verificar cache Redis primeiro
-        redis_client = get_redis_client()
-        if redis_client:
-            cached_data = redis_client.get(cache_key)
-            if cached_data:
-                logger.info(f"✅ Cache HIT para unified-data")
-                result = json.loads(cached_data)
-                result['cache_info'] = {
-                    'from_cache': True,
-                    'cache_key': cache_key[:20] + '...',
-                    'ttl_seconds': redis_client.ttl(cache_key)
-                }
-                return result
+        if cached_data:
+            logger.info("✓ Dados encontrados no cache Redis")
+            cached_data["data_source"] = "Cache Redis"
+            return cached_data
 
         # Validar datas
         try:
@@ -1608,12 +1583,26 @@ async def get_unified_facebook_data(
                 # Calcular métricas do AdSet
                 # Para AdSets individuais, as métricas já estão consolidadas
                 raw_adset_metrics = adset_doc.get('metrics', {})
-                if isinstance(raw_adset_metrics, dict) and 'leads' in raw_adset_metrics:
-                    # Métricas já consolidadas (individuais)
-                    adset_metrics = _normalize_individual_metrics(raw_adset_metrics)
+
+                # CORREÇÃO: Forçar consistência de período
+                if isinstance(raw_adset_metrics, dict) and raw_adset_metrics:
+                    # Verificar se é métrica por data vs métrica consolidada
+                    # Métrica por data: chaves são datas como '2025-08-16'
+                    # Métrica consolidada: chaves são nomes de métricas como 'leads', 'spend'
+                    sample_key = list(raw_adset_metrics.keys())[0] if raw_adset_metrics else ""
+                    is_date_based = bool(sample_key and '-' in str(sample_key) and len(str(sample_key)) == 10)
+
+                    if is_date_based:
+                        # Métricas por data - pode filtrar por período
+                        adset_metrics = _calculate_comprehensive_metrics(raw_adset_metrics, start_dt, end_dt)
+                        logger.info(f"✅ AdSet {adset_id_current}: Usando métricas por data (período respeitado)")
+                    else:
+                        # Métricas consolidadas - INCONSISTÊNCIA DE PERÍODO
+                        logger.warning(f"⚠️  AdSet {adset_id_current}: Usando métricas consolidadas (podem incluir dados fora do período {start_date} a {end_date})")
+                        adset_metrics = _normalize_individual_metrics(raw_adset_metrics)
                 else:
-                    # Métricas por data (campanhas)
-                    adset_metrics = _calculate_comprehensive_metrics(raw_adset_metrics, start_dt, end_dt)
+                    # Sem métricas
+                    adset_metrics = _normalize_individual_metrics({})
 
                 # Buscar Ads do AdSet
                 ads_filter = {"adset_id": adset_id_current}
@@ -1632,12 +1621,24 @@ async def get_unified_facebook_data(
                 for ad_doc in ads_data:
                     # Para Ads individuais, as métricas já estão consolidadas
                     raw_ad_metrics = ad_doc.get('metrics', {})
-                    if isinstance(raw_ad_metrics, dict) and 'leads' in raw_ad_metrics:
-                        # Métricas já consolidadas (individuais)
-                        ad_metrics = _normalize_individual_metrics(raw_ad_metrics)
+
+                    # CORREÇÃO: Forçar consistência de período
+                    if isinstance(raw_ad_metrics, dict) and raw_ad_metrics:
+                        # Verificar se é métrica por data vs métrica consolidada
+                        sample_key = list(raw_ad_metrics.keys())[0] if raw_ad_metrics else ""
+                        is_date_based = bool(sample_key and '-' in str(sample_key) and len(str(sample_key)) == 10)
+
+                        if is_date_based:
+                            # Métricas por data - pode filtrar por período
+                            ad_metrics = _calculate_comprehensive_metrics(raw_ad_metrics, start_dt, end_dt)
+                            logger.info(f"✅ Ad {ad_doc['ad_id']}: Usando métricas por data (período respeitado)")
+                        else:
+                            # Métricas consolidadas - INCONSISTÊNCIA DE PERÍODO
+                            logger.warning(f"⚠️  Ad {ad_doc['ad_id']}: Usando métricas consolidadas (podem incluir dados fora do período {start_date} a {end_date})")
+                            ad_metrics = _normalize_individual_metrics(raw_ad_metrics)
                     else:
-                        # Métricas por data
-                        ad_metrics = _calculate_comprehensive_metrics(raw_ad_metrics, start_dt, end_dt)
+                        # Sem métricas
+                        ad_metrics = _normalize_individual_metrics({})
 
                     result_ads.append({
                         'id': ad_doc['ad_id'],
@@ -1713,23 +1714,68 @@ async def get_unified_facebook_data(
                 "ad_id": ad_id,
                 "status_filter": status_filter
             },
-            "cache_info": {
-                "from_cache": False,
-                "cache_key": cache_key[:20] + '...'
-            }
+            "data_source": "MongoDB"
         }
 
-        # Salvar no cache Redis (TTL de 5 minutos para dados recentes)
-        if redis_client:
-            ttl = 300  # 5 minutos
-            redis_client.setex(cache_key, ttl, json.dumps(result, default=str))
-            result['cache_info']['ttl_seconds'] = ttl
-            logger.info(f"💾 Dados salvos no cache Redis com TTL de {ttl} segundos")
+        # Salvar no cache antes de retornar
+        facebook_cache.set(cache_key_parts, result, ttl=600)  # 10 minutos
+        logger.info("✓ Dados salvos no cache Redis")
 
         return result
 
     except Exception as e:
         logger.error(f"❌ Erro no endpoint unified-data: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+
+@router.delete("/cache/clear")
+async def clear_facebook_cache():
+    """Limpa todo o cache do Facebook"""
+    try:
+        success = facebook_cache.clear_all()
+        if success:
+            return {
+                "success": True,
+                "message": "Cache do Facebook limpo com sucesso"
+            }
+        else:
+            return {
+                "success": False,
+                "message": "Cache não disponível ou erro ao limpar"
+            }
+    except Exception as e:
+        logger.error(f"Erro ao limpar cache: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+
+@router.get("/cache/status")
+async def get_cache_status():
+    """Verifica status do cache Redis"""
+    try:
+        if not facebook_cache.redis:
+            return {
+                "cache_enabled": False,
+                "message": "Redis não conectado"
+            }
+
+        # Testar conexão
+        try:
+            facebook_cache.redis.ping()
+            keys_count = len(facebook_cache.redis.keys("facebook:*"))
+
+            return {
+                "cache_enabled": True,
+                "redis_connected": True,
+                "facebook_keys_count": keys_count,
+                "ttl_default": facebook_cache.ttl
+            }
+        except Exception as e:
+            return {
+                "cache_enabled": False,
+                "redis_connected": False,
+                "error": str(e)
+            }
+
+    except Exception as e:
+        logger.error(f"Erro ao verificar status do cache: {e}")
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
 
 def _calculate_comprehensive_metrics(metrics_dict: dict, start_date: date, end_date: date) -> dict:

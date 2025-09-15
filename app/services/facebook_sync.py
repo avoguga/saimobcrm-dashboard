@@ -437,7 +437,7 @@ class FacebookSyncService:
             return False
 
     async def sync_adset_metrics(self, adset_id: str, start_date: date, end_date: date) -> bool:
-        """Sincroniza métricas de um AdSet específico"""
+        """Sincroniza métricas de um AdSet específico POR DATA (consistente com campanhas)"""
         if not self.api_initialized:
             if not self.initialize_api():
                 return False
@@ -445,7 +445,7 @@ class FacebookSyncService:
         try:
             await self.wait_for_rate_limit()
 
-            # Buscar insights do AdSet usando request direto com retry
+            # Buscar insights do AdSet POR DATA com time_increment=1
             insights = await self.handle_facebook_request_with_retry(
                 lambda: list(AdSet(adset_id).get_insights(params={
                     'fields': [
@@ -457,7 +457,8 @@ class FacebookSyncService:
                     'time_range': {
                         'since': start_date.strftime('%Y-%m-%d'),
                         'until': end_date.strftime('%Y-%m-%d')
-                    }
+                    },
+                    'time_increment': 1  # AGORA POR DATA!
                 }))
             )
 
@@ -465,16 +466,23 @@ class FacebookSyncService:
                 logger.debug(f"Nenhuma métrica encontrada para AdSet {adset_id}")
                 return True
 
-            # Processar métricas consolidadas
-            total_metrics = {
-                'leads': 0, 'profile_visits': 0, 'whatsapp_conversations': 0,
-                'reach': 0, 'impressions': 0, 'clicks': 0, 'link_clicks': 0,
-                'spend': 0.0, 'page_engagement': 0, 'reactions': 0,
-                'comments': 0, 'shares': 0, 'ctr': 0.0, 'unique_clicks': 0,
-                'cost_per_unique_click': 0.0, 'cpc': 0.0, 'cpm': 0.0
-            }
+            # Processar métricas POR DATA (igual às campanhas)
+            metrics_by_date = {}
 
             for insight in insights:
+                date_start = insight.get('date_start')
+                if not date_start:
+                    continue
+
+                # Inicializar métricas do dia
+                day_metrics = {
+                    'leads': 0, 'profile_visits': 0, 'whatsapp_conversations': 0,
+                    'reach': 0, 'impressions': 0, 'clicks': 0, 'link_clicks': 0,
+                    'spend': 0.0, 'page_engagement': 0, 'reactions': 0,
+                    'comments': 0, 'shares': 0, 'ctr': 0.0, 'unique_clicks': 0,
+                    'cost_per_unique_click': 0.0, 'cpc': 0.0, 'cpm': 0.0, 'cost_per_lead': 0.0
+                }
+
                 # Extrair leads das actions
                 actions = insight.get('actions', [])
                 for action in actions:
@@ -482,57 +490,61 @@ class FacebookSyncService:
                     value = int(action.get('value', 0))
 
                     if action_type == 'lead':
-                        total_metrics['leads'] += value
+                        day_metrics['leads'] += value
                     elif 'messaging_conversation_started_7d' in action_type:
-                        total_metrics['whatsapp_conversations'] += value
+                        day_metrics['whatsapp_conversations'] += value
                     elif 'page_engagement' in action_type:
-                        total_metrics['profile_visits'] += value
+                        day_metrics['profile_visits'] += value
                     elif 'like' in action_type or 'reaction' in action_type:
-                        total_metrics['reactions'] += value
+                        day_metrics['reactions'] += value
                     elif 'comment' in action_type:
-                        total_metrics['comments'] += value
+                        day_metrics['comments'] += value
                     elif 'share' in action_type:
-                        total_metrics['shares'] += value
+                        day_metrics['shares'] += value
 
-                # Acumular outras métricas
-                total_metrics['reach'] += int(insight.get('reach', 0))
-                total_metrics['impressions'] += int(insight.get('impressions', 0))
-                total_metrics['clicks'] += int(insight.get('clicks', 0))
-                total_metrics['link_clicks'] += int(insight.get('inline_link_clicks', 0))
-                total_metrics['spend'] += float(insight.get('spend', 0))
-                total_metrics['unique_clicks'] += int(insight.get('unique_clicks', 0))
+                # Outras métricas
+                day_metrics['reach'] = int(insight.get('reach', 0))
+                day_metrics['impressions'] = int(insight.get('impressions', 0))
+                day_metrics['clicks'] = int(insight.get('clicks', 0))
+                day_metrics['link_clicks'] = int(insight.get('inline_link_clicks', 0))
+                day_metrics['spend'] = float(insight.get('spend', 0))
+                day_metrics['unique_clicks'] = int(insight.get('unique_clicks', 0))
 
-            # Calcular médias e derivados
-            if total_metrics['impressions'] > 0:
-                total_metrics['ctr'] = (total_metrics['clicks'] / total_metrics['impressions']) * 100
-                total_metrics['cpm'] = (total_metrics['spend'] / total_metrics['impressions']) * 1000
+                # Calcular médias e derivados
+                if day_metrics['impressions'] > 0:
+                    day_metrics['ctr'] = (day_metrics['clicks'] / day_metrics['impressions']) * 100
+                    day_metrics['cpm'] = (day_metrics['spend'] / day_metrics['impressions']) * 1000
 
-            if total_metrics['clicks'] > 0:
-                total_metrics['cpc'] = total_metrics['spend'] / total_metrics['clicks']
+                if day_metrics['clicks'] > 0:
+                    day_metrics['cpc'] = day_metrics['spend'] / day_metrics['clicks']
 
-            if total_metrics['unique_clicks'] > 0:
-                total_metrics['cost_per_unique_click'] = total_metrics['spend'] / total_metrics['unique_clicks']
+                if day_metrics['unique_clicks'] > 0:
+                    day_metrics['cost_per_unique_click'] = day_metrics['spend'] / day_metrics['unique_clicks']
 
-            if total_metrics['leads'] > 0:
-                total_metrics['cost_per_lead'] = total_metrics['spend'] / total_metrics['leads']
-            else:
-                total_metrics['cost_per_lead'] = 0
+                if day_metrics['leads'] > 0:
+                    day_metrics['cost_per_lead'] = day_metrics['spend'] / day_metrics['leads']
 
-            total_metrics['page_engagement'] = total_metrics['reactions'] + total_metrics['comments'] + total_metrics['shares']
+                day_metrics['page_engagement'] = day_metrics['reactions'] + day_metrics['comments'] + day_metrics['shares']
 
-            # Salvar métricas no AdSet
+                metrics_by_date[date_start] = day_metrics
+
+            # Salvar métricas POR DATA no AdSet
             await adsets_collection.update_one(
                 {"adset_id": adset_id},
                 {
                     "$set": {
-                        "metrics": total_metrics,
+                        "metrics": metrics_by_date,
                         "updated_at": datetime.utcnow(),
                         "last_sync": datetime.utcnow()
                     }
                 }
             )
 
-            logger.debug(f"OK: Métricas AdSet {adset_id}: {total_metrics['leads']} leads, R$ {total_metrics['spend']:.2f}")
+            # Log com totais do período
+            total_leads = sum(day.get('leads', 0) for day in metrics_by_date.values())
+            total_spend = sum(day.get('spend', 0) for day in metrics_by_date.values())
+
+            logger.debug(f"OK: Métricas AdSet {adset_id}: {len(metrics_by_date)} dias, {total_leads} leads, R$ {total_spend:.2f}")
             return True
 
         except Exception as e:
@@ -540,7 +552,7 @@ class FacebookSyncService:
             return False
 
     async def sync_ad_metrics(self, ad_id: str, start_date: date, end_date: date) -> bool:
-        """Sincroniza métricas de um Ad específico"""
+        """Sincroniza métricas de um Ad específico POR DATA (consistente com campanhas)"""
         if not self.api_initialized:
             if not self.initialize_api():
                 return False
@@ -548,7 +560,7 @@ class FacebookSyncService:
         try:
             await self.wait_for_rate_limit()
 
-            # Buscar insights do Ad usando request direto com retry
+            # Buscar insights do Ad POR DATA com time_increment=1
             insights = await self.handle_facebook_request_with_retry(
                 lambda: list(Ad(ad_id).get_insights(params={
                     'fields': [
@@ -560,7 +572,8 @@ class FacebookSyncService:
                     'time_range': {
                         'since': start_date.strftime('%Y-%m-%d'),
                         'until': end_date.strftime('%Y-%m-%d')
-                    }
+                    },
+                    'time_increment': 1  # AGORA POR DATA!
                 }))
             )
 
@@ -568,16 +581,23 @@ class FacebookSyncService:
                 logger.debug(f"Nenhuma métrica encontrada para Ad {ad_id}")
                 return True
 
-            # Processar métricas consolidadas
-            total_metrics = {
-                'leads': 0, 'profile_visits': 0, 'whatsapp_conversations': 0,
-                'reach': 0, 'impressions': 0, 'clicks': 0, 'link_clicks': 0,
-                'spend': 0.0, 'page_engagement': 0, 'reactions': 0,
-                'comments': 0, 'shares': 0, 'ctr': 0.0, 'unique_clicks': 0,
-                'cost_per_unique_click': 0.0, 'cpc': 0.0, 'cpm': 0.0
-            }
+            # Processar métricas POR DATA (igual às campanhas)
+            metrics_by_date = {}
 
             for insight in insights:
+                date_start = insight.get('date_start')
+                if not date_start:
+                    continue
+
+                # Inicializar métricas do dia
+                day_metrics = {
+                    'leads': 0, 'profile_visits': 0, 'whatsapp_conversations': 0,
+                    'reach': 0, 'impressions': 0, 'clicks': 0, 'link_clicks': 0,
+                    'spend': 0.0, 'page_engagement': 0, 'reactions': 0,
+                    'comments': 0, 'shares': 0, 'ctr': 0.0, 'unique_clicks': 0,
+                    'cost_per_unique_click': 0.0, 'cpc': 0.0, 'cpm': 0.0, 'cost_per_lead': 0.0
+                }
+
                 # Extrair leads das actions
                 actions = insight.get('actions', [])
                 for action in actions:
@@ -585,57 +605,61 @@ class FacebookSyncService:
                     value = int(action.get('value', 0))
 
                     if action_type == 'lead':
-                        total_metrics['leads'] += value
+                        day_metrics['leads'] += value
                     elif 'messaging_conversation_started_7d' in action_type:
-                        total_metrics['whatsapp_conversations'] += value
+                        day_metrics['whatsapp_conversations'] += value
                     elif 'page_engagement' in action_type:
-                        total_metrics['profile_visits'] += value
+                        day_metrics['profile_visits'] += value
                     elif 'like' in action_type or 'reaction' in action_type:
-                        total_metrics['reactions'] += value
+                        day_metrics['reactions'] += value
                     elif 'comment' in action_type:
-                        total_metrics['comments'] += value
+                        day_metrics['comments'] += value
                     elif 'share' in action_type:
-                        total_metrics['shares'] += value
+                        day_metrics['shares'] += value
 
-                # Acumular outras métricas
-                total_metrics['reach'] += int(insight.get('reach', 0))
-                total_metrics['impressions'] += int(insight.get('impressions', 0))
-                total_metrics['clicks'] += int(insight.get('clicks', 0))
-                total_metrics['link_clicks'] += int(insight.get('inline_link_clicks', 0))
-                total_metrics['spend'] += float(insight.get('spend', 0))
-                total_metrics['unique_clicks'] += int(insight.get('unique_clicks', 0))
+                # Outras métricas
+                day_metrics['reach'] = int(insight.get('reach', 0))
+                day_metrics['impressions'] = int(insight.get('impressions', 0))
+                day_metrics['clicks'] = int(insight.get('clicks', 0))
+                day_metrics['link_clicks'] = int(insight.get('inline_link_clicks', 0))
+                day_metrics['spend'] = float(insight.get('spend', 0))
+                day_metrics['unique_clicks'] = int(insight.get('unique_clicks', 0))
 
-            # Calcular médias e derivados
-            if total_metrics['impressions'] > 0:
-                total_metrics['ctr'] = (total_metrics['clicks'] / total_metrics['impressions']) * 100
-                total_metrics['cpm'] = (total_metrics['spend'] / total_metrics['impressions']) * 1000
+                # Calcular médias e derivados
+                if day_metrics['impressions'] > 0:
+                    day_metrics['ctr'] = (day_metrics['clicks'] / day_metrics['impressions']) * 100
+                    day_metrics['cpm'] = (day_metrics['spend'] / day_metrics['impressions']) * 1000
 
-            if total_metrics['clicks'] > 0:
-                total_metrics['cpc'] = total_metrics['spend'] / total_metrics['clicks']
+                if day_metrics['clicks'] > 0:
+                    day_metrics['cpc'] = day_metrics['spend'] / day_metrics['clicks']
 
-            if total_metrics['unique_clicks'] > 0:
-                total_metrics['cost_per_unique_click'] = total_metrics['spend'] / total_metrics['unique_clicks']
+                if day_metrics['unique_clicks'] > 0:
+                    day_metrics['cost_per_unique_click'] = day_metrics['spend'] / day_metrics['unique_clicks']
 
-            if total_metrics['leads'] > 0:
-                total_metrics['cost_per_lead'] = total_metrics['spend'] / total_metrics['leads']
-            else:
-                total_metrics['cost_per_lead'] = 0
+                if day_metrics['leads'] > 0:
+                    day_metrics['cost_per_lead'] = day_metrics['spend'] / day_metrics['leads']
 
-            total_metrics['page_engagement'] = total_metrics['reactions'] + total_metrics['comments'] + total_metrics['shares']
+                day_metrics['page_engagement'] = day_metrics['reactions'] + day_metrics['comments'] + day_metrics['shares']
 
-            # Salvar métricas no Ad
+                metrics_by_date[date_start] = day_metrics
+
+            # Salvar métricas POR DATA no Ad
             await ads_collection.update_one(
                 {"ad_id": ad_id},
                 {
                     "$set": {
-                        "metrics": total_metrics,
+                        "metrics": metrics_by_date,
                         "updated_at": datetime.utcnow(),
                         "last_sync": datetime.utcnow()
                     }
                 }
             )
 
-            logger.debug(f"OK: Métricas Ad {ad_id}: {total_metrics['leads']} leads, R$ {total_metrics['spend']:.2f}")
+            # Log com totais do período
+            total_leads = sum(day.get('leads', 0) for day in metrics_by_date.values())
+            total_spend = sum(day.get('spend', 0) for day in metrics_by_date.values())
+
+            logger.debug(f"OK: Métricas Ad {ad_id}: {len(metrics_by_date)} dias, {total_leads} leads, R$ {total_spend:.2f}")
             return True
 
         except Exception as e:
