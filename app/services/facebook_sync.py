@@ -347,8 +347,9 @@ class FacebookSyncService:
                 if not date_start:
                     continue
 
-                # Extrair leads das actions
+                # Extrair leads das actions (incluindo offsite)
                 leads = 0
+                offsite_registrations = 0
                 whatsapp_conversations = 0
                 profile_visits = 0
                 actions = insight.get('actions', [])
@@ -357,11 +358,14 @@ class FacebookSyncService:
                     action_type = action.get('action_type', '')
                     value = int(action.get('value', 0))
 
-                    if action_type == 'lead':
+                    # APENAS offsite_complete_registration_add_meta_leads conforme relatórios
+                    if action_type == 'offsite_complete_registration_add_meta_leads':
                         leads += value
-                    elif 'messaging_conversation_started_7d' in action_type:
+                    elif action_type == 'offsite_complete_registration_add_meta_leads':
+                        offsite_registrations += value
+                    elif 'messaging' in action_type.lower() and not action_type.startswith('onsite_conversion'):
                         whatsapp_conversations += value
-                    elif 'page_engagement' in action_type:
+                    elif action_type in ['page_view', 'profile_view']:
                         profile_visits += value
 
                 # Extrair métricas de engajamento
@@ -390,6 +394,7 @@ class FacebookSyncService:
                     'date': date_start,
                     # Métricas principais
                     'leads': leads,
+                    'offsite_registrations': offsite_registrations,
                     'profile_visits': profile_visits,
                     'whatsapp_conversations': whatsapp_conversations,
                     # Métricas de performance
@@ -476,24 +481,27 @@ class FacebookSyncService:
 
                 # Inicializar métricas do dia
                 day_metrics = {
-                    'leads': 0, 'profile_visits': 0, 'whatsapp_conversations': 0,
+                    'leads': 0, 'offsite_registrations': 0, 'profile_visits': 0, 'whatsapp_conversations': 0,
                     'reach': 0, 'impressions': 0, 'clicks': 0, 'link_clicks': 0,
                     'spend': 0.0, 'page_engagement': 0, 'reactions': 0,
                     'comments': 0, 'shares': 0, 'ctr': 0.0, 'unique_clicks': 0,
                     'cost_per_unique_click': 0.0, 'cpc': 0.0, 'cpm': 0.0, 'cost_per_lead': 0.0
                 }
 
-                # Extrair leads das actions
+                # Extrair leads das actions (incluindo offsite)
                 actions = insight.get('actions', [])
                 for action in actions:
                     action_type = action.get('action_type', '')
                     value = int(action.get('value', 0))
 
-                    if action_type == 'lead':
+                    # APENAS offsite_complete_registration_add_meta_leads conforme relatórios
+                    if action_type == 'offsite_complete_registration_add_meta_leads':
                         day_metrics['leads'] += value
-                    elif 'messaging_conversation_started_7d' in action_type:
+                    elif action_type == 'offsite_complete_registration_add_meta_leads':
+                        day_metrics['offsite_registrations'] = day_metrics.get('offsite_registrations', 0) + value
+                    elif 'messaging' in action_type.lower() and not action_type.startswith('onsite_conversion'):
                         day_metrics['whatsapp_conversations'] += value
-                    elif 'page_engagement' in action_type:
+                    elif action_type in ['page_view', 'profile_view']:
                         day_metrics['profile_visits'] += value
                     elif 'like' in action_type or 'reaction' in action_type:
                         day_metrics['reactions'] += value
@@ -591,24 +599,27 @@ class FacebookSyncService:
 
                 # Inicializar métricas do dia
                 day_metrics = {
-                    'leads': 0, 'profile_visits': 0, 'whatsapp_conversations': 0,
+                    'leads': 0, 'offsite_registrations': 0, 'profile_visits': 0, 'whatsapp_conversations': 0,
                     'reach': 0, 'impressions': 0, 'clicks': 0, 'link_clicks': 0,
                     'spend': 0.0, 'page_engagement': 0, 'reactions': 0,
                     'comments': 0, 'shares': 0, 'ctr': 0.0, 'unique_clicks': 0,
                     'cost_per_unique_click': 0.0, 'cpc': 0.0, 'cpm': 0.0, 'cost_per_lead': 0.0
                 }
 
-                # Extrair leads das actions
+                # Extrair leads das actions (incluindo offsite)
                 actions = insight.get('actions', [])
                 for action in actions:
                     action_type = action.get('action_type', '')
                     value = int(action.get('value', 0))
 
-                    if action_type == 'lead':
+                    # APENAS offsite_complete_registration_add_meta_leads conforme relatórios
+                    if action_type == 'offsite_complete_registration_add_meta_leads':
                         day_metrics['leads'] += value
-                    elif 'messaging_conversation_started_7d' in action_type:
+                    elif action_type == 'offsite_complete_registration_add_meta_leads':
+                        day_metrics['offsite_registrations'] = day_metrics.get('offsite_registrations', 0) + value
+                    elif 'messaging' in action_type.lower() and not action_type.startswith('onsite_conversion'):
                         day_metrics['whatsapp_conversations'] += value
-                    elif 'page_engagement' in action_type:
+                    elif action_type in ['page_view', 'profile_view']:
                         day_metrics['profile_visits'] += value
                     elif 'like' in action_type or 'reaction' in action_type:
                         day_metrics['reactions'] += value
@@ -729,14 +740,14 @@ class FacebookSyncService:
                                     action_type = action.get('action_type', '')
                                     value = int(action.get('value', 0))
 
-                                    # Leads (META)
-                                    if action_type == 'lead':
+                                    # APENAS offsite_complete_registration_add_meta_leads conforme relatórios
+                                    if action_type == 'offsite_complete_registration_add_meta_leads':
                                         leads += value
                                     # Visitas ao perfil
                                     elif action_type in ['page_view', 'profile_view']:
                                         profile_visits += value
                                     # WhatsApp (mensagens)
-                                    elif 'messaging' in action_type.lower() or 'whatsapp' in action_type.lower():
+                                    elif ('messaging' in action_type.lower() or 'whatsapp' in action_type.lower()) and not action_type.startswith('onsite_conversion'):
                                         whatsapp_conversations += value
                                     # Engajamento com a página
                                     elif action_type == 'page_engagement':

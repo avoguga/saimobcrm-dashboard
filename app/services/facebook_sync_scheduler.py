@@ -1,6 +1,7 @@
 """
 Agendador de sincronização automática com Facebook
 Executa sincronização diária para evitar rate limits
+Inclui suporte para métricas offsite
 """
 
 import asyncio
@@ -9,7 +10,8 @@ from datetime import datetime, date, timedelta, time
 from typing import Optional
 import schedule
 from app.services.facebook_sync import facebook_sync
-from app.models.facebook_models import sync_jobs_collection
+from app.services.facebook_offsite_sync import FacebookOffsiteSyncService
+from app.models.facebook_models import sync_jobs_collection, campaigns_collection
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +91,70 @@ class FacebookSyncScheduler:
 
         except Exception as e:
             logger.error(f"❌ Erro na sincronização incremental: {e}")
+
+    async def sync_offsite_metrics(self, days_back: int = 30):
+        """
+        Sincronização específica para métricas offsite
+        Foca em offsite_complete_registration_add_meta_leads
+        """
+        try:
+            logger.info("📊 Iniciando sincronização de métricas offsite...")
+
+            offsite_service = FacebookOffsiteSyncService()
+
+            # Buscar campanhas ativas
+            campaigns = await campaigns_collection.find(
+                {"status": {"$in": ["ACTIVE", "PAUSED"]}}
+            ).to_list(None)
+
+            end_date = date.today().strftime('%Y-%m-%d')
+            start_date = (date.today() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+
+            success_count = 0
+            error_count = 0
+
+            for campaign in campaigns:
+                campaign_id = campaign.get('facebook_id')
+
+                try:
+                    # Buscar métricas offsite
+                    metrics = await offsite_service.get_campaign_offsite_metrics(
+                        campaign_id=campaign_id,
+                        start_date=start_date,
+                        end_date=end_date
+                    )
+
+                    if metrics:
+                        # Salvar no MongoDB
+                        await offsite_service.sync_offsite_metrics_to_mongodb(campaign_id, metrics)
+                        success_count += 1
+
+                        offsite_registrations = metrics['summary']['total_offsite_registrations']
+                        logger.info(f"✅ Campaign {campaign_id}: {offsite_registrations} offsite registrations")
+
+                except Exception as e:
+                    error_count += 1
+                    logger.error(f"❌ Erro ao sincronizar offsite para {campaign_id}: {e}")
+
+            logger.info(f"📊 Sincronização offsite completa: {success_count} OK, {error_count} erros")
+
+            # Registrar job
+            await sync_jobs_collection.insert_one({
+                "job_type": "offsite_sync",
+                "account_id": "act_1051414772388438",
+                "status": "completed" if error_count == 0 else "partial",
+                "started_at": datetime.utcnow() - timedelta(minutes=5),
+                "completed_at": datetime.utcnow(),
+                "campaigns_synced": success_count,
+                "campaigns_failed": error_count,
+                "days_synced": days_back
+            })
+
+            return success_count > 0
+
+        except Exception as e:
+            logger.error(f"❌ Erro na sincronização offsite: {e}")
+            return False
 
     async def start_scheduler(self):
         """Inicia o agendador de sincronização"""

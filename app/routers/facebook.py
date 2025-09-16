@@ -270,8 +270,9 @@ class FacebookDashboardService:
                 for action in actions:
                     action_type = action.get('action_type', '')
                     value = int(action.get('value', 0))
-                    
-                    if action_type == 'lead':
+
+                    # APENAS offsite_complete_registration_add_meta_leads conforme relatórios
+                    if action_type == 'offsite_complete_registration_add_meta_leads':
                         processed_data['leads'] += value
                     elif action_type == 'page_engagement':
                         processed_data['page_engagement'] += value
@@ -316,7 +317,8 @@ class FacebookDashboardService:
                 # Extrair leads
                 actions = insight.get('actions', [])
                 for action in actions:
-                    if action.get('action_type') == 'lead':
+                    action_type = action.get('action_type', '')
+                    if action_type == 'offsite_complete_registration_add_meta_leads':
                         demographic_data[gender]['leads'] += int(action.get('value', 0))
                         
         except Exception as e:
@@ -344,12 +346,15 @@ class FacebookDashboardService:
                     'leads': 0
                 }
                 
-                # Extrair leads
+                # APENAS offsite_complete_registration_add_meta_leads conforme relatórios
                 actions = insight.get('actions', [])
+                leads_total = 0
                 for action in actions:
-                    if action.get('action_type') == 'lead':
-                        campaign_data['leads'] = int(action.get('value', 0))
-                        break
+                    action_type = action.get('action_type', '')
+                    if action_type == 'offsite_complete_registration_add_meta_leads':
+                        leads_total += int(action.get('value', 0))
+
+                campaign_data['leads'] = leads_total
                 
                 campaigns_data.append(campaign_data)
                 
@@ -427,8 +432,16 @@ class FacebookDashboardService:
         
         # Processar actions para métricas específicas
         actions = insight.get('actions', [])
+        # APENAS offsite_complete_registration_add_meta_leads conforme relatórios
+        leads_total = 0
+        for action in actions:
+            action_type = action.get('action_type', '')
+            if action_type == 'offsite_complete_registration_add_meta_leads':
+                leads_total += int(action.get('value', 0))
+
         metrics.update({
-            'leads': self._extract_action_value(actions, 'lead'),
+            'leads': leads_total,
+            'offsite_registrations': self._extract_action_value(actions, 'offsite_complete_registration_add_meta_leads'),
             'profile_visits': self._extract_action_value(actions, 'page_view'),
             'whatsapp_conversations': self._extract_messaging_actions(actions),
             'link_clicks': self._extract_link_clicks(insight, actions),
@@ -455,7 +468,7 @@ class FacebookDashboardService:
         messaging_count = 0
         for action in actions:
             action_type = action.get('action_type', '')
-            if 'messaging' in action_type.lower():
+            if 'messaging' in action_type.lower() and not action_type.startswith('onsite_conversion'):
                 messaging_count += int(action.get('value', 0))
         return messaging_count
     
@@ -1195,6 +1208,7 @@ async def get_facebook_dashboard(
             # Dados principais organizados
             "metricsData": {
                 "leads": create_metric_object('total_leads', 'Total de Leads (META)', metrics['leads'], 'leads'),
+                "offsite_registrations": create_metric_object('offsite_registrations', 'Registros Offsite', metrics['offsite_registrations'], 'offsite'),
                 "profile_visits": create_metric_object('profile_visits', 'Total de Visitas ao Perfil', metrics['profile_visits']),
                 "whatsapp": create_metric_object('whatsapp_conversations', 'Conversas pelo WhatsApp', metrics['whatsapp_conversations']),
                 "reach": create_metric_object('reach', 'Alcance', metrics['reach']),
@@ -1535,7 +1549,7 @@ async def get_unified_facebook_data(
                 "message": "Nenhuma campanha encontrada. Execute /facebook/sync-data primeiro.",
                 "campaigns": [],
                 "totals": {
-                    'leads': 0, 'profile_visits': 0, 'whatsapp_conversations': 0,
+                    'leads': 0, 'offsite_registrations': 0, 'profile_visits': 0, 'whatsapp_conversations': 0,
                     'reach': 0, 'impressions': 0, 'cost_per_lead': 0,
                     'cpc': 0, 'cpm': 0, 'clicks': 0, 'link_clicks': 0, 'spend': 0,
                     'page_engagement': 0, 'reactions': 0, 'comments': 0, 'shares': 0
@@ -1554,7 +1568,7 @@ async def get_unified_facebook_data(
         # Processar campanhas com hierarquia completa
         result_campaigns = []
         consolidated_totals = {
-            'leads': 0, 'profile_visits': 0, 'whatsapp_conversations': 0,
+            'leads': 0, 'offsite_registrations': 0, 'profile_visits': 0, 'whatsapp_conversations': 0,
             'reach': 0, 'impressions': 0, 'cost_per_lead': 0,
             'cpc': 0, 'cpm': 0, 'clicks': 0, 'link_clicks': 0, 'spend': 0,
             'page_engagement': 0, 'reactions': 0, 'comments': 0, 'shares': 0,
@@ -1793,7 +1807,7 @@ def _calculate_comprehensive_metrics(metrics_dict: dict, start_date: date, end_d
     """Calcula TODAS as métricas necessárias para um período"""
     consolidated = {
         # Métricas principais
-        'leads': 0, 'profile_visits': 0, 'whatsapp_conversations': 0,
+        'leads': 0, 'offsite_registrations': 0, 'profile_visits': 0, 'whatsapp_conversations': 0,
         # Métricas de performance
         'reach': 0, 'impressions': 0, 'cost_per_lead': 0.0,
         'cpc': 0.0, 'cpm': 0.0, 'clicks': 0, 'link_clicks': 0, 'spend': 0.0,
@@ -1814,7 +1828,7 @@ def _calculate_comprehensive_metrics(metrics_dict: dict, start_date: date, end_d
             days_with_data += 1
 
             # Somar métricas absolutas
-            for metric in ['leads', 'profile_visits', 'whatsapp_conversations',
+            for metric in ['leads', 'offsite_registrations', 'profile_visits', 'whatsapp_conversations',
                           'reach', 'impressions', 'clicks', 'link_clicks', 'spend',
                           'page_engagement', 'reactions', 'comments', 'shares',
                           'video_views', 'unique_clicks']:
@@ -2257,29 +2271,164 @@ def _calculate_metrics_for_period(metrics_dict: dict, start_date: date, end_date
     
     return consolidated
 
+@router.get("/offsite-metrics/{campaign_id}")
+async def get_offsite_metrics(
+    campaign_id: str,
+    start_date: str = Query(..., description="Data inicial (YYYY-MM-DD)"),
+    end_date: str = Query(..., description="Data final (YYYY-MM-DD)")
+):
+    """
+    Busca métricas offsite de conversão para uma campanha específica.
+    Foca em offsite_complete_registration_add_meta_leads e métricas relacionadas.
+
+    Retorna:
+    - offsite_complete_registration: Cadastros completos offsite
+    - cost_per_offsite_registration: Custo por cadastro offsite
+    - Comparação com leads padrão
+    - Breakdown de todas as métricas offsite
+    """
+    try:
+        from app.services.facebook_offsite_sync import FacebookOffsiteSyncService
+
+        offsite_service = FacebookOffsiteSyncService()
+
+        logger.info(f"Buscando métricas offsite para campanha {campaign_id}")
+
+        # Buscar métricas offsite
+        metrics = await offsite_service.get_campaign_offsite_metrics(
+            campaign_id=campaign_id,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        if not metrics:
+            raise HTTPException(
+                status_code=404,
+                detail="Não foi possível buscar métricas offsite para esta campanha"
+            )
+
+        # Salvar no MongoDB para cache
+        await offsite_service.sync_offsite_metrics_to_mongodb(campaign_id, metrics)
+
+        return {
+            "success": True,
+            "campaign_id": campaign_id,
+            "period": {
+                "start_date": start_date,
+                "end_date": end_date
+            },
+            "summary": metrics['summary'],
+            "daily_breakdown": metrics['daily_metrics'],
+            "offsite_focus": {
+                "total_offsite_registrations": metrics['summary']['total_offsite_registrations'],
+                "average_cost": metrics['summary']['average_cost_per_offsite_registration'],
+                "conversion_rate": f"{metrics['summary']['offsite_conversion_rate']:.2f}%"
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao buscar métricas offsite: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao buscar métricas offsite: {str(e)}"
+        )
+
+@router.post("/sync-offsite-all")
+async def sync_all_offsite_metrics(
+    days_back: int = Query(30, description="Quantos dias buscar (padrão: 30)")
+):
+    """
+    Sincroniza métricas offsite de todas as campanhas ativas.
+    Foca apenas em métricas de conversão offsite.
+    """
+    try:
+        from app.services.facebook_offsite_sync import FacebookOffsiteSyncService
+        from app.models.facebook_models import connect_mongodb, campaigns_collection
+
+        await connect_mongodb()
+        offsite_service = FacebookOffsiteSyncService()
+
+        # Buscar campanhas do MongoDB
+        campaigns = await campaigns_collection.find(
+            {"status": {"$in": ["ACTIVE", "PAUSED"]}}
+        ).to_list(None)
+
+        end_date = date.today().strftime('%Y-%m-%d')
+        start_date = (date.today() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+
+        results = []
+        errors = []
+
+        for campaign in campaigns:
+            campaign_id = campaign.get('facebook_id')
+            campaign_name = campaign.get('name', 'N/A')
+
+            try:
+                metrics = await offsite_service.get_campaign_offsite_metrics(
+                    campaign_id=campaign_id,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+
+                if metrics:
+                    await offsite_service.sync_offsite_metrics_to_mongodb(campaign_id, metrics)
+                    results.append({
+                        'campaign_id': campaign_id,
+                        'campaign_name': campaign_name,
+                        'offsite_registrations': metrics['summary']['total_offsite_registrations']
+                    })
+
+            except Exception as e:
+                errors.append({
+                    'campaign_id': campaign_id,
+                    'error': str(e)
+                })
+
+        return {
+            "success": True,
+            "total_campaigns": len(campaigns),
+            "synced": len(results),
+            "errors": len(errors),
+            "period": {
+                "start_date": start_date,
+                "end_date": end_date
+            },
+            "results": results,
+            "error_details": errors if errors else None
+        }
+
+    except Exception as e:
+        logger.error(f"Erro na sincronização offsite: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro na sincronização offsite: {str(e)}"
+        )
+
 @router.post("/sync-data")
 async def sync_facebook_data(
     days_back: int = Query(30, description="Quantos dias buscar (padrão: 30)")
 ):
     """
     Endpoint para sincronizar dados do Facebook com MongoDB
-    
+
     Executa sincronização completa:
     - Campanhas da conta act_1051414772388438
     - AdSets de todas as campanhas
-    - Ads de todos os AdSets  
+    - Ads de todos os AdSets
     - Métricas dos últimos N dias
-    
+
     Use este endpoint para atualizar os dados antes de usar /complete-data
     """
     try:
         from app.services.facebook_sync import facebook_sync
-        
+
         logger.info(f"🚀 Iniciando sincronização com {days_back} dias de histórico")
-        
+
         # Executar sincronização completa
         success = await facebook_sync.full_sync(days_back=days_back)
-        
+
         if success:
             return {
                 "success": True,
@@ -2288,10 +2437,10 @@ async def sync_facebook_data(
             }
         else:
             raise HTTPException(
-                status_code=500, 
+                status_code=500,
                 detail="Falha na sincronização. Verifique os logs para mais detalhes."
             )
-            
+
     except Exception as e:
         logger.error(f"❌ Erro na sincronização: {e}")
         raise HTTPException(status_code=500, detail=f"Erro na sincronização: {str(e)}")
