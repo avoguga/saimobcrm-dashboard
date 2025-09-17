@@ -1,6 +1,6 @@
 """
 Sistema de agendamento para sincronização automática diária do Facebook
-Executa sincronização completa às 1h da manhã todos os dias
+Executa sincronização completa às 5h da manhã todos os dias
 """
 import asyncio
 import schedule
@@ -212,9 +212,9 @@ class FacebookScheduler:
             self.sync_status["running"] = False
 
     def schedule_daily_sync(self):
-        """Agenda sincronização para 1h da manhã todos os dias"""
-        schedule.every().day.at("01:00").do(self._run_sync_job)
-        logger.info("✓ Sincronização agendada para 1:00 AM todos os dias")
+        """Agenda sincronização para 5h da manhã todos os dias"""
+        schedule.every().day.at("05:00").do(self._run_sync_job)
+        logger.info("✓ Sincronização agendada para 5:00 AM todos os dias")
 
     def _run_sync_job(self):
         """Wrapper para executar sync async em thread separada"""
@@ -241,7 +241,7 @@ class FacebookScheduler:
         self.schedule_daily_sync()
 
         def run_scheduler():
-            logger.info("🚀 Scheduler iniciado - sincronização diária às 1:00 AM")
+            logger.info("🚀 Scheduler iniciado - sincronização diária às 5:00 AM")
             while self.running:
                 schedule.run_pending()
                 time.sleep(60)  # Verificar a cada minuto

@@ -6,6 +6,7 @@ Responsável por buscar dados e salvar no MongoDB
 import asyncio
 import logging
 import time
+import json
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Any, Optional
 from facebook_business.api import FacebookAdsApi
@@ -195,11 +196,15 @@ class FacebookSyncService:
         try:
             logger.info(f" Sincronizando AdSets da campanha {campaign_id}")
             
-            # Buscar AdSets da API
+            # Buscar AdSets da API - APENAS ATIVOS
             campaign = Campaign(campaign_id)
             adsets_data = list(campaign.get_ad_sets(params={
-                'fields': ['id', 'name', 'status', 'daily_budget', 'lifetime_budget', 'targeting'],
-                'effective_status': ['ACTIVE', 'PAUSED']
+                'fields': ['id', 'name', 'status', 'effective_status', 'daily_budget', 'lifetime_budget', 'targeting'],
+                'filtering': json.dumps([{
+                    'field': 'effective_status',
+                    'operator': 'IN',
+                    'value': ['ACTIVE']  # Ignorar PAUSED, ARCHIVED, DELETED
+                }])
             }))
             
             logger.info(f" Encontrados {len(adsets_data)} AdSets para campanha {campaign_id}")
@@ -258,11 +263,15 @@ class FacebookSyncService:
             await self.wait_for_rate_limit()
             logger.info(f" Sincronizando Ads do AdSet {adset_id}")
 
-            # Buscar Ads da API com retry
+            # Buscar Ads da API com retry - APENAS ATIVOS
             ads_data = await self.handle_facebook_request_with_retry(
                 lambda: list(AdSet(adset_id).get_ads(params={
-                    'fields': ['id', 'name', 'status'],
-                    'effective_status': ['ACTIVE', 'PAUSED']
+                    'fields': ['id', 'name', 'status', 'effective_status'],
+                    'filtering': json.dumps([{
+                        'field': 'effective_status',
+                        'operator': 'IN',
+                        'value': ['ACTIVE']  # Ignorar PAUSED, ARCHIVED, DELETED
+                    }])
                 }))
             )
             
@@ -361,7 +370,6 @@ class FacebookSyncService:
                     # APENAS offsite_complete_registration_add_meta_leads conforme relatórios
                     if action_type == 'offsite_complete_registration_add_meta_leads':
                         leads += value
-                    elif action_type == 'offsite_complete_registration_add_meta_leads':
                         offsite_registrations += value
                     elif 'messaging' in action_type.lower() and not action_type.startswith('onsite_conversion'):
                         whatsapp_conversations += value
@@ -451,6 +459,7 @@ class FacebookSyncService:
             await self.wait_for_rate_limit()
 
             # Buscar insights do AdSet POR DATA com time_increment=1
+            # IMPORTANTE: time_range explícito para evitar problema do default 30 dias
             insights = await self.handle_facebook_request_with_retry(
                 lambda: list(AdSet(adset_id).get_insights(params={
                     'fields': [
@@ -463,7 +472,12 @@ class FacebookSyncService:
                         'since': start_date.strftime('%Y-%m-%d'),
                         'until': end_date.strftime('%Y-%m-%d')
                     },
-                    'time_increment': 1  # AGORA POR DATA!
+                    'time_increment': 1,  # Diário
+                    'filtering': json.dumps([{
+                        'field': 'spend',
+                        'operator': 'GREATER_THAN',
+                        'value': 0  # Só trazer dias com gasto
+                    }])
                 }))
             )
 
@@ -497,8 +511,7 @@ class FacebookSyncService:
                     # APENAS offsite_complete_registration_add_meta_leads conforme relatórios
                     if action_type == 'offsite_complete_registration_add_meta_leads':
                         day_metrics['leads'] += value
-                    elif action_type == 'offsite_complete_registration_add_meta_leads':
-                        day_metrics['offsite_registrations'] = day_metrics.get('offsite_registrations', 0) + value
+                        day_metrics['offsite_registrations'] += value
                     elif 'messaging' in action_type.lower() and not action_type.startswith('onsite_conversion'):
                         day_metrics['whatsapp_conversations'] += value
                     elif action_type in ['page_view', 'profile_view']:
@@ -569,6 +582,7 @@ class FacebookSyncService:
             await self.wait_for_rate_limit()
 
             # Buscar insights do Ad POR DATA com time_increment=1
+            # CRÍTICO: time_range explícito e filtrar só com gasto
             insights = await self.handle_facebook_request_with_retry(
                 lambda: list(Ad(ad_id).get_insights(params={
                     'fields': [
@@ -581,7 +595,12 @@ class FacebookSyncService:
                         'since': start_date.strftime('%Y-%m-%d'),
                         'until': end_date.strftime('%Y-%m-%d')
                     },
-                    'time_increment': 1  # AGORA POR DATA!
+                    'time_increment': 1,  # Diário
+                    'filtering': json.dumps([{
+                        'field': 'spend',
+                        'operator': 'GREATER_THAN',
+                        'value': 0  # Só trazer dias com gasto
+                    }])
                 }))
             )
 
@@ -615,8 +634,7 @@ class FacebookSyncService:
                     # APENAS offsite_complete_registration_add_meta_leads conforme relatórios
                     if action_type == 'offsite_complete_registration_add_meta_leads':
                         day_metrics['leads'] += value
-                    elif action_type == 'offsite_complete_registration_add_meta_leads':
-                        day_metrics['offsite_registrations'] = day_metrics.get('offsite_registrations', 0) + value
+                        day_metrics['offsite_registrations'] += value
                     elif 'messaging' in action_type.lower() and not action_type.startswith('onsite_conversion'):
                         day_metrics['whatsapp_conversations'] += value
                     elif action_type in ['page_view', 'profile_view']:
@@ -670,15 +688,21 @@ class FacebookSyncService:
             total_leads = sum(day.get('leads', 0) for day in metrics_by_date.values())
             total_spend = sum(day.get('spend', 0) for day in metrics_by_date.values())
 
-            logger.debug(f"OK: Métricas Ad {ad_id}: {len(metrics_by_date)} dias, {total_leads} leads, R$ {total_spend:.2f}")
+            if metrics_by_date:
+                logger.debug(f"OK: Métricas Ad {ad_id}: {len(metrics_by_date)} dias, {total_leads} leads, R$ {total_spend:.2f}")
+            else:
+                logger.warning(f"AVISO: Ad {ad_id} sem métricas no período")
+
             return True
 
         except Exception as e:
             logger.error(f"ERRO: Falha ao sincronizar métricas do Ad {ad_id}: {e}")
+            import traceback
+            logger.error(f"Stack trace: {traceback.format_exc()}")
             return False
 
     async def sync_metrics_for_date_range(self, start_date: date, end_date: date) -> bool:
-        """Sincroniza métricas para um período específico"""
+        """Sincroniza métricas para um período específico - CAMPANHAS, ADSETS e ADS"""
         if not self.api_initialized:
             if not self.initialize_api():
                 return False
@@ -692,7 +716,12 @@ class FacebookSyncService:
             campaigns = await campaigns_collection.find({"account_id": self.account_id}).to_list(None)
             total_campaigns = len(campaigns)
 
-            await self.update_sync_job(job_id, "running", total_items=total_campaigns)
+            # Contar também adsets e ads para o progresso
+            all_adsets = await adsets_collection.find().to_list(None)
+            all_ads = await ads_collection.find().to_list(None)
+            total_items = total_campaigns + len(all_adsets) + len(all_ads)
+
+            await self.update_sync_job(job_id, "running", total_items=total_items)
 
             processed = 0
             for campaign_doc in campaigns:
@@ -830,8 +859,49 @@ class FacebookSyncService:
                     logger.error(f"ERRO: Erro ao processar métricas da campanha {campaign_id}: {campaign_error}")
                     continue
 
+            # NOVO: Sincronizar métricas de TODOS os AdSets
+            logger.info(f"📊 Sincronizando métricas de {len(all_adsets)} AdSets...")
+            for adset_doc in all_adsets:
+                try:
+                    await self.sync_adset_metrics(adset_doc['adset_id'], start_date, end_date)
+                    processed += 1
+                    await self.update_sync_job(job_id, "running", processed_items=processed)
+                except Exception as e:
+                    logger.error(f"Erro ao sincronizar métricas do AdSet {adset_doc['adset_id']}: {e}")
+                    continue
+
+            # NOVO: Sincronizar métricas de TODOS os Ads
+            logger.info(f"📊 Sincronizando métricas de {len(all_ads)} Ads...")
+            ads_success = 0
+            ads_failed = 0
+
+            for ad_doc in all_ads:
+                try:
+                    ad_id = ad_doc['ad_id']
+                    logger.debug(f"Sincronizando Ad: {ad_id}")
+
+                    success = await self.sync_ad_metrics(ad_id, start_date, end_date)
+                    if success:
+                        ads_success += 1
+                    else:
+                        ads_failed += 1
+                        logger.warning(f"Falha ao sincronizar Ad {ad_id}")
+
+                    processed += 1
+                    await self.update_sync_job(job_id, "running", processed_items=processed)
+
+                except Exception as e:
+                    ads_failed += 1
+                    logger.error(f"ERRO: Erro ao sincronizar métricas do Ad {ad_doc['ad_id']}: {e}")
+                    continue
+
+            logger.info(f"Ads sincronizados: {ads_success} sucesso, {ads_failed} falhas")
+
             await self.update_sync_job(job_id, "completed", processed_items=processed)
-            logger.info(f"OK: Sincronização de métricas concluída: {processed}/{total_campaigns}")
+            logger.info(f"✅ Sincronização completa de métricas concluída: {processed}/{total_items} itens processados")
+            logger.info(f"   - {total_campaigns} campanhas")
+            logger.info(f"   - {len(all_adsets)} adsets")
+            logger.info(f"   - {len(all_ads)} ads")
             return True
 
         except Exception as e:
