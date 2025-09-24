@@ -1143,13 +1143,17 @@ async def get_unified_facebook_data(
     import json
 
     try:
-        from app.models.facebook_models import campaigns_collection, adsets_collection, ads_collection
+        from app.models.facebook_models import campaigns_collection, adsets_collection, ads_collection, connect_mongodb
         from datetime import datetime, date
 
         logger.info(f"🚀 Buscando dados unificados para período {start_date} a {end_date}")
+        logger.info("DEBUG: Inicio da funcao unified-data")
 
-        # Verificar cache primeiro
-        cache_key_parts = ["unified", start_date, end_date, campaign_id or "all", adset_id or "all", ad_id or "all", status_filter or "all"]
+        # Conectar ao MongoDB
+        await connect_mongodb()
+
+        # Verificar cache primeiro (incluir demographics na chave do cache)
+        cache_key_parts = ["unified", start_date, end_date, campaign_id or "all", adset_id or "all", ad_id or "all", status_filter or "all", "with_demographics"]
         cached_data = facebook_cache.get(cache_key_parts)
 
         if cached_data:
@@ -1174,8 +1178,7 @@ async def get_unified_facebook_data(
             campaign_filter["status"] = status_filter
 
         # Buscar campanhas do MongoDB
-        campaigns_cursor = campaigns_collection.find(campaign_filter)
-        campaigns_data = await campaigns_cursor.to_list(None)
+        campaigns_data = await campaigns_collection.find(campaign_filter).to_list(None)
 
         logger.info(f"📊 Encontradas {len(campaigns_data)} campanhas no MongoDB")
 
@@ -1238,8 +1241,7 @@ async def get_unified_facebook_data(
             if adset_id:
                 adset_filter["adset_id"] = adset_id
 
-            adsets_cursor = adsets_collection.find(adset_filter)
-            adsets_data = await adsets_cursor.to_list(None)
+            adsets_data = await adsets_collection.find(adset_filter).to_list(None)
 
             total_adsets += len(adsets_data)
 
@@ -1279,8 +1281,7 @@ async def get_unified_facebook_data(
                 if ad_id:
                     ads_filter["ad_id"] = ad_id
 
-                ads_cursor = ads_collection.find(ads_filter)
-                ads_data = await ads_cursor.to_list(None)
+                ads_data = await ads_collection.find(ads_filter).to_list(None)
 
                 total_ads += len(ads_data)
 
@@ -1386,6 +1387,37 @@ async def get_unified_facebook_data(
             },
             "data_source": "MongoDB"
         }
+
+        logger.info("DEBUG: Chegou antes da secao de demographics")
+        # SEMPRE buscar dados demográficos por gênero
+        logger.info("DEBUG: Iniciando busca de demographics por gênero...")
+
+        # FORÇAR um campo de teste para verificar se esta linha é executada
+        result["DEBUG_demographics_processing"] = True
+
+        # Converter campanhas para formato esperado (limitar a 5 para teste)
+        campaigns_list = [{"id": c["id"], "name": c["name"]} for c in result_campaigns[:5]]
+        logger.info(f"DEBUG: Processando demographics para {len(campaigns_list)} campanhas")
+
+        # Buscar demographics usando Facebook API
+        try:
+            logger.info("DEBUG: Chamando get_gender_demographics_direct...")
+            demographics_result = await get_gender_demographics_direct(campaigns_list, start_dt, end_dt)
+            logger.info("DEBUG: Demographics obtidas com sucesso")
+        except Exception as e:
+            logger.error(f"DEBUG: Erro ao buscar demographics: {e}")
+            demographics_result = {
+                "error": str(e),
+                "male": {"leads": 0, "spend": 0, "impressions": 0, "reach": 0, "clicks": 0},
+                "female": {"leads": 0, "spend": 0, "impressions": 0, "reach": 0, "clicks": 0},
+                "unknown": {"leads": 0, "spend": 0, "impressions": 0, "reach": 0, "clicks": 0},
+                "summary": {"total_leads": 0, "total_spend": 0, "male_percentage": 0, "female_percentage": 0, "unknown_percentage": 0}
+            }
+
+        # Adicionar demographics ao resultado
+        logger.info("DEBUG: Adicionando demographics ao resultado...")
+        result["gender_demographics"] = demographics_result
+        logger.info(f"DEBUG: Result keys após adicionar demographics: {list(result.keys())}")
 
         # Salvar no cache antes de retornar
         facebook_cache.set(cache_key_parts, result, ttl=600)  # 10 minutos
@@ -1528,6 +1560,109 @@ def _normalize_individual_metrics(metrics_dict: dict) -> dict:
     }
 
     return normalized
+
+async def get_gender_demographics_direct(campaigns: List[Dict], start_date: date, end_date: date) -> Dict[str, Any]:
+    """
+    Busca dados demográficos por gênero usando a Facebook Marketing API
+    """
+    try:
+        if not facebook_service or not facebook_service.initialized:
+            logger.warning("Facebook service não inicializado para breakdown demográfico")
+            return {
+                "error": "Facebook service não disponível",
+                "male": {"leads": 0, "spend": 0, "impressions": 0, "reach": 0, "clicks": 0},
+                "female": {"leads": 0, "spend": 0, "impressions": 0, "reach": 0, "clicks": 0},
+                "unknown": {"leads": 0, "spend": 0, "impressions": 0, "reach": 0, "clicks": 0},
+                "summary": {
+                    "total_leads": 0,
+                    "total_spend": 0,
+                    "male_percentage": 0,
+                    "female_percentage": 0,
+                    "unknown_percentage": 0
+                }
+            }
+
+        demographics_data = {
+            "male": {"leads": 0, "spend": 0, "impressions": 0, "reach": 0, "clicks": 0},
+            "female": {"leads": 0, "spend": 0, "impressions": 0, "reach": 0, "clicks": 0},
+            "unknown": {"leads": 0, "spend": 0, "impressions": 0, "reach": 0, "clicks": 0}
+        }
+
+        # Buscar insights com breakdown por gênero para cada campanha
+        for campaign in campaigns:
+            try:
+                await asyncio.sleep(2)  # Rate limiting
+
+                campaign_id = campaign['id']
+                campaign_obj = Campaign(campaign_id)
+
+                # Buscar insights com breakdown por gênero
+                insights = list(campaign_obj.get_insights(params={
+                    'fields': [
+                        'spend', 'impressions', 'clicks', 'reach', 'actions'
+                    ],
+                    'breakdowns': ['gender'],
+                    'time_range': {
+                        'since': start_date.strftime('%Y-%m-%d'),
+                        'until': end_date.strftime('%Y-%m-%d')
+                    }
+                }))
+
+                # Processar insights por gênero
+                for insight in insights:
+                    gender = insight.get('gender', 'unknown')
+
+                    # Normalizar gêneros
+                    if gender not in demographics_data:
+                        gender = 'unknown'
+
+                    # Métricas básicas
+                    demographics_data[gender]['spend'] += float(insight.get('spend', 0))
+                    demographics_data[gender]['impressions'] += int(insight.get('impressions', 0))
+                    demographics_data[gender]['clicks'] += int(insight.get('clicks', 0))
+                    demographics_data[gender]['reach'] += int(insight.get('reach', 0))
+
+                    # Extrair leads das actions
+                    actions = insight.get('actions', [])
+                    for action in actions:
+                        if action.get('action_type') == 'offsite_complete_registration_add_meta_leads':
+                            demographics_data[gender]['leads'] += int(action.get('value', 0))
+
+            except Exception as e:
+                logger.error(f"Erro ao buscar demographics da campanha {campaign.get('id')}: {e}")
+                continue
+
+        # Calcular totais e percentuais
+        total_leads = sum(data['leads'] for data in demographics_data.values())
+        total_spend = sum(data['spend'] for data in demographics_data.values())
+
+        # Adicionar summary diretamente na estrutura
+        demographics_data["summary"] = {
+            "total_leads": total_leads,
+            "total_spend": total_spend,
+            "male_percentage": round((demographics_data['male']['leads'] / total_leads * 100) if total_leads > 0 else 0, 1),
+            "female_percentage": round((demographics_data['female']['leads'] / total_leads * 100) if total_leads > 0 else 0, 1),
+            "unknown_percentage": round((demographics_data['unknown']['leads'] / total_leads * 100) if total_leads > 0 else 0, 1)
+        }
+
+        logger.info(f"✅ Demographics obtidas: {total_leads} leads total, {demographics_data['male']['leads']} M, {demographics_data['female']['leads']} F")
+        return demographics_data
+
+    except Exception as e:
+        logger.error(f"Erro ao buscar gender demographics: {e}")
+        return {
+            "error": str(e),
+            "male": {"leads": 0, "spend": 0, "impressions": 0, "reach": 0, "clicks": 0},
+            "female": {"leads": 0, "spend": 0, "impressions": 0, "reach": 0, "clicks": 0},
+            "unknown": {"leads": 0, "spend": 0, "impressions": 0, "reach": 0, "clicks": 0},
+            "summary": {
+                "total_leads": 0,
+                "total_spend": 0,
+                "male_percentage": 0,
+                "female_percentage": 0,
+                "unknown_percentage": 0
+            }
+        }
 
 # ========================================
 # ENDPOINTS DO SCHEDULER AUTOMÁTICO
