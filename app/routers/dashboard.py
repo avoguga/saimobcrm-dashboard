@@ -273,7 +273,7 @@ async def get_marketing_dashboard_complete(
                     "Tráfego Meta", "Escritório Patacho", "Canal Pro", "Site", 
                     "Redes Sociais", "Parceria com Construtoras", "Ação de Panfletagem",
                     "Eletromídia", "Orgânico", "LandingPage", "Chamada", "Anúncio Físico",
-                    "Desconhecido", "Google", "Cliente", "Grupo Zap", "Celular do Plantão",
+                    "Não atribuído", "Google", "Cliente", "Grupo Zap", "Celular do Plantão",
                     "Tráfego Séculos"
                 ]
             },
@@ -882,7 +882,7 @@ async def get_sales_dashboard_complete(
                     "Tráfego Meta", "Escritório Patacho", "Canal Pro", "Site", 
                     "Redes Sociais", "Parceria com Construtoras", "Ação de Panfletagem",
                     "Eletromídia", "Orgânico", "LandingPage", "Chamada", "Anúncio Físico",
-                    "Desconhecido", "Google", "Cliente", "Grupo Zap", "Celular do Plantão",
+                    "Não atribuído", "Google", "Cliente", "Grupo Zap", "Celular do Plantão",
                     "Tráfego Séculos"
                 ]
             },
@@ -1406,7 +1406,7 @@ async def get_detailed_tables(
             if corretor_custom:
                 corretor_final = corretor_custom
             else:
-                corretor_final = "Vazio"  # Sem fallback para responsible_user_id
+                corretor_final = "Não atribuído"  # Sem fallback para responsible_user_id
             
             # Determinar funil baseado no pipeline_id
             if pipeline_id == PIPELINE_VENDAS:
@@ -1414,7 +1414,7 @@ async def get_detailed_tables(
             elif pipeline_id == PIPELINE_REMARKETING:
                 funil = "Remarketing"
             else:
-                funil = "Desconhecido"
+                funil = "Não atribuído"
             
             # Determinar etapa baseado no status_id usando nomes reais da API
             etapa = status_map.get(status_id, f"Status {status_id}")
@@ -1497,7 +1497,7 @@ async def get_detailed_tables(
                 continue  # Não deveria chegar aqui, mas por segurança
             
             # Determinar corretor final
-            corretor_final = corretor_custom or "Vazio"
+            corretor_final = corretor_custom or "Não atribuído"
             
             # Filtrar por corretor se especificado
             if corretor and isinstance(corretor, str) and corretor.strip():
@@ -1586,7 +1586,7 @@ async def get_detailed_tables(
             if corretor_custom:
                 corretor_final = corretor_custom
             else:
-                corretor_final = "Vazio"
+                corretor_final = "Não atribuído"
             
             # Determinar funil baseado no pipeline_id
             if pipeline_id == PIPELINE_VENDAS:
@@ -1594,7 +1594,7 @@ async def get_detailed_tables(
             elif pipeline_id == PIPELINE_REMARKETING:
                 funil = "Remarketing"
             else:
-                funil = "Desconhecido"
+                funil = "Não atribuído"
             
             # Filtrar por corretor se especificado
             if corretor and isinstance(corretor, str) and corretor.strip():
@@ -1734,7 +1734,7 @@ async def get_detailed_tables(
                 data_proposta_lead = format_proposal_date(lead, CUSTOM_FIELD_DATA_PROPOSTA)
                 
                 # Determinar corretor final
-                corretor_final = corretor_custom or "Vazio"
+                corretor_final = corretor_custom or "Não atribuído"
                 
                 # Filtrar por corretor se especificado
                 if corretor and isinstance(corretor, str) and corretor.strip():
@@ -1762,7 +1762,7 @@ async def get_detailed_tables(
                 elif pipeline_id == PIPELINE_REMARKETING:
                     funil = "Remarketing"
                 else:
-                    funil = "Desconhecido"
+                    funil = "Não atribuído"
                 
                 # Mapear status_id para nome do status
                 status_name = "Ativo"
