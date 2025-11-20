@@ -35,12 +35,18 @@ class FacebookSyncService:
         self.base_delay = 60  # 1 minuto base para rate limit
         
     def initialize_api(self):
-        """Inicializa API do Facebook"""
+        """Inicializa API do Facebook com timeout configurado"""
         try:
             if FACEBOOK_ACCESS_TOKEN and FACEBOOK_APP_ID:
-                FacebookAdsApi.init(FACEBOOK_APP_ID, None, FACEBOOK_ACCESS_TOKEN)
+                # Inicializar com timeout de 180s (3 minutos) para requisições longas
+                FacebookAdsApi.init(
+                    app_id=FACEBOOK_APP_ID,
+                    app_secret=None,
+                    access_token=FACEBOOK_ACCESS_TOKEN,
+                    timeout=180  # 180 segundos (3 minutos) para insights de 30 dias
+                )
                 self.api_initialized = True
-                logger.info("OK: Facebook API inicializada com sucesso")
+                logger.info("OK: Facebook API inicializada com sucesso (timeout: 180s)")
             else:
                 logger.error("ERRO: Credenciais do Facebook não encontradas")
                 return False

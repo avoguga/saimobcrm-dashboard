@@ -34,12 +34,18 @@ class FacebookOffsiteSyncService:
         self.base_delay = 60
 
     def initialize_api(self):
-        """Inicializa API do Facebook"""
+        """Inicializa API do Facebook com timeout configurado"""
         try:
             if FACEBOOK_ACCESS_TOKEN and FACEBOOK_APP_ID:
-                FacebookAdsApi.init(FACEBOOK_APP_ID, None, FACEBOOK_ACCESS_TOKEN)
+                # Inicializar com timeout de 180s (3 minutos) para requisições longas
+                FacebookAdsApi.init(
+                    app_id=FACEBOOK_APP_ID,
+                    app_secret=None,
+                    access_token=FACEBOOK_ACCESS_TOKEN,
+                    timeout=180  # 180 segundos (3 minutos) para insights de 30 dias
+                )
                 self.api_initialized = True
-                logger.info("Facebook API inicializada para métricas offsite")
+                logger.info("Facebook API inicializada para métricas offsite (timeout: 180s)")
                 return True
         except Exception as e:
             logger.error(f"Erro ao inicializar Facebook API: {e}")

@@ -11,8 +11,17 @@ from pymongo import IndexModel
 import motor.motor_asyncio
 from config import MONGODB_URL, MONGODB_DATABASE
 
-# Cliente MongoDB
-mongodb_client = motor.motor_asyncio.AsyncIOMotorClient(MONGODB_URL)
+# Cliente MongoDB com timeouts aumentados para sync longa
+mongodb_client = motor.motor_asyncio.AsyncIOMotorClient(
+    MONGODB_URL,
+    serverSelectionTimeoutMS=60000,  # 60s (timeout para seleção de servidor)
+    socketTimeoutMS=120000,           # 120s (timeout para operações de socket)
+    connectTimeoutMS=30000,           # 30s (timeout para conexão inicial)
+    maxPoolSize=50,                   # Pool maior para operações concorrentes
+    minPoolSize=10,                   # Manter conexões mínimas abertas
+    maxIdleTimeMS=300000,             # 5min (tempo máximo de conexões ociosas)
+    waitQueueTimeoutMS=60000          # 60s (timeout na fila de espera)
+)
 db = mongodb_client[MONGODB_DATABASE]
 
 class PyObjectId(ObjectId):

@@ -149,8 +149,14 @@ class FacebookDashboardService:
         """
         try:
             # Inicializar sem app_secret para evitar erro de appsecret_proof
-            FacebookAdsApi.init(app_id, None, access_token)
-            
+            # Adicionar timeout de 180s para requisições longas
+            FacebookAdsApi.init(
+                app_id=app_id,
+                app_secret=None,
+                access_token=access_token,
+                timeout=180  # 180 segundos (3 minutos) para insights de 30 dias
+            )
+
             # Inicializar ad_account com ID do config
             from config import settings
             if hasattr(settings, 'FACEBOOK_AD_ACCOUNT_ID') and settings.FACEBOOK_AD_ACCOUNT_ID:
@@ -158,9 +164,9 @@ class FacebookDashboardService:
             else:
                 # Fallback: usar ID padrão se não configurado
                 self.ad_account = AdAccount("act_1502147036843154")
-            
+
             self.initialized = True
-            logger.info("FacebookAdsApi inicializada com sucesso")
+            logger.info("FacebookAdsApi inicializada com sucesso (timeout: 180s)")
         except Exception as e:
             logger.error(f"Erro ao inicializar FacebookAdsApi: {e}")
             self.initialized = False
@@ -1504,29 +1510,25 @@ def _calculate_comprehensive_metrics(metrics_dict: dict, start_date: date, end_d
             day_metrics = metrics_dict[date_key]
             days_with_data += 1
 
-            # Somar métricas absolutas
+            # Somar métricas absolutas (incluindo aquelas usadas para calcular médias)
             for metric in ['leads', 'offsite_registrations', 'profile_visits', 'whatsapp_conversations',
                           'reach', 'impressions', 'clicks', 'link_clicks', 'spend',
                           'page_engagement', 'reactions', 'comments', 'shares',
                           'video_views', 'unique_clicks']:
                 consolidated[metric] += day_metrics.get(metric, 0)
 
-            # Acumular para médias
-            consolidated['cpc'] += day_metrics.get('cpc', 0)
-            consolidated['cpm'] += day_metrics.get('cpm', 0)
-            consolidated['ctr'] += day_metrics.get('ctr', 0)
-            consolidated['cost_per_lead'] += day_metrics.get('cost_per_lead', 0)
-            consolidated['cost_per_unique_click'] += day_metrics.get('cost_per_unique_click', 0)
-
         current_date += timedelta(days=1)
 
-    # Calcular médias
-    if days_with_data > 0:
-        consolidated['cpc'] = consolidated['cpc'] / days_with_data
-        consolidated['cpm'] = consolidated['cpm'] / days_with_data
-        consolidated['ctr'] = consolidated['ctr'] / days_with_data
-        consolidated['cost_per_lead'] = consolidated['cost_per_lead'] / days_with_data
-        consolidated['cost_per_unique_click'] = consolidated['cost_per_unique_click'] / days_with_data
+    # Recalcular médias a partir dos totais (NÃO calcular média das médias diárias)
+    if consolidated['clicks'] > 0:
+        consolidated['cpc'] = consolidated['spend'] / consolidated['clicks']
+    if consolidated['impressions'] > 0:
+        consolidated['cpm'] = (consolidated['spend'] / consolidated['impressions']) * 1000
+        consolidated['ctr'] = (consolidated['clicks'] / consolidated['impressions']) * 100
+    if consolidated['leads'] > 0:
+        consolidated['cost_per_lead'] = consolidated['spend'] / consolidated['leads']
+    if consolidated['unique_clicks'] > 0:
+        consolidated['cost_per_unique_click'] = consolidated['spend'] / consolidated['unique_clicks']
 
     return consolidated
 
