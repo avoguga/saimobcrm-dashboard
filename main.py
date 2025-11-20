@@ -30,10 +30,11 @@ app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard Compl
 app.include_router(cache_admin.router, tags=["Cache Admin"])
 app.include_router(facebook.router, prefix="/facebook", tags=["Facebook Analytics"])
 
-# @app.on_event("startup")
-# async def startup_event():
-#     from app.services.scheduler import facebook_scheduler
-#     facebook_scheduler.start_scheduler()
+@app.on_event("startup")
+async def startup_event():
+    from app.services.scheduler import facebook_scheduler
+    facebook_scheduler.start_scheduler()
+    print("✓ Scheduler Facebook iniciado automaticamente - Sync diária às 5:00 AM")
 
 @app.get("/", tags=["Root"])
 async def root():
