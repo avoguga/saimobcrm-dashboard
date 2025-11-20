@@ -113,6 +113,13 @@ class FacebookScheduler:
                             total_leads += campaign_leads
                             total_spend += campaign_spend
 
+                            # Atualizar status em tempo real
+                            self.sync_status.update({
+                                "total_campaigns": success_count + 1,
+                                "total_leads": total_leads,
+                                "total_spend": total_spend
+                            })
+
                             if campaign_leads > 0:
                                 logger.info(f"   ✓ {campaign_leads} leads, R$ {campaign_spend:.2f}")
 

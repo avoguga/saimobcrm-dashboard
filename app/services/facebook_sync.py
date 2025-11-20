@@ -367,10 +367,20 @@ class FacebookSyncService:
                     action_type = action.get('action_type', '')
                     value = int(action.get('value', 0))
 
-                    # APENAS offsite_complete_registration_add_meta_leads conforme relatórios
-                    if action_type == 'offsite_complete_registration_add_meta_leads':
+                    # TODOS OS TIPOS DE LEADS (7 tipos diferentes)
+                    if action_type in [
+                        'lead',  # Lead genérico/agrupado
+                        'offsite_complete_registration_add_meta_leads',  # Registro completo offsite
+                        'offsite_conversion.fb_pixel_lead',  # Lead via Pixel
+                        'onsite_conversion.lead_grouped',  # Leads agrupados onsite
+                        'onsite_web_lead',  # Lead web onsite
+                        'offsite_content_view_add_meta_leads',  # Content view leads
+                        'offsite_search_add_meta_leads'  # Search leads
+                    ]:
                         leads += value
-                        offsite_registrations += value
+                        # Contar especificamente os registros offsite
+                        if 'offsite' in action_type and 'registration' in action_type:
+                            offsite_registrations += value
                     elif 'messaging' in action_type.lower() and not action_type.startswith('onsite_conversion'):
                         whatsapp_conversations += value
                     elif action_type in ['page_view', 'profile_view']:
@@ -508,10 +518,20 @@ class FacebookSyncService:
                     action_type = action.get('action_type', '')
                     value = int(action.get('value', 0))
 
-                    # APENAS offsite_complete_registration_add_meta_leads conforme relatórios
-                    if action_type == 'offsite_complete_registration_add_meta_leads':
+                    # TODOS OS TIPOS DE LEADS (7 tipos diferentes)
+                    if action_type in [
+                        'lead',  # Lead genérico/agrupado
+                        'offsite_complete_registration_add_meta_leads',  # Registro completo offsite
+                        'offsite_conversion.fb_pixel_lead',  # Lead via Pixel
+                        'onsite_conversion.lead_grouped',  # Leads agrupados onsite
+                        'onsite_web_lead',  # Lead web onsite
+                        'offsite_content_view_add_meta_leads',  # Content view leads
+                        'offsite_search_add_meta_leads'  # Search leads
+                    ]:
                         day_metrics['leads'] += value
-                        day_metrics['offsite_registrations'] += value
+                        # Contar especificamente os registros offsite
+                        if 'offsite' in action_type and 'registration' in action_type:
+                            day_metrics['offsite_registrations'] += value
                     elif 'messaging' in action_type.lower() and not action_type.startswith('onsite_conversion'):
                         day_metrics['whatsapp_conversations'] += value
                     elif action_type in ['page_view', 'profile_view']:
@@ -631,10 +651,20 @@ class FacebookSyncService:
                     action_type = action.get('action_type', '')
                     value = int(action.get('value', 0))
 
-                    # APENAS offsite_complete_registration_add_meta_leads conforme relatórios
-                    if action_type == 'offsite_complete_registration_add_meta_leads':
+                    # TODOS OS TIPOS DE LEADS (7 tipos diferentes)
+                    if action_type in [
+                        'lead',  # Lead genérico/agrupado
+                        'offsite_complete_registration_add_meta_leads',  # Registro completo offsite
+                        'offsite_conversion.fb_pixel_lead',  # Lead via Pixel
+                        'onsite_conversion.lead_grouped',  # Leads agrupados onsite
+                        'onsite_web_lead',  # Lead web onsite
+                        'offsite_content_view_add_meta_leads',  # Content view leads
+                        'offsite_search_add_meta_leads'  # Search leads
+                    ]:
                         day_metrics['leads'] += value
-                        day_metrics['offsite_registrations'] += value
+                        # Contar especificamente os registros offsite
+                        if 'offsite' in action_type and 'registration' in action_type:
+                            day_metrics['offsite_registrations'] += value
                     elif 'messaging' in action_type.lower() and not action_type.startswith('onsite_conversion'):
                         day_metrics['whatsapp_conversations'] += value
                     elif action_type in ['page_view', 'profile_view']:
