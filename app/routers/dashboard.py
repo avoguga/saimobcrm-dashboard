@@ -1784,6 +1784,10 @@ async def get_detailed_tables(
                 else:
                     data_criacao_formatada = "N/A"
                 
+                # Buscar valor (price) do lead
+                price = lead.get("price", 0) or 0
+                valor_formatado = f"R$ {price:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
                 # Criar objeto da proposta
                 proposta_dict = {
                     "Data de Criação do Lead": data_criacao_formatada,
@@ -1796,7 +1800,8 @@ async def get_detailed_tables(
                     "Produto": produto_lead,
                     "Funil": funil,
                     "Etapa": etapa,
-                    "Status": status_name
+                    "Status": status_name,
+                    "Valor da Proposta": valor_formatado
                 }
                 
                 # Adicionar proposta à lista
@@ -1807,12 +1812,26 @@ async def get_detailed_tables(
         
         # Contar propostas detalhadas finais
         total_propostas_detalhes = len(propostas_detalhes)
-        
+
         valor_total_vendas = sum(
             float(v["Valor da Venda"].replace("R$ ", "").replace(".", "").replace(",", "."))
             for v in vendas_detalhes
         )
-        
+
+        # Calcular receita prevista (Contrato Enviado + Contrato Assinado + Closed-Won)
+        # Etapas alvo para receita prevista
+        etapas_receita_prevista = ["Contrato Enviado", "Contrato Assinado", "Venda ganha"]
+        receita_prevista = 0.0
+
+        for proposta in propostas_detalhes:
+            if proposta.get("Etapa") in etapas_receita_prevista:
+                valor_str = proposta.get("Valor da Proposta", "R$ 0,00")
+                try:
+                    valor_float = float(valor_str.replace("R$ ", "").replace(".", "").replace(",", "."))
+                    receita_prevista += valor_float
+                except (ValueError, AttributeError):
+                    continue
+
         # Montar resposta
         response = {
             "leadsDetalhes": leads_detalhes,  # Leads não-orgânicos
@@ -1828,6 +1847,7 @@ async def get_detailed_tables(
                 "total_reunioes_organicas": total_reunioes_organicas,  # NOVO: Reuniões orgânicas
                 "total_vendas": total_vendas,
                 "valor_total_vendas": valor_total_vendas,
+                "receita_prevista": receita_prevista,  # NOVO: Receita prevista (Contrato Enviado + Assinado + Closed-Won)
                 # NOVO: Estatísticas de propostas usando campo boolean (compatibilidade)
                 "total_propostas": total_propostas_geral_boolean,
                 "propostas_leads": total_propostas_leads_boolean,

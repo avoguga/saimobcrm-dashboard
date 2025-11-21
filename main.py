@@ -34,7 +34,7 @@ app.include_router(facebook.router, prefix="/facebook", tags=["Facebook Analytic
 async def startup_event():
     from app.services.scheduler import facebook_scheduler
     facebook_scheduler.start_scheduler()
-    print("✓ Scheduler Facebook iniciado automaticamente - Sync diária às 5:00 AM")
+    print("Scheduler Facebook iniciado automaticamente - Sync diaria as 5:00 AM")
 
 @app.get("/", tags=["Root"])
 async def root():
