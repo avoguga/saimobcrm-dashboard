@@ -962,6 +962,7 @@ async def get_detailed_tables(
         STATUS_VENDA_FINAL = 142  # "Closed - won" / "Venda ganha"
         PIPELINE_VENDAS = 10516987  # ID do Funil de Vendas
         CUSTOM_FIELD_DATA_FECHAMENTO = 858126  # ID do campo "Data Fechamento"
+        CUSTOM_FIELD_DATA_CONTRATO = 888731  # ID do campo "Data Contrato" (usado para receita prevista)
         CUSTOM_FIELD_ESTADO = 851638  # Campo ESTADO
         CUSTOM_FIELD_FONTE = 837886  # Campo "Fonte"
         CUSTOM_FIELD_ANUNCIO = 837846  # Campo "Anúncio"
@@ -1703,11 +1704,13 @@ async def get_detailed_tables(
             'with': 'contacts,custom_fields_values'
         }
         
+        all_leads_propostas = []  # Inicializar antes do try para evitar erro de variável não definida
+
         try:
             # Buscar TODOS os leads (sem filtro de data de criação)
             leads_vendas_propostas = kommo_api.get_all_leads(params_propostas_vendas)
             leads_remarketing_propostas = kommo_api.get_all_leads(params_propostas_remarketing)
-            
+
             # Combinar todos os leads
             all_leads_propostas = leads_vendas_propostas + leads_remarketing_propostas
             
@@ -1818,19 +1821,69 @@ async def get_detailed_tables(
             for v in vendas_detalhes
         )
 
-        # Calcular receita prevista (Contrato Enviado + Contrato Assinado + Closed-Won)
-        # Etapas alvo para receita prevista
-        etapas_receita_prevista = ["Contrato Enviado", "Contrato Assinado", "Venda ganha"]
+        # Calcular receita prevista
+        # Inclui leads com Data da Proposta OU Data Fechamento no período
+        # Etapas: Proposta, Contrato Enviado, Contrato Assinado, Venda ganha
+        etapas_receita_prevista = ["Proposta", "Contrato Enviado", "Contrato Assinado", "Venda ganha"]
         receita_prevista = 0.0
+        receita_prevista_detalhes = []  # Lista detalhada para o frontend
 
-        for proposta in propostas_detalhes:
-            if proposta.get("Etapa") in etapas_receita_prevista:
-                valor_str = proposta.get("Valor da Proposta", "R$ 0,00")
-                try:
-                    valor_float = float(valor_str.replace("R$ ", "").replace(".", "").replace(",", "."))
-                    receita_prevista += valor_float
-                except (ValueError, AttributeError):
-                    continue
+        # Iterar sobre todos os leads e filtrar por Data Proposta OU Data Fechamento
+        for lead in all_leads_propostas:
+            if not lead:
+                continue
+
+            status_id = lead.get("status_id")
+            etapa_lead = status_map.get(status_id, "")
+            lead_name = lead.get("name", "N/A")
+            price = lead.get("price", 0) or 0
+
+            # Verificar se está em uma das etapas alvo
+            if etapa_lead not in etapas_receita_prevista:
+                continue
+
+            # Buscar Data da Proposta E Data Fechamento
+            data_proposta_ts = get_lead_closure_date(lead, CUSTOM_FIELD_DATA_PROPOSTA)
+            data_fechamento_ts = get_lead_closure_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
+
+            # Verificar se alguma das datas está no período
+            proposta_no_periodo = (start_timestamp <= data_proposta_ts <= end_timestamp) if data_proposta_ts else False
+            fechamento_no_periodo = (start_timestamp <= data_fechamento_ts <= end_timestamp) if data_fechamento_ts else False
+
+            # Se pelo menos UMA data estiver no período, incluir
+            if proposta_no_periodo or fechamento_no_periodo:
+                receita_prevista += float(price)
+
+                # Extrair campos customizados para a tabela detalhada
+                fonte_lead = extract_custom_field_value(lead, 837886) or "N/A"
+                corretor_custom = extract_custom_field_value(lead, 837920)
+                corretor_final = corretor_custom or "Não atribuído"
+                data_proposta_formatada = format_proposal_date(lead, CUSTOM_FIELD_DATA_PROPOSTA)
+                data_fechamento_formatada = format_proposal_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
+                pipeline_id = lead.get("pipeline_id")
+
+                # Determinar funil
+                if pipeline_id == PIPELINE_VENDAS:
+                    funil = "Funil de Vendas"
+                elif pipeline_id == PIPELINE_REMARKETING:
+                    funil = "Remarketing"
+                else:
+                    funil = "Não atribuído"
+
+                valor_formatado = f"R$ {price:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
+                receita_prevista_detalhes.append({
+                    "Nome do Lead": lead_name,
+                    "Etapa": etapa_lead,
+                    "Corretor": corretor_final,
+                    "Fonte": fonte_lead,
+                    "Funil": funil,
+                    "Data da Proposta": data_proposta_formatada,
+                    "Data Fechamento": data_fechamento_formatada,
+                    "Valor": valor_formatado
+                })
+
+        logger.info(f"Receita Prevista calculada: R$ {receita_prevista:,.2f} ({len(receita_prevista_detalhes)} leads)")
 
         # Montar resposta
         response = {
@@ -1840,6 +1893,7 @@ async def get_detailed_tables(
             "reunioesOrganicasDetalhes": reunioes_organicas_detalhes,  # NOVO: Reuniões orgânicas
             "vendasDetalhes": vendas_detalhes,
             "propostasDetalhes": propostas_detalhes,  # NOVO: Propostas unificadas (filtradas por Data da Proposta)
+            "receitaPrevistaDetalhes": receita_prevista_detalhes,  # NOVO: Detalhes da receita prevista
             "summary": {
                 "total_leads": total_leads,  # Leads não-orgânicos
                 "total_organicos": total_organicos,  # NOVO: Leads orgânicos
@@ -1847,7 +1901,7 @@ async def get_detailed_tables(
                 "total_reunioes_organicas": total_reunioes_organicas,  # NOVO: Reuniões orgânicas
                 "total_vendas": total_vendas,
                 "valor_total_vendas": valor_total_vendas,
-                "receita_prevista": receita_prevista,  # NOVO: Receita prevista (Contrato Enviado + Assinado + Closed-Won)
+                "receita_prevista": receita_prevista,  # Receita prevista (Data Proposta OU Data Fechamento no período)
                 # NOVO: Estatísticas de propostas usando campo boolean (compatibilidade)
                 "total_propostas": total_propostas_geral_boolean,
                 "propostas_leads": total_propostas_leads_boolean,
