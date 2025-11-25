@@ -1110,32 +1110,152 @@ async def get_detailed_tables(
         }
         
         
-        # Buscar VENDAS de ambos os pipelines - USAR PAGINAÇÃO COMPLETA
-        try:
-            vendas_vendas_all = kommo_api.get_all_leads_old(vendas_vendas_params)
-            vendas_vendas_data = {"_embedded": {"leads": vendas_vendas_all}}
-            logger.info(f"Vendas Vendas (paginação completa): {len(vendas_vendas_all)}")
-        except Exception as e:
-            logger.error(f"Erro ao buscar vendas vendas: {e}")
-            vendas_vendas_data = {"_embedded": {"leads": []}}
+        # ================================================================
+        # OTIMIZAÇÃO: Buscar dados em PARALELO para reduzir tempo
+        # Limite Kommo API: 7 req/s - usamos max_workers=5 para segurança
+        # ================================================================
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import time as time_module
 
-        try:
-            vendas_remarketing_all = kommo_api.get_all_leads_old(vendas_remarketing_params)
-            vendas_remarketing_data = {"_embedded": {"leads": vendas_remarketing_all}}
-            logger.info(f"Vendas Remarketing (paginação completa): {len(vendas_remarketing_all)}")
-        except Exception as e:
-            logger.error(f"Erro ao buscar vendas remarketing: {e}")
-            vendas_remarketing_data = {"_embedded": {"leads": []}}
-        
-        users_data = safe_get_data(kommo_api.get_users)
-        pipelines_data = safe_get_data(kommo_api.get_pipelines)
-        
+        parallel_start = time_module.time()
+        logger.info("Iniciando busca PARALELA de dados...")
+
+        # Preparar parâmetros para leads
+        all_leads_params = {
+            "filter[pipeline_id]": PIPELINE_VENDAS,
+            "filter[created_at][from]": start_timestamp,
+            "filter[created_at][to]": end_timestamp,
+            "limit": limit,
+            "with": "contacts,tags,custom_fields_values"
+        }
+
+        all_leads_remarketing_params = {
+            "filter[pipeline_id]": PIPELINE_REMARKETING,
+            "filter[created_at][from]": start_timestamp,
+            "filter[created_at][to]": end_timestamp,
+            "limit": limit,
+            "with": "contacts,tags,custom_fields_values"
+        }
+
+        # Parâmetros para tarefas de reunião
+        tasks_params = {
+            'filter[task_type_id]': 2,
+            'filter[is_completed]': 1,
+            'filter[complete_till][from]': meetings_start_timestamp,
+            'filter[complete_till][to]': end_timestamp,
+            'limit': limit
+        }
+
+        # Funções wrapper para execução paralela
+        def fetch_vendas_vendas():
+            try:
+                result = kommo_api.get_all_leads_old(vendas_vendas_params)
+                return ("vendas_vendas", result or [])
+            except Exception as e:
+                logger.error(f"Erro ao buscar vendas vendas: {e}")
+                return ("vendas_vendas", [])
+
+        def fetch_vendas_remarketing():
+            try:
+                result = kommo_api.get_all_leads_old(vendas_remarketing_params)
+                return ("vendas_remarketing", result or [])
+            except Exception as e:
+                logger.error(f"Erro ao buscar vendas remarketing: {e}")
+                return ("vendas_remarketing", [])
+
+        def fetch_users():
+            try:
+                result = safe_get_data(kommo_api.get_users)
+                return ("users", result)
+            except Exception as e:
+                logger.error(f"Erro ao buscar users: {e}")
+                return ("users", {})
+
+        def fetch_pipelines():
+            try:
+                result = safe_get_data(kommo_api.get_pipelines)
+                return ("pipelines", result)
+            except Exception as e:
+                logger.error(f"Erro ao buscar pipelines: {e}")
+                return ("pipelines", {})
+
+        def fetch_leads_vendas():
+            try:
+                result = kommo_api.get_all_leads_old(all_leads_params)
+                return ("leads_vendas", result or [])
+            except Exception as e:
+                logger.error(f"Erro ao buscar leads vendas: {e}")
+                return ("leads_vendas", [])
+
+        def fetch_leads_remarketing():
+            try:
+                result = kommo_api.get_all_leads_old(all_leads_remarketing_params)
+                return ("leads_remarketing", result or [])
+            except Exception as e:
+                logger.error(f"Erro ao buscar leads remarketing: {e}")
+                return ("leads_remarketing", [])
+
+        def fetch_tasks():
+            try:
+                result = kommo_api.get_all_tasks(tasks_params)
+                return ("tasks", result or [])
+            except Exception as e:
+                logger.error(f"Erro ao buscar tasks: {e}")
+                return ("tasks", [])
+
+        # Executar TODAS as 7 chamadas em paralelo
+        # max_workers=5 para ficar abaixo do limite de 7 req/s da Kommo
+        parallel_results = {}
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [
+                executor.submit(fetch_vendas_vendas),
+                executor.submit(fetch_vendas_remarketing),
+                executor.submit(fetch_users),
+                executor.submit(fetch_pipelines),
+                executor.submit(fetch_leads_vendas),
+                executor.submit(fetch_leads_remarketing),
+                executor.submit(fetch_tasks),
+            ]
+
+            for future in as_completed(futures):
+                try:
+                    key, value = future.result(timeout=120)
+                    parallel_results[key] = value
+                    logger.info(f"Busca paralela concluída: {key}")
+                except Exception as e:
+                    logger.error(f"Erro em busca paralela: {e}")
+
+        parallel_elapsed = time_module.time() - parallel_start
+        logger.info(f"Busca PARALELA concluída em {parallel_elapsed:.2f}s")
+
+        # Extrair resultados
+        vendas_vendas_all = parallel_results.get("vendas_vendas", [])
+        vendas_remarketing_all = parallel_results.get("vendas_remarketing", [])
+        users_data = parallel_results.get("users", {})
+        pipelines_data = parallel_results.get("pipelines", {})
+        all_leads_vendas_all = parallel_results.get("leads_vendas", [])
+        all_leads_remarketing_all = parallel_results.get("leads_remarketing", [])
+        all_tasks = parallel_results.get("tasks", [])
+
+        # Criar estruturas de dados compatíveis
+        vendas_vendas_data = {"_embedded": {"leads": vendas_vendas_all}}
+        vendas_remarketing_data = {"_embedded": {"leads": vendas_remarketing_all}}
+        all_leads_vendas_data = {"_embedded": {"leads": all_leads_vendas_all}}
+        all_leads_remarketing_data = {"_embedded": {"leads": all_leads_remarketing_all}}
+        tasks_data = {"_embedded": {"tasks": all_tasks}}
+
+        logger.info(f"Vendas Vendas: {len(vendas_vendas_all)}")
+        logger.info(f"Vendas Remarketing: {len(vendas_remarketing_all)}")
+        logger.info(f"Leads Vendas: {len(all_leads_vendas_all)}")
+        logger.info(f"Leads Remarketing: {len(all_leads_remarketing_all)}")
+        logger.info(f"Tasks: {len(all_tasks)}")
+
         # Criar mapa de usuários
         users_map = {}
         if users_data and "_embedded" in users_data:
             for user in users_data["_embedded"].get("users", []):
                 users_map[user["id"]] = user["name"]
-        
+
         # Criar mapa de status IDs para nomes reais
         status_map = {}
         if pipelines_data and "_embedded" in pipelines_data:
@@ -1153,68 +1273,33 @@ async def get_detailed_tables(
                                         status_name = status.get("name", f"Status {status_id}")
                                         if status_id:
                                             status_map[status_id] = status_name
-        
-        
+
         # Combinar VENDAS de ambos os pipelines
         all_vendas = []
         if vendas_vendas_data and "_embedded" in vendas_vendas_data:
             vendas = vendas_vendas_data["_embedded"].get("leads", [])
             all_vendas.extend(vendas)
             logger.info(f"Vendas do Funil de Vendas: {len(vendas)}")
-        
+
         if vendas_remarketing_data and "_embedded" in vendas_remarketing_data:
             vendas = vendas_remarketing_data["_embedded"].get("leads", [])
             all_vendas.extend(vendas)
             logger.info(f"Vendas do Remarketing: {len(vendas)}")
-        
-        logger.info(f"Encontradas {len(all_vendas)} vendas totais")
-        
-        # Buscar TODOS os leads para a seção leadsDetalhes (sem filtro de status)
-        all_leads_params = {
-            "filter[pipeline_id]": PIPELINE_VENDAS,
-            "filter[created_at][from]": start_timestamp,  # Usar created_at para leads
-            "filter[created_at][to]": end_timestamp,
-            "limit": limit,
-            "with": "contacts,tags,custom_fields_values"
-        }
-        
-        all_leads_remarketing_params = {
-            "filter[pipeline_id]": PIPELINE_REMARKETING,
-            "filter[created_at][from]": start_timestamp,  # Usar created_at para leads
-            "filter[created_at][to]": end_timestamp,
-            "limit": limit,
-            "with": "contacts,tags,custom_fields_values"
-        }
-        
-        # Buscar todos os leads - USAR PAGINAÇÃO COMPLETA
-        try:
-            all_leads_vendas_all = kommo_api.get_all_leads_old(all_leads_params)
-            all_leads_vendas_data = {"_embedded": {"leads": all_leads_vendas_all}}
-            logger.info(f"Todos os Leads Vendas (paginação completa): {len(all_leads_vendas_all)}")
-        except Exception as e:
-            logger.error(f"Erro ao buscar todos os leads vendas: {e}")
-            all_leads_vendas_data = {"_embedded": {"leads": []}}
 
-        try:
-            all_leads_remarketing_all = kommo_api.get_all_leads_old(all_leads_remarketing_params)
-            all_leads_remarketing_data = {"_embedded": {"leads": all_leads_remarketing_all}}
-            logger.info(f"Todos os Leads Remarketing (paginação completa): {len(all_leads_remarketing_all)}")
-        except Exception as e:
-            logger.error(f"Erro ao buscar todos os leads remarketing: {e}")
-            all_leads_remarketing_data = {"_embedded": {"leads": []}}
-        
+        logger.info(f"Encontradas {len(all_vendas)} vendas totais")
+
         # Combinar TODOS os leads
         all_leads_for_details = []
         if all_leads_vendas_data and "_embedded" in all_leads_vendas_data:
             leads = all_leads_vendas_data["_embedded"].get("leads", [])
             all_leads_for_details.extend(leads)
             logger.info(f"Todos os leads do Funil de Vendas: {len(leads)}")
-        
+
         if all_leads_remarketing_data and "_embedded" in all_leads_remarketing_data:
             leads = all_leads_remarketing_data["_embedded"].get("leads", [])
             all_leads_for_details.extend(leads)
             logger.info(f"Todos os leads do Remarketing: {len(leads)}")
-        
+
         logger.info(f"Total de leads para leadsDetalhes: {len(all_leads_for_details)}")
         
         # Listas para as tabelas
@@ -1225,27 +1310,9 @@ async def get_detailed_tables(
         organicos_detalhes = []  # NOVA lista para leads orgânicos
         propostas_detalhes = []  # NOVA lista para propostas (unificada)
         
-        # NOVO: Buscar tarefas de reunião realizadas COM filtro de data
-        logger.info("Buscando tarefas de reunião realizadas...")
-        tasks_params = {
-            'filter[task_type_id]': 2,  # CORREÇÃO: usar task_type_id em vez de task_type
-            'filter[is_completed]': 1,  # Apenas concluídas
-            'filter[complete_till][from]': meetings_start_timestamp,  # CORREÇÃO: usar meetings_start_timestamp para incluir 23:59 do dia anterior
-            'filter[complete_till][to]': end_timestamp,      # Filtro de data
-            'limit': limit
-        }
-        
-        # Usar get_all_tasks com paginação para períodos grandes
-        try:
-            all_tasks = kommo_api.get_all_tasks(tasks_params)
-            tasks_data = {"_embedded": {"tasks": all_tasks}}
-            logger.info(f"[detailed-tables] Total de tarefas encontradas: {len(all_tasks)}")
-        except Exception as e:
-            logger.error(f"Erro ao buscar todas as tarefas: {e}")
-            tasks_data = safe_get_data(kommo_api.get_tasks, tasks_params)
-        
+        # Tasks já foram buscadas em paralelo acima
+        # Extrair reunioes_tasks do resultado
         reunioes_tasks = []
-        
         if tasks_data and '_embedded' in tasks_data:
             reunioes_tasks = tasks_data.get('_embedded', {}).get('tasks', [])
             logger.info(f"Encontradas {len(reunioes_tasks)} tarefas de reunião concluídas")
