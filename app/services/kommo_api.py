@@ -401,15 +401,29 @@ class KommoAPI:
             print(f"Erro: Resposta sem '_embedded' - estrutura inválida")
             return []
         
-        # Calcular número total de páginas com limite inteligente
+        # Calcular número total de páginas
+        # CORREÇÃO: Kommo nem sempre retorna _page.total, então usamos heurística
         page_info = first_response.get('_page', {})
         total_count = page_info.get('total', 0) if isinstance(page_info, dict) else 0
-        
-        print(f"Total de leads encontrados: {total_count}")
-        
+
+        # Verificar quantos leads vieram na primeira página
+        first_page_leads = first_response.get('_embedded', {}).get('leads', [])
+        first_page_count = len(first_page_leads)
+
+        # Se não temos total_count mas temos 250 leads na primeira página, há mais páginas
+        # Usar heurística: se primeira página está cheia, assumir mais páginas
+        if total_count == 0 and first_page_count >= 250:
+            # Estimar baseado no fato de que há mais páginas
+            has_next = '_links' in first_response and 'next' in first_response.get('_links', {})
+            if has_next:
+                total_count = 250 * 15  # Assumir até 15 páginas para busca paralela
+                print(f"Total desconhecido, primeira página cheia ({first_page_count}), estimando {total_count}")
+
+        print(f"Total de leads encontrados: {total_count} (primeira página: {first_page_count})")
+
         items_per_page = 250
         calculated_pages = (total_count + items_per_page - 1) // items_per_page if total_count > 0 else 1
-        
+
         # Usar max_pages customizado ou padrão baseado na quantidade de dados
         if max_pages is not None:
             total_pages = min(calculated_pages, max_pages)
@@ -425,12 +439,17 @@ class KommoAPI:
             else:  # Muitos dados
                 total_pages = min(calculated_pages, 20)
                 print(f"Limite PADRÃO: {total_pages} páginas (dados extensos)")
-        
+
+        # Se primeira página não está cheia, só há uma página
+        if first_page_count < 250:
+            print(f"Primeira página não está cheia ({first_page_count}), retornando apenas primeira página")
+            return first_page_leads
+
         if total_pages == 0:
             return []
-        
+
         print(f"Total estimado: {total_count} leads em {total_pages} páginas")
-        
+
         if not use_parallel or total_pages == 1:
             # Se não usar paralelo ou só tem 1 página, usar método sequencial otimizado
             return self.get_all_leads_old(params)
@@ -474,7 +493,179 @@ class KommoAPI:
         print(f"get_all_leads: CONCLUÍDO - {len(all_leads)} leads em {total_pages} páginas em {elapsed_time:.2f}s")
         
         return all_leads
-    
+
+    async def get_all_leads_async(self, params: Optional[Dict] = None, max_pages: int = 15) -> List[Dict]:
+        """
+        Obtém todos os leads usando aiohttp para requisições paralelas controladas.
+
+        Implementa:
+        - Semáforo para controlar concorrência (respeita rate limit Kommo: 7 req/s)
+        - Retry com backoff exponencial em caso de falha
+        - Tratamento adequado de rate limiting (429)
+
+        Args:
+            params: Parâmetros da consulta
+            max_pages: Máximo de páginas a buscar (default: 15)
+
+        Returns:
+            Lista com todos os leads
+        """
+        if params is None:
+            params = {}
+
+        start_time = time.time()
+        logger.info(f"get_all_leads_async: Iniciando busca com aiohttp, params: {params}")
+
+        all_leads = []
+        base_url = f"{self.base_url}/leads"
+
+        # Semáforo para limitar requisições concorrentes (Kommo: 7 req/s)
+        semaphore = asyncio.Semaphore(5)  # Máximo 5 requisições simultâneas
+
+        async def fetch_page_with_retry(session: aiohttp.ClientSession, page: int, max_retries: int = 3) -> Dict:
+            """Busca uma página com retry e backoff exponencial"""
+            page_params = params.copy()
+            page_params['page'] = page
+            page_params['limit'] = 250
+
+            for attempt in range(max_retries):
+                try:
+                    async with semaphore:  # Controla concorrência
+                        async with session.get(base_url, params=page_params) as response:
+                            if response.status == 200:
+                                data = await response.json()
+                                return {"page": page, "data": data, "success": True}
+                            elif response.status == 204:
+                                return {"page": page, "data": None, "success": True, "empty": True}
+                            elif response.status == 429:  # Rate limited
+                                wait_time = (2 ** attempt) * 0.5  # Backoff: 0.5s, 1s, 2s
+                                logger.warning(f"Página {page}: Rate limited, aguardando {wait_time}s...")
+                                await asyncio.sleep(wait_time)
+                                continue
+                            else:
+                                logger.warning(f"Página {page}: Status {response.status}")
+                                if attempt < max_retries - 1:
+                                    await asyncio.sleep(0.5 * (attempt + 1))
+                                    continue
+                                return {"page": page, "data": None, "success": False}
+                except asyncio.TimeoutError:
+                    logger.warning(f"Página {page}: Timeout (tentativa {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(1 * (attempt + 1))
+                        continue
+                    return {"page": page, "data": None, "success": False, "error": "timeout"}
+                except Exception as e:
+                    logger.error(f"Página {page}: Erro {str(e)} (tentativa {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                        continue
+                    return {"page": page, "data": None, "success": False, "error": str(e)}
+
+            return {"page": page, "data": None, "success": False, "error": "max_retries"}
+
+        # Usar um único ClientSession para melhor performance (connection pooling)
+        connector = aiohttp.TCPConnector(limit=10, limit_per_host=5)
+        timeout = aiohttp.ClientTimeout(total=30, connect=10)
+
+        async with aiohttp.ClientSession(
+            headers=self.headers,
+            connector=connector,
+            timeout=timeout
+        ) as session:
+            # Primeira requisição para verificar se há dados
+            first_result = await fetch_page_with_retry(session, 1)
+
+            if not first_result["success"] or first_result.get("empty"):
+                logger.info("get_all_leads_async: Nenhum dado encontrado")
+                return []
+
+            first_data = first_result["data"]
+            if not first_data or "_embedded" not in first_data:
+                return []
+
+            first_leads = first_data.get("_embedded", {}).get("leads", [])
+            all_leads.extend(first_leads)
+            logger.info(f"Página 1: {len(first_leads)} leads")
+
+            # Se primeira página não está cheia, não há mais páginas
+            if len(first_leads) < 250:
+                elapsed = time.time() - start_time
+                logger.info(f"get_all_leads_async: CONCLUÍDO - {len(all_leads)} leads em 1 página em {elapsed:.2f}s")
+                return all_leads
+
+            # Buscar páginas 2 a max_pages em paralelo com controle de concorrência
+            pages_to_fetch = list(range(2, max_pages + 1))
+            logger.info(f"Buscando páginas {pages_to_fetch} em paralelo (semaphore=5)...")
+
+            # Criar tasks para todas as páginas
+            tasks = [fetch_page_with_retry(session, page) for page in pages_to_fetch]
+
+            # Executar todas em paralelo (semáforo controla a concorrência real)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Processar resultados e contar falhas
+            failed_pages = []
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.error(f"Exceção: {str(result)}")
+                    continue
+
+                if not result["success"]:
+                    failed_pages.append(result["page"])
+                    continue
+
+                if result.get("empty"):
+                    continue
+
+                data = result["data"]
+                if data and "_embedded" in data and "leads" in data["_embedded"]:
+                    leads = data["_embedded"]["leads"]
+                    all_leads.extend(leads)
+                    logger.info(f"Página {result['page']}: {len(leads)} leads")
+
+            if failed_pages:
+                logger.warning(f"Páginas com falha: {failed_pages}")
+
+        elapsed = time.time() - start_time
+        logger.info(f"get_all_leads_async: CONCLUÍDO - {len(all_leads)} leads em {elapsed:.2f}s")
+
+        return all_leads
+
+    async def get_all_leads_parallel_async(self, params_list: List[Dict], max_pages: int = 15) -> List[List[Dict]]:
+        """
+        Busca leads de MÚLTIPLOS pipelines em paralelo usando aiohttp.
+
+        Args:
+            params_list: Lista de parâmetros, um para cada pipeline
+            max_pages: Máximo de páginas por pipeline
+
+        Returns:
+            Lista de listas, cada uma contendo os leads de um pipeline
+        """
+        start_time = time.time()
+        logger.info(f"get_all_leads_parallel_async: Buscando {len(params_list)} pipelines em paralelo")
+
+        # Criar tasks para cada pipeline
+        tasks = [self.get_all_leads_async(params, max_pages) for params in params_list]
+
+        # Executar todos em paralelo
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Processar resultados
+        final_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"Pipeline {i}: Exceção {str(result)}")
+                final_results.append([])
+            else:
+                final_results.append(result)
+
+        elapsed = time.time() - start_time
+        total_leads = sum(len(r) for r in final_results)
+        logger.info(f"get_all_leads_parallel_async: CONCLUÍDO - {total_leads} leads total em {elapsed:.2f}s")
+
+        return final_results
+
     # Métodos de Utilidade
     def unix_to_datetime(self, timestamp: int) -> datetime:
         """Converte Unix timestamp para objeto datetime"""

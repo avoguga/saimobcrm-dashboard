@@ -1756,27 +1756,40 @@ async def get_detailed_tables(
         total_propostas_geral_boolean = total_propostas_leads_boolean + total_propostas_organicos_boolean
         
         # NOVO: Processar propostas detalhadas DEPOIS dos totais serem calculados
-        logger.info("Processando propostas detalhadas buscando TODOS os leads...")
-        
+        # OTIMIZAÇÃO v2: Buscar propostas com aiohttp + asyncio.gather (verdadeiramente paralelo)
+        # Baseado em: https://proxiesapi.com/articles/making-fast-parallel-requests-with-asyncio
+        propostas_start = time_module.time()
+        logger.info("Processando propostas detalhadas com aiohttp (paralelo verdadeiro)...")
+
         # Buscar TODOS os leads sem filtro de data de criação para encontrar todas as propostas
         params_propostas_vendas = {
             'filter[pipeline_id]': PIPELINE_VENDAS,
-            'limit': 500,
+            'limit': 250,
             'with': 'contacts,custom_fields_values'
         }
-        
+
         params_propostas_remarketing = {
             'filter[pipeline_id]': PIPELINE_REMARKETING,
-            'limit': 500,
+            'limit': 250,
             'with': 'contacts,custom_fields_values'
         }
-        
+
         all_leads_propostas = []  # Inicializar antes do try para evitar erro de variável não definida
 
         try:
-            # Buscar TODOS os leads (sem filtro de data de criação)
-            leads_vendas_propostas = kommo_api.get_all_leads(params_propostas_vendas)
-            leads_remarketing_propostas = kommo_api.get_all_leads(params_propostas_remarketing)
+            # OTIMIZAÇÃO v2: Usar aiohttp para requisições verdadeiramente paralelas
+            # Buscar ambos os pipelines simultaneamente com todas as páginas em paralelo
+            results = await kommo_api.get_all_leads_parallel_async(
+                [params_propostas_vendas, params_propostas_remarketing],
+                max_pages=12  # Limite de segurança
+            )
+
+            leads_vendas_propostas = results[0] if len(results) > 0 else []
+            leads_remarketing_propostas = results[1] if len(results) > 1 else []
+
+            propostas_elapsed = time_module.time() - propostas_start
+            logger.info(f"Busca propostas ASYNC concluída em {propostas_elapsed:.2f}s")
+            logger.info(f"Propostas Vendas: {len(leads_vendas_propostas)}, Remarketing: {len(leads_remarketing_propostas)}")
 
             # Combinar todos os leads
             all_leads_propostas = leads_vendas_propostas + leads_remarketing_propostas
