@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Query, HTTPException, Path
 from typing import Dict, List, Optional
-from app.services.kommo_api import KommoAPI
+from app.services.kommo_api import get_kommo_api
 import traceback
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
-api = KommoAPI()
+api = get_kommo_api()
 
 @router.get("/")
 async def get_all_leads(
@@ -894,8 +894,8 @@ def filter_leads_by_corretor(leads: list, corretor_name: str) -> list:
 def get_all_leads_with_custom_fields():
     """Busca todos os leads com campos personalizados - VERSÃO OTIMIZADA"""
     try:
-        from app.services.kommo_api import KommoAPI
-        kommo_api = KommoAPI()
+        from app.services.kommo_api import get_kommo_api
+        kommo_api = get_kommo_api()
         
         print("get_all_leads_with_custom_fields: Usando método OTIMIZADO...")
         

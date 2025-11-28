@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, Query, Path
 from typing import Dict, List, Optional
-from app.services.kommo_api import KommoAPI
+from app.services.kommo_api import get_kommo_api
 
 router = APIRouter(prefix="/custom-fields", tags=["Custom Fields"])
-api = KommoAPI()
+api = get_kommo_api()
 
 @router.get("/")
 async def get_all_custom_fields():

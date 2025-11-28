@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException
 from typing import Dict, List
-from app.services.kommo_api import KommoAPI
+from app.services.kommo_api import get_kommo_api
 import traceback
 
 router = APIRouter(prefix="/sources", tags=["Sources"])
-api = KommoAPI()
+api = get_kommo_api()
 
 @router.get("/")
 async def get_all_sources():

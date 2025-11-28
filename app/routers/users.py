@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
-from app.services.kommo_api import KommoAPI
+from app.services.kommo_api import get_kommo_api
 
 router = APIRouter(prefix="/users", tags=["Users"])
-api = KommoAPI()
+api = get_kommo_api()
 
 @router.get("/")
 async def get_all_users():

@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Path, HTTPException
-from app.services.kommo_api import KommoAPI
+from app.services.kommo_api import get_kommo_api
 
 router = APIRouter(prefix="/pipelines", tags=["Pipelines"])
-api = KommoAPI()
+api = get_kommo_api()
 
 @router.get("/")
 async def get_all_pipelines():

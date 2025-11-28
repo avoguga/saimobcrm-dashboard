@@ -12,8 +12,75 @@ import pickle
 import logging
 import asyncio
 import aiohttp
+import threading
 
 logger = logging.getLogger(__name__)
+
+# Rate limiter global (compartilhado entre todas as threads)
+class GlobalRateLimiter:
+    """Rate limiter thread-safe para respeitar limite de 7 req/s da Kommo"""
+    def __init__(self, max_requests_per_second: float = 6.0):
+        self._lock = threading.Lock()
+        self._min_interval = 1.0 / max_requests_per_second  # ~0.166s entre requests
+        self._last_request_time = 0.0
+        self._request_count = 0
+
+    def wait(self):
+        """Aguarda até que seja seguro fazer uma nova requisição"""
+        with self._lock:
+            now = time.time()
+            time_since_last = now - self._last_request_time
+
+            if time_since_last < self._min_interval:
+                sleep_time = self._min_interval - time_since_last
+                time.sleep(sleep_time)
+
+            self._last_request_time = time.time()
+            self._request_count += 1
+
+            # Log a cada 50 requests
+            if self._request_count % 50 == 0:
+                logger.info(f"Rate limiter: {self._request_count} requests processados")
+
+# Instância global do rate limiter (para requisições síncronas)
+# Kommo permite 7 req/s - usar máximo
+_rate_limiter = GlobalRateLimiter(max_requests_per_second=7.0)
+
+# Rate limiter async global (para aiohttp)
+class AsyncGlobalRateLimiter:
+    """Rate limiter async thread-safe para requisições aiohttp"""
+    def __init__(self, max_requests_per_second: float = 6.0):
+        self._lock = asyncio.Lock()
+        self._min_interval = 1.0 / max_requests_per_second
+        self._last_request_time = 0.0
+        self._request_count = 0
+
+    async def wait(self):
+        """Aguarda até que seja seguro fazer uma nova requisição"""
+        async with self._lock:
+            now = time.time()
+            time_since_last = now - self._last_request_time
+
+            if time_since_last < self._min_interval:
+                sleep_time = self._min_interval - time_since_last
+                await asyncio.sleep(sleep_time)
+
+            self._last_request_time = time.time()
+            self._request_count += 1
+
+            if self._request_count % 50 == 0:
+                logger.info(f"Async rate limiter: {self._request_count} requests processados")
+
+# Instância global do rate limiter async
+_async_rate_limiter = None
+
+def get_async_rate_limiter() -> AsyncGlobalRateLimiter:
+    """Obtém ou cria o rate limiter async global"""
+    global _async_rate_limiter
+    if _async_rate_limiter is None:
+        # Kommo permite 7 req/s - usar máximo
+        _async_rate_limiter = AsyncGlobalRateLimiter(max_requests_per_second=7.0)
+    return _async_rate_limiter
 
 class KommoAPI:
     def __init__(self):
@@ -26,10 +93,13 @@ class KommoAPI:
         self.redis_client = None
         self._cache_ttl = config.CACHE_TTL
         self._init_redis()
-        
+
         # Fallback cache em memória
         self._memory_cache = {}
-        
+
+        # Referência ao rate limiter global
+        self._rate_limiter = _rate_limiter
+
     def _init_redis(self):
         """Inicializa conexão Redis"""
         try:
@@ -125,13 +195,16 @@ class KommoAPI:
             if cached_result is not None:
                 return cached_result
         url = f"{self.base_url}/{endpoint}"
-        
+
         # Implementar retry com backoff exponencial para 429 errors
         max_retries = 3 if retry_on_429 else 1
         base_delay = 1.0  # 1 segundo inicial
-        
+
         for attempt in range(max_retries):
             try:
+                # Aplicar rate limiter ANTES de cada requisição
+                self._rate_limiter.wait()
+
                 response = requests.get(url, headers=self.headers, params=params)
                 
                 # Imprimir informações para debug (apenas na primeira tentativa)
@@ -519,8 +592,8 @@ class KommoAPI:
         all_leads = []
         base_url = f"{self.base_url}/leads"
 
-        # Semáforo para limitar requisições concorrentes (Kommo: 7 req/s)
-        semaphore = asyncio.Semaphore(5)  # Máximo 5 requisições simultâneas
+        # Rate limiter global async (compartilhado entre todas as chamadas)
+        rate_limiter = get_async_rate_limiter()
 
         async def fetch_page_with_retry(session: aiohttp.ClientSession, page: int, max_retries: int = 3) -> Dict:
             """Busca uma página com retry e backoff exponencial"""
@@ -530,24 +603,25 @@ class KommoAPI:
 
             for attempt in range(max_retries):
                 try:
-                    async with semaphore:  # Controla concorrência
-                        async with session.get(base_url, params=page_params) as response:
-                            if response.status == 200:
-                                data = await response.json()
-                                return {"page": page, "data": data, "success": True}
-                            elif response.status == 204:
-                                return {"page": page, "data": None, "success": True, "empty": True}
-                            elif response.status == 429:  # Rate limited
-                                wait_time = (2 ** attempt) * 0.5  # Backoff: 0.5s, 1s, 2s
-                                logger.warning(f"Página {page}: Rate limited, aguardando {wait_time}s...")
-                                await asyncio.sleep(wait_time)
+                    # Aplicar rate limiter ANTES de cada requisição
+                    await rate_limiter.wait()
+                    async with session.get(base_url, params=page_params) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            return {"page": page, "data": data, "success": True}
+                        elif response.status == 204:
+                            return {"page": page, "data": None, "success": True, "empty": True}
+                        elif response.status == 429:  # Rate limited
+                            wait_time = (2 ** attempt) * 0.5  # Backoff: 0.5s, 1s, 2s
+                            logger.warning(f"Página {page}: Rate limited, aguardando {wait_time}s...")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        else:
+                            logger.warning(f"Página {page}: Status {response.status}")
+                            if attempt < max_retries - 1:
+                                await asyncio.sleep(0.5 * (attempt + 1))
                                 continue
-                            else:
-                                logger.warning(f"Página {page}: Status {response.status}")
-                                if attempt < max_retries - 1:
-                                    await asyncio.sleep(0.5 * (attempt + 1))
-                                    continue
-                                return {"page": page, "data": None, "success": False}
+                            return {"page": page, "data": None, "success": False}
                 except asyncio.TimeoutError:
                     logger.warning(f"Página {page}: Timeout (tentativa {attempt + 1}/{max_retries})")
                     if attempt < max_retries - 1:
@@ -564,7 +638,8 @@ class KommoAPI:
             return {"page": page, "data": None, "success": False, "error": "max_retries"}
 
         # Usar um único ClientSession para melhor performance (connection pooling)
-        connector = aiohttp.TCPConnector(limit=10, limit_per_host=5)
+        # Otimizado: mais conexões para maximizar throughput com rate limit de 7 req/s
+        connector = aiohttp.TCPConnector(limit=15, limit_per_host=10)
         timeout = aiohttp.ClientTimeout(total=30, connect=10)
 
         async with aiohttp.ClientSession(
@@ -666,6 +741,147 @@ class KommoAPI:
 
         return final_results
 
+    async def get_all_tasks_async(self, params: Optional[Dict] = None, max_pages: int = 10) -> List[Dict]:
+        """
+        Obtém todas as tasks usando aiohttp para requisições paralelas.
+
+        Args:
+            params: Parâmetros da consulta
+            max_pages: Máximo de páginas a buscar
+
+        Returns:
+            Lista com todas as tasks
+        """
+        if params is None:
+            params = {}
+
+        start_time = time.time()
+        logger.info(f"get_all_tasks_async: Iniciando busca com params: {params}")
+
+        all_tasks = []
+        base_url = f"{self.base_url}/tasks"
+        rate_limiter = get_async_rate_limiter()
+
+        async def fetch_page(session: aiohttp.ClientSession, page: int) -> Dict:
+            """Busca uma página de tasks"""
+            page_params = params.copy()
+            page_params['page'] = page
+            page_params['limit'] = 250
+
+            await rate_limiter.wait()
+            try:
+                async with session.get(base_url, params=page_params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return {"page": page, "data": data, "success": True}
+                    elif response.status == 204:
+                        return {"page": page, "data": None, "success": True, "empty": True}
+                    return {"page": page, "data": None, "success": False}
+            except Exception as e:
+                logger.error(f"Tasks página {page}: Erro {str(e)}")
+                return {"page": page, "data": None, "success": False}
+
+        connector = aiohttp.TCPConnector(limit=15, limit_per_host=10)
+        timeout = aiohttp.ClientTimeout(total=30, connect=10)
+
+        async with aiohttp.ClientSession(
+            headers=self.headers,
+            connector=connector,
+            timeout=timeout
+        ) as session:
+            # Primeira página
+            first_result = await fetch_page(session, 1)
+
+            if not first_result["success"] or first_result.get("empty"):
+                return []
+
+            first_data = first_result["data"]
+            if not first_data or "_embedded" not in first_data:
+                return []
+
+            first_tasks = first_data.get("_embedded", {}).get("tasks", [])
+            all_tasks.extend(first_tasks)
+            logger.info(f"Tasks página 1: {len(first_tasks)}")
+
+            # Se primeira página não cheia, não há mais
+            if len(first_tasks) < 250:
+                elapsed = time.time() - start_time
+                logger.info(f"get_all_tasks_async: CONCLUÍDO - {len(all_tasks)} tasks em {elapsed:.2f}s")
+                return all_tasks
+
+            # Buscar demais páginas em paralelo
+            pages_to_fetch = list(range(2, max_pages + 1))
+            tasks = [fetch_page(session, page) for page in pages_to_fetch]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in results:
+                if isinstance(result, Exception):
+                    continue
+                if not result["success"] or result.get("empty"):
+                    continue
+                data = result["data"]
+                if data and "_embedded" in data and "tasks" in data["_embedded"]:
+                    tasks_list = data["_embedded"]["tasks"]
+                    all_tasks.extend(tasks_list)
+                    logger.info(f"Tasks página {result['page']}: {len(tasks_list)}")
+
+        elapsed = time.time() - start_time
+        logger.info(f"get_all_tasks_async: CONCLUÍDO - {len(all_tasks)} tasks em {elapsed:.2f}s")
+        return all_tasks
+
+    async def get_leads_batch_async(self, lead_ids: List[int]) -> List[Dict]:
+        """
+        Busca múltiplos leads por ID em paralelo.
+
+        Args:
+            lead_ids: Lista de IDs de leads a buscar
+
+        Returns:
+            Lista com os leads encontrados
+        """
+        if not lead_ids:
+            return []
+
+        start_time = time.time()
+        logger.info(f"get_leads_batch_async: Buscando {len(lead_ids)} leads")
+
+        rate_limiter = get_async_rate_limiter()
+        leads = []
+
+        async def fetch_lead(session: aiohttp.ClientSession, lead_id: int) -> Optional[Dict]:
+            """Busca um lead individual"""
+            await rate_limiter.wait()
+            url = f"{self.base_url}/leads/{lead_id}"
+            try:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    return None
+            except Exception as e:
+                logger.warning(f"Lead {lead_id}: Erro {str(e)}")
+                return None
+
+        connector = aiohttp.TCPConnector(limit=15, limit_per_host=10)
+        timeout = aiohttp.ClientTimeout(total=30, connect=10)
+
+        async with aiohttp.ClientSession(
+            headers=self.headers,
+            connector=connector,
+            timeout=timeout
+        ) as session:
+            tasks = [fetch_lead(session, lid) for lid in lead_ids]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in results:
+                if isinstance(result, Exception):
+                    continue
+                if result:
+                    leads.append(result)
+
+        elapsed = time.time() - start_time
+        logger.info(f"get_leads_batch_async: CONCLUÍDO - {len(leads)} leads em {elapsed:.2f}s")
+        return leads
+
     # Métodos de Utilidade
     def unix_to_datetime(self, timestamp: int) -> datetime:
         """Converte Unix timestamp para objeto datetime"""
@@ -678,69 +894,14 @@ class KommoAPI:
         if not start_timestamp or not end_timestamp:
             return 0
         return (end_timestamp - start_timestamp) / (60 * 60 * 24)
-    
-    async def fetch_multiple_endpoints_parallel(self, endpoints_config: List[Dict]) -> Dict:
-        """
-        Busca múltiplos endpoints em paralelo usando aiohttp
-        
-        Args:
-            endpoints_config: Lista de dicts com 'endpoint', 'params', 'cache_key' (opcional)
-        
-        Returns:
-            Dict com resultados de cada endpoint
-        """
-        async with aiohttp.ClientSession() as session:
-            tasks = []
-            
-            for config in endpoints_config:
-                endpoint = config['endpoint']
-                params = config.get('params', {})
-                cache_key = config.get('cache_key')
-                
-                task = self._fetch_endpoint_async(session, endpoint, params, cache_key)
-                tasks.append(task)
-            
-            # Executar todas em paralelo
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Organizar resultados
-            output = {}
-            for i, result in enumerate(results):
-                if isinstance(result, Exception):
-                    logger.error(f"Erro no endpoint {endpoints_config[i]['endpoint']}: {result}")
-                    output[endpoints_config[i]['endpoint']] = {"error": str(result)}
-                else:
-                    output[endpoints_config[i]['endpoint']] = result
-            
-            return output
-    
-    async def _fetch_endpoint_async(self, session: aiohttp.ClientSession, endpoint: str, params: Dict, cache_key: str = None) -> Dict:
-        """Busca um endpoint específico de forma assíncrona com cache"""
-        # Verificar cache primeiro se cache_key foi fornecido
-        if cache_key:
-            cached_data = self._get_from_cache(cache_key)
-            if cached_data:
-                return {"data": cached_data, "from_cache": True}
-        
-        # Fazer requisição
-        url = f"{self.base_url}/{endpoint}"
-        
-        try:
-            timeout = aiohttp.ClientTimeout(total=30)
-            async with session.get(url, headers=self.headers, params=params, timeout=timeout) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    
-                    # Salvar no cache se cache_key foi fornecido
-                    if cache_key:
-                        self._save_to_cache(cache_key, data)
-                    
-                    logger.info(f"Sucesso async: {endpoint}")
-                    return {"data": data, "from_cache": False, "status": "success"}
-                else:
-                    logger.warning(f"Erro async {endpoint}: {response.status}")
-                    return {"error": f"HTTP {response.status}", "status": "error"}
-                    
-        except Exception as e:
-            logger.error(f"Exceção async {endpoint}: {str(e)}")
-            return {"error": str(e), "status": "error"}
+
+
+# Instância singleton para ser compartilhada entre módulos
+_kommo_api_instance = None
+
+def get_kommo_api() -> KommoAPI:
+    """Retorna instância singleton de KommoAPI"""
+    global _kommo_api_instance
+    if _kommo_api_instance is None:
+        _kommo_api_instance = KommoAPI()
+    return _kommo_api_instance

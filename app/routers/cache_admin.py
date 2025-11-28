@@ -3,6 +3,10 @@ from typing import Dict, Any
 import redis
 import logging
 from config import settings
+from app.services.kommo_api import get_kommo_api
+
+# Usar instância singleton (mesma instância usada por dashboard.py)
+kommo_api = get_kommo_api()
 
 logger = logging.getLogger(__name__)
 
@@ -62,23 +66,26 @@ async def get_cache_info() -> Dict[str, Any]:
 
 @router.delete("/flush")
 async def flush_cache() -> Dict[str, Any]:
-    """Limpa todo o cache Redis (CUIDADO: Remove todas as chaves!)"""
+    """Limpa todo o cache Redis E memória (CUIDADO: Remove todas as chaves!)"""
     try:
+        # Limpar cache de memória via kommo_api singleton
+        kommo_api.clear_cache()
+
         redis_client = get_redis_client()
         if not redis_client:
             raise HTTPException(status_code=503, detail="Redis não está disponível")
-        
+
         # Contar chaves antes de limpar
         keys_before = len(redis_client.keys("*"))
-        
+
         # Flush do database atual
         redis_client.flushdb()
-        
-        logger.info(f"Cache Redis limpo: {keys_before} chaves removidas")
-        
+
+        logger.info(f"Cache Redis + Memória limpo: {keys_before} chaves Redis removidas")
+
         return {
             "status": "success",
-            "message": f"Cache limpo com sucesso. {keys_before} chaves removidas.",
+            "message": f"Cache Redis e memória limpos. {keys_before} chaves Redis removidas.",
             "keys_removed": keys_before
         }
         
@@ -88,27 +95,24 @@ async def flush_cache() -> Dict[str, Any]:
 
 @router.delete("/flush/kommo")
 async def flush_kommo_cache() -> Dict[str, Any]:
-    """Limpa apenas as chaves do cache relacionadas ao Kommo"""
+    """Limpa apenas as chaves do cache relacionadas ao Kommo (Redis + memória)"""
     try:
+        # Limpar cache Redis via kommo_api (que também limpa memória)
+        kommo_api.clear_cache()
+
         redis_client = get_redis_client()
-        if not redis_client:
-            raise HTTPException(status_code=503, detail="Redis não está disponível")
-        
-        # Buscar chaves do Kommo
-        kommo_keys = redis_client.keys("kommo:*")
-        
-        if kommo_keys:
-            # Deletar chaves do Kommo
-            redis_client.delete(*kommo_keys)
-            keys_removed = len(kommo_keys)
+        if redis_client:
+            # Verificar quantas chaves foram removidas
+            kommo_keys = redis_client.keys("kommo:*")
+            keys_removed = len(kommo_keys) if kommo_keys else 0
         else:
             keys_removed = 0
-        
-        logger.info(f"Cache Kommo limpo: {keys_removed} chaves removidas")
-        
+
+        logger.info(f"Cache Kommo limpo: {keys_removed} chaves restantes (deveria ser 0)")
+
         return {
             "status": "success",
-            "message": f"Cache Kommo limpo com sucesso. {keys_removed} chaves removidas.",
+            "message": f"Cache Kommo limpo com sucesso. Redis e memória limpos.",
             "keys_removed": keys_removed
         }
         

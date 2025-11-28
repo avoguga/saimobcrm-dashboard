@@ -3,15 +3,15 @@ from typing import Optional
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from app.services.kommo_api import KommoAPI
+from app.services.kommo_api import get_kommo_api
 from app.utils.date_helpers import validate_sale_in_period, get_lead_closure_date, extract_custom_field_value, format_proposal_date, format_timestamp_brazil, BRAZIL_TIMEZONE
 import config
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Instanciar APIs uma vez
-kommo_api = KommoAPI()
+# Usar instância singleton
+kommo_api = get_kommo_api()
 
 # Função auxiliar global para buscar dados com fallback
 def safe_get_data(func, *args, **kwargs):
@@ -388,37 +388,50 @@ async def get_sales_dashboard_complete(
             'limit': 250
         }
         
-        # Buscar dados REAIS - USAR PAGINAÇÃO COMPLETA
+        # Buscar dados REAIS - USAR ASYNC PARALELO para performance
+        import time as perf_time
+        perf_start = perf_time.time()
+
         try:
+            # OTIMIZAÇÃO: Buscar leads E tasks em paralelo simultaneamente
+            params_list = [leads_vendas_params, leads_remarketing_params]
+
+            # Criar tasks assíncronas para rodar em paralelo
+            leads_task = kommo_api.get_all_leads_parallel_async(params_list, max_pages=15)
+            tasks_task = kommo_api.get_all_tasks_async(tasks_params, max_pages=10)
+
+            # Executar ambas em paralelo
+            leads_results, all_tasks = await asyncio.gather(leads_task, tasks_task, return_exceptions=True)
+
+            # Processar resultados de leads
+            if isinstance(leads_results, Exception):
+                logger.error(f"Erro ao buscar leads em paralelo: {leads_results}")
+                all_leads_vendas = kommo_api.get_all_leads_old(leads_vendas_params)
+                all_leads_remarketing = kommo_api.get_all_leads_old(leads_remarketing_params)
+            else:
+                all_leads_vendas = leads_results[0] if len(leads_results) > 0 else []
+                all_leads_remarketing = leads_results[1] if len(leads_results) > 1 else []
+
+            # Processar resultados de tasks
+            if isinstance(all_tasks, Exception):
+                logger.error(f"Erro ao buscar tasks em paralelo: {all_tasks}")
+                all_tasks = kommo_api.get_all_tasks(tasks_params)
+
+            perf_elapsed = perf_time.time() - perf_start
+            logger.info(f"[PERF] Leads+Tasks buscados em paralelo: Vendas={len(all_leads_vendas)}, Remarketing={len(all_leads_remarketing)}, Tasks={len(all_tasks)} em {perf_elapsed:.2f}s")
+        except Exception as e:
+            logger.error(f"Erro ao buscar dados em paralelo: {e}")
+            # Fallback para método sequencial
             all_leads_vendas = kommo_api.get_all_leads_old(leads_vendas_params)
-            leads_vendas_data = {"_embedded": {"leads": all_leads_vendas}}
-            logger.info(f"Leads Vendas (paginação completa): {len(all_leads_vendas)}")
-        except Exception as e:
-            logger.error(f"Erro ao buscar leads vendas: {e}")
-            all_leads_vendas = []
-            
-        try:
             all_leads_remarketing = kommo_api.get_all_leads_old(leads_remarketing_params)
-            leads_remarketing_data = {"_embedded": {"leads": all_leads_remarketing}}
-            logger.info(f"Leads Remarketing (paginação completa): {len(all_leads_remarketing)}")
-        except Exception as e:
-            logger.error(f"Erro ao buscar leads remarketing: {e}")
-            all_leads_remarketing = []
-        
-        # Combinar leads de ambos os pipelines (igual charts/leads-by-user)
+            all_tasks = kommo_api.get_all_tasks(tasks_params)
+
+        # Combinar leads de ambos os pipelines
         all_leads = all_leads_vendas + all_leads_remarketing
         leads_data = {"_embedded": {"leads": all_leads}}
-        logger.info(f"Total de leads combinados: {len(all_leads)}")
-            
-        # BUSCAR REUNIÕES REAIS usando get_all_tasks
-        try:
-            all_tasks = kommo_api.get_all_tasks(tasks_params)
-            tasks_data = {"_embedded": {"tasks": all_tasks}}
-            logger.info(f"Total de tarefas de reunião encontradas: {len(all_tasks)}")
-        except Exception as e:
-            logger.error(f"Erro ao buscar tarefas de reunião: {e}")
-            tasks_data = {"_embedded": {"tasks": []}}
-            
+        tasks_data = {"_embedded": {"tasks": all_tasks}}
+        logger.info(f"[PERF] Total leads combinados: {len(all_leads)}, tasks: {len(all_tasks)}")
+
         # Buscar usuários para fallback
         try:
             users_data = kommo_api.get_users()
@@ -575,16 +588,26 @@ async def get_sales_dashboard_complete(
                     if lead_id and lead_id not in leads_map:
                         missing_lead_ids.add(lead_id)
             
-            # Buscar leads faltantes se necessário
+            # Buscar leads faltantes se necessário - OTIMIZADO: busca em paralelo
             if missing_lead_ids:
-                logger.info(f"Buscando {len(missing_lead_ids)} leads adicionais para reuniões")
+                logger.info(f"Buscando {len(missing_lead_ids)} leads adicionais para reuniões em paralelo")
                 try:
-                    for lead_id in missing_lead_ids:
-                        additional_lead = kommo_api.get_lead(lead_id)
-                        if additional_lead:
-                            leads_map[lead_id] = additional_lead
+                    # Usar busca em paralelo para performance
+                    additional_leads = await kommo_api.get_leads_batch_async(list(missing_lead_ids))
+                    for lead in additional_leads:
+                        if lead and lead.get('id'):
+                            leads_map[lead['id']] = lead
+                    logger.info(f"Obtidos {len(additional_leads)} leads adicionais em paralelo")
                 except Exception as e:
-                    logger.error(f"Erro ao buscar leads adicionais: {e}")
+                    logger.error(f"Erro ao buscar leads adicionais em paralelo: {e}")
+                    # Fallback sequencial
+                    for lead_id in missing_lead_ids:
+                        try:
+                            additional_lead = kommo_api.get_lead(lead_id)
+                            if additional_lead:
+                                leads_map[lead_id] = additional_lead
+                        except:
+                            pass
             
             # Processar cada reunião e contar por corretor
             for task in reunion_tasks:
@@ -1111,8 +1134,9 @@ async def get_detailed_tables(
         
         
         # ================================================================
-        # OTIMIZAÇÃO: Buscar dados em PARALELO para reduzir tempo
-        # Limite Kommo API: 7 req/s - usamos max_workers=5 para segurança
+        # OTIMIZAÇÃO v3: Buscar dados em paralelo com ThreadPoolExecutor + asyncio para propostas
+        # ThreadPoolExecutor para dados iniciais (mais estável)
+        # aiohttp para propostas (já otimizado)
         # ================================================================
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import time as time_module
