@@ -373,20 +373,12 @@ class FacebookSyncService:
                     action_type = action.get('action_type', '')
                     value = int(action.get('value', 0))
 
-                    # TODOS OS TIPOS DE LEADS (7 tipos diferentes)
-                    if action_type in [
-                        'lead',  # Lead genérico/agrupado
-                        'offsite_complete_registration_add_meta_leads',  # Registro completo offsite
-                        'offsite_conversion.fb_pixel_lead',  # Lead via Pixel
-                        'onsite_conversion.lead_grouped',  # Leads agrupados onsite
-                        'onsite_web_lead',  # Lead web onsite
-                        'offsite_content_view_add_meta_leads',  # Content view leads
-                        'offsite_search_add_meta_leads'  # Search leads
-                    ]:
+                    # APENAS offsite_complete_registration_add_meta_leads
+                    # Esta é a métrica "Leads na Meta" do relatório do Facebook Ads Manager
+                    # NÃO somar múltiplos tipos pois causa duplicação
+                    if action_type == 'offsite_complete_registration_add_meta_leads':
                         leads += value
-                        # Contar especificamente os registros offsite
-                        if 'offsite' in action_type and 'registration' in action_type:
-                            offsite_registrations += value
+                        offsite_registrations += value
                     elif 'messaging' in action_type.lower() and not action_type.startswith('onsite_conversion'):
                         whatsapp_conversations += value
                     elif action_type in ['page_view', 'profile_view']:
@@ -524,20 +516,11 @@ class FacebookSyncService:
                     action_type = action.get('action_type', '')
                     value = int(action.get('value', 0))
 
-                    # TODOS OS TIPOS DE LEADS (7 tipos diferentes)
-                    if action_type in [
-                        'lead',  # Lead genérico/agrupado
-                        'offsite_complete_registration_add_meta_leads',  # Registro completo offsite
-                        'offsite_conversion.fb_pixel_lead',  # Lead via Pixel
-                        'onsite_conversion.lead_grouped',  # Leads agrupados onsite
-                        'onsite_web_lead',  # Lead web onsite
-                        'offsite_content_view_add_meta_leads',  # Content view leads
-                        'offsite_search_add_meta_leads'  # Search leads
-                    ]:
+                    # APENAS offsite_complete_registration_add_meta_leads
+                    # Esta é a métrica "Leads na Meta" do relatório do Facebook Ads Manager
+                    if action_type == 'offsite_complete_registration_add_meta_leads':
                         day_metrics['leads'] += value
-                        # Contar especificamente os registros offsite
-                        if 'offsite' in action_type and 'registration' in action_type:
-                            day_metrics['offsite_registrations'] += value
+                        day_metrics['offsite_registrations'] += value
                     elif 'messaging' in action_type.lower() and not action_type.startswith('onsite_conversion'):
                         day_metrics['whatsapp_conversations'] += value
                     elif action_type in ['page_view', 'profile_view']:
@@ -657,20 +640,11 @@ class FacebookSyncService:
                     action_type = action.get('action_type', '')
                     value = int(action.get('value', 0))
 
-                    # TODOS OS TIPOS DE LEADS (7 tipos diferentes)
-                    if action_type in [
-                        'lead',  # Lead genérico/agrupado
-                        'offsite_complete_registration_add_meta_leads',  # Registro completo offsite
-                        'offsite_conversion.fb_pixel_lead',  # Lead via Pixel
-                        'onsite_conversion.lead_grouped',  # Leads agrupados onsite
-                        'onsite_web_lead',  # Lead web onsite
-                        'offsite_content_view_add_meta_leads',  # Content view leads
-                        'offsite_search_add_meta_leads'  # Search leads
-                    ]:
+                    # APENAS offsite_complete_registration_add_meta_leads
+                    # Esta é a métrica "Leads na Meta" do relatório do Facebook Ads Manager
+                    if action_type == 'offsite_complete_registration_add_meta_leads':
                         day_metrics['leads'] += value
-                        # Contar especificamente os registros offsite
-                        if 'offsite' in action_type and 'registration' in action_type:
-                            day_metrics['offsite_registrations'] += value
+                        day_metrics['offsite_registrations'] += value
                     elif 'messaging' in action_type.lower() and not action_type.startswith('onsite_conversion'):
                         day_metrics['whatsapp_conversations'] += value
                     elif action_type in ['page_view', 'profile_view']:
