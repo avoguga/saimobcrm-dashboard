@@ -150,9 +150,15 @@ class KommoSyncService:
             logger.info(f"Iniciando SYNC COMPLETO - TODO O HISTORICO (sem limite de data)")
 
         try:
-            # Calcular periodo (None = sem filtro de data)
+            # Calcular periodo
+            # IMPORTANTE: Sempre usar filtro de data para garantir que a API retorne todos os leads
+            # Sem filtro, a API do Kommo pode retornar apenas leads recentes
             end_timestamp = int(time.time())
-            start_timestamp = end_timestamp - (days * 24 * 60 * 60) if days else None
+            if days:
+                start_timestamp = end_timestamp - (days * 24 * 60 * 60)
+            else:
+                # "Sem limite" = ultimos 3 anos (suficiente para pegar todo historico)
+                start_timestamp = end_timestamp - (3 * 365 * 24 * 60 * 60)
 
             total_stats = {
                 "leads_vendas": 0,
