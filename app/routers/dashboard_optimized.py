@@ -506,11 +506,9 @@ async def get_detailed_tables_v2(
 
             return detail
 
-        # Fontes organicas
-        FONTES_ORGANICAS = [
-            "Orgânico", "Site", "Redes Sociais", "Canal Pro",
-            "Escritório Patacho", "Cliente", "Grupo Zap", "Celular do Plantão"
-        ]
+        # Fontes organicas - CORRIGIDO: usar mesma logica do V1
+        # V1 considera APENAS "Orgânico" como fonte orgânica
+        FONTES_ORGANICAS = ["Orgânico"]
 
         # Query base
         base_query = build_leads_query(
