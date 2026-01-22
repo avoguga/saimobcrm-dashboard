@@ -28,17 +28,17 @@ router = APIRouter()
 # WEBHOOKS DO KOMMO
 # =============================================================================
 
-@router.post("/kommo/lead")
-async def webhook_kommo_lead(request: Request, background_tasks: BackgroundTasks):
+@router.post("/kommo")
+async def webhook_kommo(request: Request, background_tasks: BackgroundTasks):
     """
-    Endpoint para receber webhooks de leads do Kommo.
+    Endpoint UNIFICADO para receber webhooks do Kommo.
+    Processa automaticamente leads E tasks.
 
     O Kommo envia POST com dados quando:
-    - Lead e adicionado
-    - Lead e atualizado
-    - Lead e deletado
+    - Lead e adicionado/atualizado/deletado
     - Status do lead muda
     - Responsavel do lead muda
+    - Task e adicionada/atualizada/deletada
 
     IMPORTANTE: Deve responder em menos de 2 segundos!
     Processamento real e feito em background.
@@ -55,7 +55,14 @@ async def webhook_kommo_lead(request: Request, background_tasks: BackgroundTasks
             form_data = await request.form()
             payload = dict(form_data)
 
-        logger.info(f"Webhook Kommo recebido: {list(payload.keys())}")
+        # Detectar tipo de evento (lead ou task)
+        event_type = "unknown"
+        if any(key.startswith("leads[") for key in payload.keys()):
+            event_type = "lead"
+        elif any(key.startswith("task[") for key in payload.keys()):
+            event_type = "task"
+
+        logger.info(f"Webhook Kommo recebido ({event_type}): {list(payload.keys())}")
 
         # Processar em background para responder rapido
         processor = get_webhook_processor()
@@ -66,6 +73,7 @@ async def webhook_kommo_lead(request: Request, background_tasks: BackgroundTasks
             status_code=200,
             content={
                 "status": "received",
+                "event_type": event_type,
                 "message": "Webhook recebido e sendo processado",
                 "timestamp": datetime.utcnow().isoformat()
             }
@@ -84,41 +92,17 @@ async def webhook_kommo_lead(request: Request, background_tasks: BackgroundTasks
         )
 
 
+# Manter endpoints antigos como alias para compatibilidade
+@router.post("/kommo/lead")
+async def webhook_kommo_lead(request: Request, background_tasks: BackgroundTasks):
+    """Alias para /kommo - mantido para compatibilidade"""
+    return await webhook_kommo(request, background_tasks)
+
+
 @router.post("/kommo/task")
 async def webhook_kommo_task(request: Request, background_tasks: BackgroundTasks):
-    """
-    Endpoint para receber webhooks de tasks do Kommo.
-    Similar ao endpoint de leads.
-    """
-    try:
-        content_type = request.headers.get("content-type", "")
-
-        if "application/json" in content_type:
-            payload = await request.json()
-        else:
-            form_data = await request.form()
-            payload = dict(form_data)
-
-        logger.info(f"Webhook Kommo Task recebido: {list(payload.keys())}")
-
-        processor = get_webhook_processor()
-        background_tasks.add_task(processor.process_in_background, payload)
-
-        return JSONResponse(
-            status_code=200,
-            content={
-                "status": "received",
-                "message": "Webhook de task recebido",
-                "timestamp": datetime.utcnow().isoformat()
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"Erro ao receber webhook Task: {e}")
-        return JSONResponse(
-            status_code=200,
-            content={"status": "error", "message": str(e)}
-        )
+    """Alias para /kommo - mantido para compatibilidade"""
+    return await webhook_kommo(request, background_tasks)
 
 
 # =============================================================================
