@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from app.routers import leads, tags, pipelines, users, custom_fields, sources, dashboard, cache_admin, facebook
+from app.routers import webhooks, dashboard_optimized
 import config
 
 app = FastAPI(
@@ -29,12 +30,29 @@ app.include_router(sources.router)
 app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard Completo"])
 app.include_router(cache_admin.router, tags=["Cache Admin"])
 app.include_router(facebook.router, prefix="/facebook", tags=["Facebook Analytics"])
+app.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks Kommo"])
+app.include_router(dashboard_optimized.router, prefix="/v2/dashboard", tags=["Dashboard V2 Otimizado"])
 
 @app.on_event("startup")
 async def startup_event():
+    # Scheduler Facebook
     from app.services.scheduler import facebook_scheduler
     facebook_scheduler.start_scheduler()
     print("Scheduler Facebook iniciado automaticamente - Sync diaria as 5:00 AM")
+
+    # Scheduler Kommo (MongoDB sync)
+    from app.services.kommo_scheduler import kommo_scheduler
+    kommo_scheduler.start_scheduler()
+    print("Scheduler Kommo iniciado - Sync incremental a cada 15 min, completo as 3:00 AM")
+
+    # Inicializar MongoDB e indices do Kommo
+    try:
+        from app.models.kommo_models import connect_kommo_mongodb
+        import asyncio
+        asyncio.create_task(connect_kommo_mongodb())
+        print("MongoDB Kommo: indices sendo criados em background")
+    except Exception as e:
+        print(f"Aviso: Erro ao inicializar MongoDB Kommo: {e}")
 
 @app.get("/", tags=["Root"])
 async def root():
