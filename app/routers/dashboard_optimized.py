@@ -394,7 +394,7 @@ async def get_detailed_tables_v2(
     start_date: Optional[str] = Query(None, description="Data inicio (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Data fim (YYYY-MM-DD)"),
     days: int = Query(30, description="Periodo em dias"),
-    limit: int = Query(500, description="Limite de registros"),
+    limit: int = Query(50000, description="Limite de registros (valor alto para nao limitar)"),
 ):
     """
     Tabelas detalhadas OTIMIZADAS - consulta MongoDB diretamente.
