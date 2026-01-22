@@ -104,8 +104,8 @@ class KommoScheduler:
 
             sync_service = get_sync_service()
 
-            # Executar sync completo (ultimo ano)
-            result = await sync_service.sync_all_leads(days=365, max_pages=30)
+            # Executar sync completo (TODO o historico)
+            result = await sync_service.sync_all_leads(days=None, max_pages=50)
 
             if result.get("success"):
                 stats = result.get("stats", {})

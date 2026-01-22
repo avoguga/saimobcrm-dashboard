@@ -124,14 +124,14 @@ class KommoSyncService:
 
         return {"inserted": inserted, "updated": updated, "errors": errors}
 
-    async def sync_all_leads(self, days: int = 365, max_pages: int = 30) -> Dict:
+    async def sync_all_leads(self, days: int = None, max_pages: int = 50) -> Dict:
         """
         Sincronizacao COMPLETA de todos os leads.
-        Busca leads dos ultimos X dias dos pipelines Vendas e Remarketing.
+        Busca leads dos pipelines Vendas e Remarketing.
 
         Args:
-            days: Quantos dias para tras buscar (default: 365 = 1 ano)
-            max_pages: Maximo de paginas por pipeline
+            days: Quantos dias para tras buscar (None = TUDO, sem limite de data)
+            max_pages: Maximo de paginas por pipeline (default: 50 = 12500 leads)
 
         Returns:
             Estatisticas da sincronizacao
@@ -143,12 +143,16 @@ class KommoSyncService:
         sync_id = await self._create_sync_status("full")
 
         start_time = time.time()
-        logger.info(f"Iniciando SYNC COMPLETO - ultimos {days} dias")
+
+        if days:
+            logger.info(f"Iniciando SYNC COMPLETO - ultimos {days} dias")
+        else:
+            logger.info(f"Iniciando SYNC COMPLETO - TODO O HISTORICO (sem limite de data)")
 
         try:
-            # Calcular periodo
+            # Calcular periodo (None = sem filtro de data)
             end_timestamp = int(time.time())
-            start_timestamp = end_timestamp - (days * 24 * 60 * 60)
+            start_timestamp = end_timestamp - (days * 24 * 60 * 60) if days else None
 
             total_stats = {
                 "leads_vendas": 0,
@@ -164,10 +168,12 @@ class KommoSyncService:
 
             vendas_params = {
                 "filter[pipeline_id]": PIPELINE_VENDAS,
-                "filter[created_at][from]": start_timestamp,
-                "filter[created_at][to]": end_timestamp,
                 "with": "contacts,tags,custom_fields_values"
             }
+            # Adicionar filtro de data apenas se especificado
+            if start_timestamp:
+                vendas_params["filter[created_at][from]"] = start_timestamp
+                vendas_params["filter[created_at][to]"] = end_timestamp
 
             try:
                 # Usar metodo async para melhor performance
@@ -198,10 +204,12 @@ class KommoSyncService:
 
             remarketing_params = {
                 "filter[pipeline_id]": PIPELINE_REMARKETING,
-                "filter[created_at][from]": start_timestamp,
-                "filter[created_at][to]": end_timestamp,
                 "with": "contacts,tags,custom_fields_values"
             }
+            # Adicionar filtro de data apenas se especificado
+            if start_timestamp:
+                remarketing_params["filter[created_at][from]"] = start_timestamp
+                remarketing_params["filter[created_at][to]"] = end_timestamp
 
             try:
                 leads_remarketing = await self.kommo_api.get_all_leads_async(remarketing_params, max_pages=max_pages)
@@ -229,9 +237,11 @@ class KommoSyncService:
 
             tasks_params = {
                 "filter[task_type_id]": 2,  # Reunioes
-                "filter[created_at][from]": start_timestamp,
-                "filter[created_at][to]": end_timestamp,
             }
+            # Adicionar filtro de data apenas se especificado
+            if start_timestamp:
+                tasks_params["filter[created_at][from]"] = start_timestamp
+                tasks_params["filter[created_at][to]"] = end_timestamp
 
             try:
                 all_tasks = await self.kommo_api.get_all_tasks_async(tasks_params, max_pages=10)

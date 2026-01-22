@@ -128,19 +128,22 @@ async def webhook_kommo_task(request: Request, background_tasks: BackgroundTasks
 @router.post("/sync/full")
 async def sync_full(
     background_tasks: BackgroundTasks,
-    days: int = Query(365, description="Dias para buscar (default: 365)"),
+    days: int = Query(None, description="Dias para buscar (None = TUDO, sem limite)"),
+    all_data: bool = Query(True, description="Buscar TODO o historico (ignora days)"),
     wait: bool = Query(False, description="Aguardar conclusao (default: False)")
 ):
     """
     Inicia sincronizacao COMPLETA do Kommo para MongoDB.
 
-    - Busca todos os leads dos ultimos X dias
+    - Por padrao busca TODO o historico (all_data=True)
+    - Se all_data=False, usa parametro days
     - Busca todas as tasks/reunioes
     - Processa em background por padrao
 
     Args:
-        days: Quantos dias para tras buscar
-        wait: Se True, aguarda conclusao (pode demorar minutos!)
+        days: Quantos dias para tras buscar (ignorado se all_data=True)
+        all_data: Se True, busca TODO o historico sem limite de data
+        wait: Se True, aguarda conclusao (pode demorar varios minutos!)
     """
     sync_service = get_sync_service()
 
@@ -150,16 +153,20 @@ async def sync_full(
             content={"error": "Sincronizacao ja em execucao"}
         )
 
+    # Se all_data=True, nao usar filtro de dias
+    sync_days = None if all_data else (days or 365)
+
     if wait:
         # Executar e aguardar
-        result = await sync_service.sync_all_leads(days=days)
+        result = await sync_service.sync_all_leads(days=sync_days)
         return result
     else:
         # Executar em background
-        background_tasks.add_task(sync_service.sync_all_leads, days)
+        background_tasks.add_task(sync_service.sync_all_leads, sync_days)
+        msg = "TODO o historico" if sync_days is None else f"ultimos {sync_days} dias"
         return {
             "status": "started",
-            "message": f"Sincronizacao completa iniciada (ultimos {days} dias)",
+            "message": f"Sincronizacao completa iniciada ({msg})",
             "check_status": "/webhooks/sync/status"
         }
 
