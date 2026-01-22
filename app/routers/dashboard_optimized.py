@@ -33,6 +33,30 @@ STATUS_VENDA_FINAL = 142  # Closed - won
 STATUS_CONTRATO_ASSINADO = 80689759  # Contrato Assinado
 STATUS_PERDIDO = 143  # Closed - lost
 
+# Mapeamento de status_id para nomes de etapas (compativel com V1)
+STATUS_MAP = {
+    # Pipeline Vendas
+    80689711: "Qualificação",
+    80689715: "Reunião Marcada",
+    80689719: "Reunião Realizada",
+    80689723: "Proposta",
+    80689727: "Contrato Enviado",
+    80689759: "Contrato Assinado",
+    142: "Venda ganha",
+    143: "Perdido",
+    # Pipeline Remarketing
+    83103919: "Novo Lead",
+    83103923: "Qualificação",
+    83103927: "Reunião Marcada",
+    83103931: "Reunião Realizada",
+    83103935: "Proposta",
+    83103939: "Contrato Enviado",
+}
+
+def get_etapa_name(status_id: int) -> str:
+    """Retorna o nome da etapa baseado no status_id"""
+    return STATUS_MAP.get(status_id, f"Status {status_id}")
+
 
 def build_leads_query(
     pipeline_ids: List[int] = None,
@@ -261,8 +285,9 @@ async def get_sales_complete_v2(
 
         leads_by_stage = []
         async for doc in leads_collection.aggregate(pipeline_stage):
+            status_id = doc["_id"]
             leads_by_stage.append({
-                "name": f"Status {doc['_id']}",  # TODO: mapear para nomes reais
+                "name": get_etapa_name(status_id),
                 "value": doc["count"]
             })
 
@@ -437,6 +462,9 @@ async def get_detailed_tables_v2(
             else:
                 status = "Ativo"
 
+            # Obter nome real da etapa
+            etapa = get_etapa_name(status_id)
+
             # Base comum para todos os tipos
             detail = {
                 "id": lead.get("lead_id"),
@@ -449,7 +477,7 @@ async def get_detailed_tables_v2(
                 "Produto": cf.get("produto") or "N/A",
                 "Data da Proposta": data_proposta,
                 "Funil": funil,
-                "Etapa": f"Status {status_id}",
+                "Etapa": etapa,
                 "Status": status,
             }
 
@@ -514,8 +542,8 @@ async def get_detailed_tables_v2(
             **base_query,
             "status_id": {"$in": [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO]}
         }
-        # Para vendas, usamos closed_at ou data_fechamento
-        del vendas_query["created_at"]  # Remover filtro por created_at
+        # Para vendas, usamos closed_at ou data_fechamento (remover filtro por created_at se existir)
+        vendas_query.pop("created_at", None)  # Remover filtro por created_at de forma segura
 
         vendas_cursor = leads_collection.find(vendas_query).sort("closed_at", -1).limit(limit)
 
@@ -560,10 +588,10 @@ async def get_detailed_tables_v2(
         propostas_detalhes = []
         async for lead in propostas_cursor:
             detail = format_lead_detail(lead, tipo="proposta")
-            # Adicionar valor para propostas
+            # Adicionar valor para propostas (campo esperado pelo frontend)
             price = lead.get("price", 0) or 0
             valor_formatado = f"R$ {price:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-            detail["Valor"] = valor_formatado
+            detail["Valor da Proposta"] = valor_formatado  # Frontend espera este nome
             propostas_detalhes.append(detail)
 
         # ===== 5. REUNIOES DETALHES =====
@@ -625,6 +653,10 @@ async def get_detailed_tables_v2(
                 except:
                     pass
 
+            # Obter nome real da etapa
+            status_id = lead.get("status_id", 0)
+            etapa = get_etapa_name(status_id)
+
             # Formato compativel com V1
             detail = {
                 "id": lead_id,
@@ -637,7 +669,7 @@ async def get_detailed_tables_v2(
                 "Produto": cf.get("produto") or "N/A",
                 "Data da Proposta": data_proposta,
                 "Funil": funil,
-                "Etapa": f"Status {lead.get('status_id')}",
+                "Etapa": etapa,
                 "Status": "Realizada"
             }
 
