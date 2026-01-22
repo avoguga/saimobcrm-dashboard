@@ -398,39 +398,83 @@ async def get_detailed_tables_v2(
             end_timestamp = int(time.time())
             start_timestamp = end_timestamp - (days * 24 * 60 * 60)
 
-        # Funcao auxiliar para formatar lead
-        def format_lead_detail(lead: Dict, include_valor: bool = False) -> Dict:
+        # Funcao auxiliar para formatar lead (compativel com V1)
+        def format_lead_detail(lead: Dict, tipo: str = "lead") -> Dict:
             cf = lead.get("custom_fields", {})
-            detail = {
-                "id": lead.get("lead_id"),
-                "nome": lead.get("name", ""),
-                "corretor": cf.get("corretor") or "N/A",
-                "fonte": cf.get("fonte") or "N/A",
-                "anuncio": cf.get("anuncio") or "N/A",
-                "publico": cf.get("publico") or "N/A",
-                "produto": cf.get("produto") or "N/A",
-                "data_criacao": datetime.fromtimestamp(lead.get("created_at", 0)).strftime("%d/%m/%Y") if lead.get("created_at") else "N/A",
-                "pipeline_id": lead.get("pipeline_id"),
-                "status_id": lead.get("status_id"),
-                "funil": "Vendas" if lead.get("pipeline_id") == PIPELINE_VENDAS else "Remarketing",
-                "etapa": f"Status {lead.get('status_id')}",
-            }
 
-            if include_valor:
-                detail["valor"] = lead.get("price", 0)
+            # Formatar data de criacao
+            created_at = lead.get("created_at", 0)
+            data_criacao = datetime.fromtimestamp(created_at).strftime("%d/%m/%Y") if created_at else "N/A"
+
+            # Determinar funil
+            pipeline_id = lead.get("pipeline_id")
+            if pipeline_id == PIPELINE_VENDAS:
+                funil = "Funil de Vendas"
+            elif pipeline_id == PIPELINE_REMARKETING:
+                funil = "Remarketing"
+            else:
+                funil = "Não atribuído"
+
+            # Corretor
+            corretor = cf.get("corretor") or "Não atribuído"
 
             # Data da proposta
+            data_proposta = "N/A"
             if cf.get("data_proposta"):
                 try:
                     dt = cf["data_proposta"]
                     if isinstance(dt, datetime):
-                        detail["data_proposta"] = dt.strftime("%d/%m/%Y")
-                    else:
-                        detail["data_proposta"] = "N/A"
+                        data_proposta = dt.strftime("%d/%m/%Y")
                 except:
-                    detail["data_proposta"] = "N/A"
+                    pass
+
+            # Determinar status baseado no status_id
+            status_id = lead.get("status_id")
+            if status_id == STATUS_VENDA_FINAL or status_id == STATUS_CONTRATO_ASSINADO:
+                status = "Ganho"
+            elif status_id == STATUS_PERDIDO:
+                status = "Perdido"
             else:
-                detail["data_proposta"] = "N/A"
+                status = "Ativo"
+
+            # Base comum para todos os tipos
+            detail = {
+                "id": lead.get("lead_id"),
+                "Data de Criação": data_criacao,
+                "Nome do Lead": lead.get("name", ""),
+                "Corretor": corretor,
+                "Fonte": cf.get("fonte") or "N/A",
+                "Anúncio": cf.get("anuncio") or "N/A",
+                "Público": cf.get("publico") or "N/A",
+                "Produto": cf.get("produto") or "N/A",
+                "Data da Proposta": data_proposta,
+                "Funil": funil,
+                "Etapa": f"Status {status_id}",
+                "Status": status,
+            }
+
+            return detail
+
+        def format_venda_detail(lead: Dict) -> Dict:
+            """Formata lead de venda com campos especificos"""
+            detail = format_lead_detail(lead, tipo="venda")
+
+            # Adicionar campos especificos de venda
+            price = lead.get("price", 0) or 0
+            valor_formatado = f"R$ {price:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            detail["Valor da Venda"] = valor_formatado
+
+            # Data da venda (closed_at ou data_fechamento)
+            cf = lead.get("custom_fields", {})
+            closed_at = lead.get("closed_at")
+            data_fechamento = cf.get("data_fechamento")
+
+            if data_fechamento and isinstance(data_fechamento, datetime):
+                detail["Data da Venda"] = data_fechamento.strftime("%d/%m/%Y")
+            elif closed_at:
+                detail["Data da Venda"] = datetime.fromtimestamp(closed_at).strftime("%d/%m/%Y")
+            else:
+                detail["Data da Venda"] = detail["Data de Criação"]
 
             return detail
 
@@ -455,7 +499,7 @@ async def get_detailed_tables_v2(
 
         leads_detalhes = []
         async for lead in leads_cursor:
-            leads_detalhes.append(format_lead_detail(lead))
+            leads_detalhes.append(format_lead_detail(lead, tipo="lead"))
 
         # ===== 2. ORGANICOS DETALHES =====
         organicos_query = {**base_query, "custom_fields.fonte": {"$in": FONTES_ORGANICAS}}
@@ -463,7 +507,7 @@ async def get_detailed_tables_v2(
 
         organicos_detalhes = []
         async for lead in organicos_cursor:
-            organicos_detalhes.append(format_lead_detail(lead))
+            organicos_detalhes.append(format_lead_detail(lead, tipo="lead"))
 
         # ===== 3. VENDAS DETALHES =====
         vendas_query = {
@@ -495,10 +539,9 @@ async def get_detailed_tables_v2(
             if venda_timestamp < start_timestamp or venda_timestamp > end_timestamp:
                 continue
 
-            detail = format_lead_detail(lead, include_valor=True)
-            detail["data_venda"] = datetime.fromtimestamp(venda_timestamp).strftime("%d/%m/%Y")
+            detail = format_venda_detail(lead)
             vendas_detalhes.append(detail)
-            total_vendas_valor += lead.get("price", 0)
+            total_vendas_valor += lead.get("price", 0) or 0
 
         # ===== 4. PROPOSTAS DETALHES =====
         # Propostas sao leads com custom_fields.proposta = true
@@ -516,7 +559,11 @@ async def get_detailed_tables_v2(
 
         propostas_detalhes = []
         async for lead in propostas_cursor:
-            detail = format_lead_detail(lead, include_valor=True)
+            detail = format_lead_detail(lead, tipo="proposta")
+            # Adicionar valor para propostas
+            price = lead.get("price", 0) or 0
+            valor_formatado = f"R$ {price:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            detail["Valor"] = valor_formatado
             propostas_detalhes.append(detail)
 
         # ===== 5. REUNIOES DETALHES =====
@@ -559,17 +606,39 @@ async def get_detailed_tables_v2(
             cf = lead.get("custom_fields", {})
             fonte_lead = cf.get("fonte") or "N/A"
 
+            # Determinar funil
+            pipeline_id = lead.get("pipeline_id")
+            if pipeline_id == PIPELINE_VENDAS:
+                funil = "Funil de Vendas"
+            elif pipeline_id == PIPELINE_REMARKETING:
+                funil = "Remarketing"
+            else:
+                funil = "Não atribuído"
+
+            # Data da proposta
+            data_proposta = "N/A"
+            if cf.get("data_proposta"):
+                try:
+                    dt = cf["data_proposta"]
+                    if isinstance(dt, datetime):
+                        data_proposta = dt.strftime("%d/%m/%Y")
+                except:
+                    pass
+
+            # Formato compativel com V1
             detail = {
                 "id": lead_id,
-                "nome": lead.get("name", ""),
-                "corretor": cf.get("corretor") or "N/A",
-                "fonte": fonte_lead,
-                "anuncio": cf.get("anuncio") or "N/A",
-                "publico": cf.get("publico") or "N/A",
-                "produto": cf.get("produto") or "N/A",
-                "data_reuniao": datetime.fromtimestamp(task.get("complete_till", 0)).strftime("%d/%m/%Y"),
-                "funil": "Vendas" if lead.get("pipeline_id") == PIPELINE_VENDAS else "Remarketing",
-                "etapa": f"Status {lead.get('status_id')}",
+                "Data da Reunião": datetime.fromtimestamp(task.get("complete_till", 0)).strftime("%d/%m/%Y"),
+                "Nome do Lead": lead.get("name", ""),
+                "Corretor": cf.get("corretor") or "Não atribuído",
+                "Fonte": fonte_lead,
+                "Anúncio": cf.get("anuncio") or "N/A",
+                "Público": cf.get("publico") or "N/A",
+                "Produto": cf.get("produto") or "N/A",
+                "Data da Proposta": data_proposta,
+                "Funil": funil,
+                "Etapa": f"Status {lead.get('status_id')}",
+                "Status": "Realizada"
             }
 
             # Separar organicas e nao organicas
@@ -590,7 +659,7 @@ async def get_detailed_tables_v2(
             "vendasDetalhes": vendas_detalhes,
             "propostasDetalhes": propostas_detalhes,
             "summary": {
-                "total_leads": len(leads_detalhes),
+                "total_leads": len(leads_detalhes) + len(organicos_detalhes),  # Total de TODOS os leads
                 "total_organicos": len(organicos_detalhes),
                 "total_reunioes": len(reunioes_detalhes) + len(reunioes_organicas_detalhes),
                 "total_vendas": len(vendas_detalhes),
