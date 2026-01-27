@@ -5,6 +5,7 @@ Processa eventos recebidos e atualiza MongoDB em background
 
 import asyncio
 import logging
+import re
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from concurrent.futures import ThreadPoolExecutor
@@ -24,6 +25,81 @@ logger = logging.getLogger(__name__)
 
 # Pool de threads para operacoes sync
 _executor = ThreadPoolExecutor(max_workers=4)
+
+
+def parse_kommo_webhook_payload(flat_payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Converte payload flat do Kommo para formato nested.
+
+    Kommo envia form-data no formato:
+        leads[add][0][id] = 123
+        leads[add][0][name] = "Nome"
+        leads[update][0][id] = 456
+
+    Converte para:
+        {
+            "leads": {
+                "add": [{"id": "123", "name": "Nome"}],
+                "update": [{"id": "456"}]
+            }
+        }
+    """
+    # Se ja esta no formato correto (JSON), retorna direto
+    if "leads" in flat_payload and isinstance(flat_payload.get("leads"), dict):
+        return flat_payload
+    if "tasks" in flat_payload and isinstance(flat_payload.get("tasks"), dict):
+        return flat_payload
+
+    result = {}
+
+    # Regex para parsear chaves como: leads[add][0][id] ou task[add][0][id]
+    pattern = re.compile(r'^(\w+)\[(\w+)\]\[(\d+)\]\[(\w+)\]$')
+
+    for key, value in flat_payload.items():
+        match = pattern.match(key)
+        if match:
+            entity_type = match.group(1)  # leads, task
+            action = match.group(2)        # add, update, delete, status, responsible
+            index = int(match.group(3))    # 0, 1, 2...
+            field = match.group(4)         # id, name, price, etc
+
+            # Normalizar entity_type (task -> tasks)
+            if entity_type == "task":
+                entity_type = "tasks"
+
+            # Criar estrutura se nao existir
+            if entity_type not in result:
+                result[entity_type] = {}
+            if action not in result[entity_type]:
+                result[entity_type][action] = []
+
+            # Expandir lista se necessario
+            while len(result[entity_type][action]) <= index:
+                result[entity_type][action].append({})
+
+            # Converter valores numericos
+            if field == "id" and value:
+                try:
+                    value = int(value)
+                except (ValueError, TypeError):
+                    pass
+            elif field in ["price", "pipeline_id", "status_id", "responsible_user_id", "task_type_id"]:
+                try:
+                    value = int(value) if value else None
+                except (ValueError, TypeError):
+                    pass
+
+            # Atribuir valor
+            result[entity_type][action][index][field] = value
+
+    # Log para debug
+    if result:
+        logger.info(f"Payload parseado: {list(result.keys())}")
+        for entity, actions in result.items():
+            for action, items in actions.items():
+                logger.info(f"  {entity}.{action}: {len(items)} itens")
+
+    return result
 
 
 class WebhookProcessor:
@@ -434,7 +510,14 @@ class WebhookProcessor:
         Kommo requer resposta em ate 2 segundos.
         """
         try:
-            await self.process_webhook_payload(payload)
+            # Parsear payload do formato flat do Kommo para formato nested
+            parsed_payload = parse_kommo_webhook_payload(payload)
+
+            if not parsed_payload:
+                logger.warning(f"Payload vazio apos parse. Original keys: {list(payload.keys())[:10]}")
+                return
+
+            await self.process_webhook_payload(parsed_payload)
         except Exception as e:
             logger.error(f"Erro no processamento em background: {e}")
 
