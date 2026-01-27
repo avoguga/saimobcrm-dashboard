@@ -212,6 +212,22 @@ async def sync_history(limit: int = Query(10, description="Numero de registros")
     return {"history": history}
 
 
+@router.post("/sync/reset")
+async def sync_reset():
+    """
+    Reseta o estado de execucao do sync.
+    Usar quando o sync travar e mostrar 'ja em execucao' mesmo sem estar rodando.
+    """
+    sync_service = get_sync_service()
+    result = sync_service.reset_running_state()
+    return {
+        "status": "reset",
+        "was_running": result["was_running"],
+        "message": "Estado de sync resetado. Agora pode executar novo sync.",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
 # =============================================================================
 # ENDPOINTS DE DEBUG/ADMIN
 # =============================================================================

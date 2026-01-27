@@ -505,6 +505,16 @@ class KommoSyncService:
         """Verifica se ha sync em execucao"""
         return self._is_running
 
+    def reset_running_state(self):
+        """
+        Reseta o estado de execucao.
+        Usar apenas quando o sync travou e precisa ser desbloqueado.
+        """
+        was_running = self._is_running
+        self._is_running = False
+        logger.warning(f"Estado de sync resetado manualmente (was_running={was_running})")
+        return {"reset": True, "was_running": was_running}
+
 
 # Instancia singleton
 _sync_service: Optional[KommoSyncService] = None
