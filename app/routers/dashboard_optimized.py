@@ -33,6 +33,10 @@ STATUS_VENDA_FINAL = 142  # Closed - won
 STATUS_CONTRATO_ASSINADO = 80689759  # Contrato Assinado
 STATUS_PERDIDO = 143  # Closed - lost
 
+# Status "Incoming leads" (nao classificados) - excluir das consultas
+# A API do Kommo nao retorna esses leads, entao o V2 tambem nao deve
+INCOMING_STATUS_IDS = [80645867, 84846887]  # Vendas, Remarketing
+
 # Mapeamento de status_id para nomes de etapas (compativel com V1)
 STATUS_MAP = {
     # Pipeline Vendas
@@ -66,7 +70,8 @@ def build_leads_query(
     fonte: str = None,
     produto: str = None,
     status_ids: List[int] = None,
-    exclude_deleted: bool = True
+    exclude_deleted: bool = True,
+    exclude_incoming: bool = True
 ) -> Dict:
     """
     Constroi query MongoDB para leads com filtros.
@@ -76,6 +81,10 @@ def build_leads_query(
     # Excluir deletados
     if exclude_deleted:
         query["is_deleted"] = False
+
+    # Excluir "Incoming leads" (nao classificados, API do Kommo nao retorna)
+    if exclude_incoming:
+        query["status_id"] = {"$nin": INCOMING_STATUS_IDS}
 
     # Filtro por pipeline
     if pipeline_ids:
@@ -112,12 +121,20 @@ def build_leads_query(
     if produto and produto.strip():
         query["custom_fields.produto"] = produto.strip()
 
-    # Filtro por status
+    # Filtro por status (combinar com exclude_incoming se necessario)
     if status_ids:
-        if len(status_ids) == 1:
-            query["status_id"] = status_ids[0]
+        if exclude_incoming:
+            # Combinar: status IN lista E status NOT IN incoming
+            valid_ids = [s for s in status_ids if s not in INCOMING_STATUS_IDS]
+            if len(valid_ids) == 1:
+                query["status_id"] = valid_ids[0]
+            else:
+                query["status_id"] = {"$in": valid_ids}
         else:
-            query["status_id"] = {"$in": status_ids}
+            if len(status_ids) == 1:
+                query["status_id"] = status_ids[0]
+            else:
+                query["status_id"] = {"$in": status_ids}
 
     return query
 
@@ -548,18 +565,20 @@ async def get_detailed_tables_v2(
         vendas_detalhes = []
         total_vendas_valor = 0
         async for lead in vendas_cursor:
-            # Verificar se a venda esta no periodo (por closed_at ou data_fechamento)
-            closed_at = lead.get("closed_at")
+            # Verificar se a venda tem data_fechamento (custom field)
+            # IMPORTANTE: V1 exige data_fechamento preenchida para contar como venda
+            # Vendas sem data_fechamento sao ignoradas (igual ao V1)
             cf = lead.get("custom_fields", {})
             data_fechamento = cf.get("data_fechamento")
 
-            # Determinar data da venda
-            if data_fechamento and isinstance(data_fechamento, datetime):
+            if not data_fechamento:
+                continue  # Sem data_fechamento = nao conta como venda (igual V1)
+
+            # Determinar timestamp da venda
+            if isinstance(data_fechamento, datetime):
                 venda_timestamp = int(data_fechamento.timestamp())
-            elif closed_at:
-                venda_timestamp = closed_at
             else:
-                venda_timestamp = lead.get("created_at", 0)
+                continue  # Formato invalido
 
             # Filtrar por periodo
             if venda_timestamp < start_timestamp or venda_timestamp > end_timestamp:
