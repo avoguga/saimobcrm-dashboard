@@ -988,6 +988,7 @@ async def get_detailed_tables(
         CUSTOM_FIELD_DATA_CONTRATO = 888731  # ID do campo "Data Contrato" (usado para receita prevista)
         CUSTOM_FIELD_ESTADO = 851638  # Campo ESTADO
         CUSTOM_FIELD_FONTE = 837886  # Campo "Fonte"
+        CUSTOM_FIELD_CORRETOR = 837920  # Campo "Corretor"
         CUSTOM_FIELD_ANUNCIO = 837846  # Campo "Anúncio"
         CUSTOM_FIELD_PUBLICO = 837844  # Campo "Público" (conjunto de anúncios)
         CUSTOM_FIELD_PRODUTO = 857264  # Campo "Produto"
@@ -1017,7 +1018,7 @@ async def get_detailed_tables(
                 logger.error(f"Erro ao extrair custom field {field_id}: {e}")
                 return None
 
-        def get_corretor_with_id(lead, field_id=837920):
+        def get_corretor_with_id(lead, field_id=CUSTOM_FIELD_CORRETOR):
             """Extrai valor e enum_id do campo de corretor (para campos tipo SELECT)"""
             try:
                 custom_fields = lead.get("custom_fields_values", [])
