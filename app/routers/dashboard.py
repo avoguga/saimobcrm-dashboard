@@ -1017,7 +1017,7 @@ async def get_detailed_tables(
                 logger.error(f"Erro ao extrair custom field {field_id}: {e}")
                 return None
 
-        def get_corretor_with_id(lead, field_id=CUSTOM_FIELD_CORRETOR):
+        def get_corretor_with_id(lead, field_id=837920):
             """Extrai valor e enum_id do campo de corretor (para campos tipo SELECT)"""
             try:
                 custom_fields = lead.get("custom_fields_values", [])
