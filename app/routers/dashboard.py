@@ -1018,28 +1018,6 @@ async def get_detailed_tables(
                 logger.error(f"Erro ao extrair custom field {field_id}: {e}")
                 return None
 
-        def get_corretor_with_id(lead, field_id=CUSTOM_FIELD_CORRETOR):
-            """Extrai valor e enum_id do campo de corretor (para campos tipo SELECT)"""
-            try:
-                custom_fields = lead.get("custom_fields_values", [])
-                if not custom_fields:
-                    return None, None
-                for field in custom_fields:
-                    if not field:
-                        continue
-                    if field.get("field_id") == field_id:
-                        values = field.get("values")
-                        if values and isinstance(values, list) and len(values) > 0:
-                            first_value = values[0]
-                            if isinstance(first_value, dict):
-                                value = first_value.get("value")
-                                enum_id = first_value.get("enum_id")  # ID único para campos SELECT
-                                return value, enum_id
-                return None, None
-            except Exception as e:
-                logger.error(f"Erro ao extrair corretor com ID: {e}")
-                return None, None
-        
         def is_proposta(lead):
             """Verifica se um lead é uma proposta usando o campo boolean 861100"""
             try:
@@ -1511,23 +1489,21 @@ async def get_detailed_tables(
             custom_fields = lead.get("custom_fields_values", [])
             fonte_lead = "N/A"
             corretor_custom = None
-            corretor_enum_id = None  # ID único para campos SELECT (evita duplicação ao renomear)
             anuncio_lead = "N/A"  # Novo campo
             publico_lead = "N/A"  # Novo campo (conjunto de anúncios)
             produto_lead = "N/A"  # Campo Produto
             data_proposta_lead = format_proposal_date(lead, CUSTOM_FIELD_DATA_PROPOSTA)  # Campo Data da Proposta
-            
+
             if custom_fields and isinstance(custom_fields, list):
                 for field in custom_fields:
                     if field and isinstance(field, dict):
                         field_id = field.get("field_id")
                         values = field.get("values", [])
-                        
+
                         if field_id == 837886 and values:  # Fonte
                             fonte_lead = values[0].get("value", "N/A")
                         elif field_id == 837920 and values:  # Corretor
                             corretor_custom = values[0].get("value")
-                            corretor_enum_id = values[0].get("enum_id")  # ID único para campos SELECT
                         elif field_id == 837846 and values:  # Anúncio
                             anuncio_lead = values[0].get("value", "N/A")
                         elif field_id == 837844 and values:  # Público (conjunto de anúncios)
@@ -1540,7 +1516,6 @@ async def get_detailed_tables(
                 corretor_final = corretor_custom
             else:
                 corretor_final = "Não atribuído"  # Sem fallback para responsible_user_id
-                corretor_enum_id = None
             
             # Determinar funil baseado no pipeline_id
             if pipeline_id == PIPELINE_VENDAS:
@@ -1586,7 +1561,6 @@ async def get_detailed_tables(
                 "Data Agendada": data_agendada_formatada,  # Data original do agendamento
                 "Nome do Lead": lead_name,
                 "Corretor": corretor_final,
-                "CorretorID": corretor_enum_id,  # enum_id do campo SELECT (evita duplicação ao renomear)
                 "Fonte": fonte_lead,
                 "Anúncio": anuncio_lead,  # Novo campo
                 "Público": publico_lead,  # Novo campo (conjunto de anúncios)
@@ -1620,7 +1594,7 @@ async def get_detailed_tables(
 
             # Extrair campos customizados usando função padronizada
             fonte_lead = extract_custom_field_value(lead, 837886) or "N/A"  # Fonte
-            corretor_custom, corretor_enum_id = get_corretor_with_id(lead)  # Corretor com enum_id
+            corretor_custom = extract_custom_field_value(lead, 837920)  # Corretor
             anuncio_lead = extract_custom_field_value(lead, 837846) or "N/A"  # Anúncio
             publico_lead = extract_custom_field_value(lead, 837844) or "N/A"  # Público (conjunto de anúncios)
             produto_lead = extract_custom_field_value(lead, CUSTOM_FIELD_PRODUTO) or "N/A"  # Produto
@@ -1669,7 +1643,6 @@ async def get_detailed_tables(
                 "Data da Venda": data_formatada,  # PO: usando data_fechamento
                 "Nome do Lead": lead_name,
                 "Corretor": corretor_final,
-                "CorretorID": corretor_enum_id,  # enum_id do campo SELECT (evita duplicação ao renomear)
                 "Fonte": fonte_lead,
                 "Anúncio": anuncio_lead,  # Novo campo
                 "Público": publico_lead,  # Novo campo (conjunto de anúncios)
@@ -1696,7 +1669,6 @@ async def get_detailed_tables(
             custom_fields = lead.get("custom_fields_values", [])
             fonte_lead = "N/A"
             corretor_custom = None
-            corretor_enum_id = None  # ID único para campos SELECT (evita duplicação ao renomear)
             anuncio_lead = "N/A"  # Novo campo
             publico_lead = "N/A"  # Novo campo (conjunto de anúncios)
             produto_lead = "N/A"  # Campo Produto
@@ -1712,7 +1684,6 @@ async def get_detailed_tables(
                             fonte_lead = values[0].get("value", "N/A")
                         elif field_id == 837920 and values:  # Corretor
                             corretor_custom = values[0].get("value")
-                            corretor_enum_id = values[0].get("enum_id")  # ID único para campos SELECT
                         elif field_id == 837846 and values:  # Anúncio
                             anuncio_lead = values[0].get("value", "N/A")
                         elif field_id == 837844 and values:  # Público (conjunto de anúncios)
@@ -1782,7 +1753,6 @@ async def get_detailed_tables(
                 "Data de Criação": data_criacao_formatada,
                 "Nome do Lead": lead_name,
                 "Corretor": corretor_final,
-                "CorretorID": corretor_enum_id,  # enum_id do campo SELECT (evita duplicação ao renomear)
                 "Fonte": fonte_lead,
                 "Anúncio": anuncio_lead,  # Novo campo
                 "Público": publico_lead,  # Novo campo (conjunto de anúncios)
@@ -1881,7 +1851,7 @@ async def get_detailed_tables(
 
                 # Extrair campos customizados
                 fonte_lead = extract_custom_field_value(lead, 837886) or "N/A"
-                corretor_custom, corretor_enum_id = get_corretor_with_id(lead)  # Corretor com enum_id
+                corretor_custom = extract_custom_field_value(lead, 837920)  # Corretor
                 anuncio_lead = extract_custom_field_value(lead, 837846) or "N/A"
                 publico_lead = extract_custom_field_value(lead, 837844) or "N/A"
                 produto_lead = extract_custom_field_value(lead, CUSTOM_FIELD_PRODUTO) or "N/A"
@@ -1948,7 +1918,6 @@ async def get_detailed_tables(
                     "Data da Proposta": data_proposta_lead,
                     "Nome do Lead": lead_name,
                     "Corretor": corretor_final,
-                    "CorretorID": corretor_enum_id,  # enum_id do campo SELECT (evita duplicação ao renomear)
                     "Fonte": fonte_lead,
                     "Anúncio": anuncio_lead,
                     "Público": publico_lead,
@@ -2008,7 +1977,7 @@ async def get_detailed_tables(
 
                 # Extrair campos customizados para a tabela detalhada
                 fonte_lead = extract_custom_field_value(lead, 837886) or "N/A"
-                corretor_custom, corretor_enum_id = get_corretor_with_id(lead)  # Corretor com enum_id
+                corretor_custom = extract_custom_field_value(lead, 837920)  # Corretor
                 corretor_final = corretor_custom or "Não atribuído"
                 data_proposta_formatada = format_proposal_date(lead, CUSTOM_FIELD_DATA_PROPOSTA)
                 data_fechamento_formatada = format_proposal_date(lead, CUSTOM_FIELD_DATA_FECHAMENTO)
@@ -2028,7 +1997,6 @@ async def get_detailed_tables(
                     "Nome do Lead": lead_name,
                     "Etapa": etapa_lead,
                     "Corretor": corretor_final,
-                    "CorretorID": corretor_enum_id,  # enum_id do campo SELECT (evita duplicação ao renomear)
                     "Fonte": fonte_lead,
                     "Funil": funil,
                     "Data da Proposta": data_proposta_formatada,
