@@ -717,7 +717,7 @@ async def get_detailed_tables_v2(
             "vendasDetalhes": vendas_detalhes,
             "propostasDetalhes": propostas_detalhes,
             "summary": {
-                "total_leads": len(leads_detalhes) + len(organicos_detalhes),  # Total de TODOS os leads
+                "total_leads": len(leads_detalhes),  # Leads nao-organicos (igual V1)
                 "total_organicos": len(organicos_detalhes),
                 "total_reunioes": len(reunioes_detalhes) + len(reunioes_organicas_detalhes),
                 "total_vendas": len(vendas_detalhes),
