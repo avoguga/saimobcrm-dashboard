@@ -39,22 +39,28 @@ INCOMING_STATUS_IDS = [80645867, 84846887]  # Vendas, Remarketing
 
 # Mapeamento de status_id para nomes de etapas (compativel com V1)
 STATUS_MAP = {
-    # Pipeline Vendas
-    80689711: "Qualificação",
-    80689715: "Reunião Marcada",
-    80689719: "Reunião Realizada",
-    80689723: "Proposta",
-    80689727: "Contrato Enviado",
+    # Pipeline FUNIL DE VENDAS (10516987)
+    80645867: "Leads de entrada",
+    80645871: "lead Novo",
+    90773803: "DUPLICAÇÃO",
+    80645875: "Contato em andamento",
+    80689719: "Qualificado",
+    80689727: "Agendamento Futuro",
+    80689723: "Agendamento",
+    80689731: "Agendamento Realizado",
+    80689735: "Proposta enviada",
+    84845135: "negociação",
+    96709272: "Contrato Enviado",
     80689759: "Contrato Assinado",
+    96884284: "análise de perdas",
+    # Pipeline REMARKETING (11059911)
+    84846887: "Leads de entrada",
+    99829499: "Duplicados",
+    84847367: "REMARKETING",
+    84846891: "EM ATENDIMENTO",
+    # Status globais
     142: "Venda ganha",
     143: "Perdido",
-    # Pipeline Remarketing
-    83103919: "Novo Lead",
-    83103923: "Qualificação",
-    83103927: "Reunião Marcada",
-    83103931: "Reunião Realizada",
-    83103935: "Proposta",
-    83103939: "Contrato Enviado",
 }
 
 def get_etapa_name(status_id: int) -> str:
