@@ -630,6 +630,9 @@ async def get_detailed_tables_v2(
         async for doc in lead_ids_cursor:
             leads_map[doc["lead_id"]] = doc
 
+        # Calcular filtro de reunioes: incluir 23:59 do dia anterior (igual V1)
+        meetings_start_timestamp = start_timestamp - (24 * 60 * 60) + (23 * 60 * 60 + 59 * 60)
+
         # Buscar reunioes
         meetings_query = {
             "task_type_id": 2,
@@ -637,7 +640,7 @@ async def get_detailed_tables_v2(
             "entity_id": {"$in": list(leads_map.keys())},
             "is_deleted": False,
             "complete_till": {
-                "$gte": start_timestamp,
+                "$gte": meetings_start_timestamp,
                 "$lte": end_timestamp
             }
         }
@@ -683,7 +686,7 @@ async def get_detailed_tables_v2(
             # Formato compativel com V1
             detail = {
                 "id": lead_id,
-                "Data da Reunião": datetime.fromtimestamp(task.get("complete_till", 0)).strftime("%d/%m/%Y"),
+                "Data da Reunião": datetime.fromtimestamp(task.get("complete_till", 0)).strftime("%d/%m/%Y %H:%M"),
                 "Nome do Lead": lead.get("name", ""),
                 "Corretor": cf.get("corretor") or "Não atribuído",
                 "Fonte": fonte_lead,
