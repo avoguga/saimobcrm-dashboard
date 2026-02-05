@@ -274,9 +274,15 @@ class KommoAPI:
         
         return result
     
-    def get_lead(self, lead_id: int) -> Dict:
-        """Obtém detalhes de um lead específico"""
-        return self._make_request(f"leads/{lead_id}")
+    def get_lead(self, lead_id: int, use_cache: bool = False) -> Dict:
+        """Obtém detalhes de um lead específico
+
+        Args:
+            lead_id: ID do lead no Kommo
+            use_cache: Se deve usar cache (default: False para garantir dados frescos)
+        """
+        params = {"with": "custom_fields_values,contacts,tags"}
+        return self._make_request(f"leads/{lead_id}", params=params, use_cache=use_cache)
     
     # Métodos para Tags
     def get_tags(self) -> Dict:
