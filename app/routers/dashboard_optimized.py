@@ -77,10 +77,16 @@ def build_leads_query(
     produto: str = None,
     status_ids: List[int] = None,
     exclude_deleted: bool = True,
-    exclude_incoming: bool = True
+    exclude_incoming: bool = True,
+    use_updated_at: bool = True
 ) -> Dict:
     """
     Constroi query MongoDB para leads com filtros.
+
+    Args:
+        use_updated_at: Se True, filtra por updated_at (leads movimentados no periodo).
+                       Se False, filtra por created_at (leads criados no periodo).
+                       Default True para mostrar leads antigos que foram atualizados recentemente.
     """
     query = {}
 
@@ -99,13 +105,15 @@ def build_leads_query(
         else:
             query["pipeline_id"] = {"$in": pipeline_ids}
 
-    # Filtro por periodo (created_at)
+    # Filtro por periodo - usar updated_at para mostrar leads movimentados no periodo
+    # Isso permite que leads antigos que foram atualizados recentemente aparecam
+    date_field = "updated_at" if use_updated_at else "created_at"
     if start_timestamp or end_timestamp:
-        query["created_at"] = {}
+        query[date_field] = {}
         if start_timestamp:
-            query["created_at"]["$gte"] = start_timestamp
+            query[date_field]["$gte"] = start_timestamp
         if end_timestamp:
-            query["created_at"]["$lte"] = end_timestamp
+            query[date_field]["$lte"] = end_timestamp
 
     # Filtro por corretor (suporta multiplos separados por virgula)
     if corretor and corretor.strip():

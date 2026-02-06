@@ -482,6 +482,30 @@ async def duplicates_stats():
         )
 
 
+@router.get("/lead/{lead_id}")
+async def get_lead_details(lead_id: int):
+    """
+    Retorna todos os detalhes de um lead especifico (debug).
+    """
+    try:
+        lead = await leads_collection.find_one({"lead_id": lead_id})
+
+        if not lead:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "Lead nao encontrado"}
+            )
+
+        lead["_id"] = str(lead["_id"])
+        return {"lead": lead}
+    except Exception as e:
+        logger.error(f"Erro ao buscar lead {lead_id}: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+
 @router.get("/duplicates/lead/{lead_id}")
 async def get_lead_duplicates(lead_id: int):
     """
