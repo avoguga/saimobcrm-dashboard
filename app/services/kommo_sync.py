@@ -16,11 +16,21 @@ from app.models.kommo_models import (
     sync_status_collection,
     kommo_lead_to_model,
     kommo_task_to_model,
+    normalize_phone,
+    extract_phones_from_lead_contacts,
     PIPELINE_VENDAS,
     PIPELINE_REMARKETING,
 )
+import re
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_name(name: str) -> str:
+    """Normaliza nome para comparacao (lowercase, sem espacos extras)."""
+    if not name:
+        return ""
+    return ' '.join(name.lower().strip().split())
 
 # Instancia da API Kommo
 kommo_api = get_kommo_api()
@@ -514,6 +524,172 @@ class KommoSyncService:
         self._is_running = False
         logger.warning(f"Estado de sync resetado manualmente (was_running={was_running})")
         return {"reset": True, "was_running": was_running}
+
+    async def find_duplicates_for_lead(self, lead_id: int, name: str, normalized_phones: List[str]) -> List[Dict]:
+        """
+        Busca leads duplicados pelo nome ou telefone.
+        """
+        duplicates = []
+        normalized_name = normalize_name(name)
+
+        if not normalized_name and not normalized_phones:
+            return duplicates
+
+        or_conditions = []
+
+        if normalized_name:
+            or_conditions.append({
+                "name": {"$regex": f"^{re.escape(normalized_name)}$", "$options": "i"}
+            })
+
+        if normalized_phones:
+            for phone in normalized_phones:
+                if len(phone) >= 10:
+                    phone_suffix = phone[-10:]
+                    or_conditions.append({
+                        "normalized_phones": {"$regex": f"{phone_suffix}$"}
+                    })
+                else:
+                    or_conditions.append({
+                        "normalized_phones": phone
+                    })
+
+        if not or_conditions:
+            return duplicates
+
+        query = {
+            "$and": [
+                {"lead_id": {"$ne": lead_id}},
+                {"is_deleted": False},
+                {"$or": or_conditions}
+            ]
+        }
+
+        try:
+            cursor = leads_collection.find(query, {"lead_id": 1, "name": 1, "price": 1})
+            async for lead in cursor:
+                duplicates.append({
+                    "lead_id": lead.get("lead_id"),
+                    "name": lead.get("name"),
+                    "price": lead.get("price")
+                })
+        except Exception as e:
+            logger.error(f"Erro ao buscar duplicados: {e}")
+
+        return duplicates
+
+    async def detect_duplicates_all(self) -> Dict:
+        """
+        Detecta e marca todos os leads duplicados no banco.
+        Deve ser executado apos sync completo para atualizar leads existentes.
+        """
+        logger.info("Iniciando deteccao de duplicatas em todos os leads...")
+        start_time = time.time()
+
+        stats = {
+            "total_leads": 0,
+            "leads_with_duplicates": 0,
+            "duplicate_pairs": 0,
+            "errors": 0
+        }
+
+        try:
+            # Primeiro, atualizar normalized_phones de todos os leads que nao tem
+            cursor = leads_collection.find(
+                {"is_deleted": False},
+                {"lead_id": 1, "name": 1, "contacts": 1, "normalized_phones": 1}
+            )
+
+            leads_to_check = []
+            async for lead in cursor:
+                stats["total_leads"] += 1
+                lead_id = lead.get("lead_id")
+                name = lead.get("name", "")
+                contacts = lead.get("contacts", [])
+                existing_phones = lead.get("normalized_phones")
+
+                # Se nao tem telefones normalizados, extrair
+                if not existing_phones:
+                    normalized_phones = extract_phones_from_lead_contacts(contacts)
+                    if normalized_phones:
+                        await leads_collection.update_one(
+                            {"lead_id": lead_id},
+                            {"$set": {"normalized_phones": normalized_phones}}
+                        )
+                else:
+                    normalized_phones = existing_phones
+
+                leads_to_check.append({
+                    "lead_id": lead_id,
+                    "name": name,
+                    "normalized_phones": normalized_phones or []
+                })
+
+            logger.info(f"Verificando {len(leads_to_check)} leads para duplicatas...")
+
+            # Agora buscar duplicatas para cada lead
+            processed_pairs = set()  # Para evitar marcar o mesmo par duas vezes
+
+            for lead in leads_to_check:
+                lead_id = lead["lead_id"]
+                name = lead["name"]
+                phones = lead["normalized_phones"]
+
+                duplicates = await self.find_duplicates_for_lead(lead_id, name, phones)
+
+                if duplicates:
+                    # Filtrar pares ja processados
+                    new_duplicates = []
+                    for dup in duplicates:
+                        pair = tuple(sorted([lead_id, dup["lead_id"]]))
+                        if pair not in processed_pairs:
+                            processed_pairs.add(pair)
+                            new_duplicates.append(dup)
+                            stats["duplicate_pairs"] += 1
+
+                    if new_duplicates:
+                        stats["leads_with_duplicates"] += 1
+
+                        # Atualizar este lead
+                        await leads_collection.update_one(
+                            {"lead_id": lead_id},
+                            {
+                                "$set": {
+                                    "is_possible_duplicate": True,
+                                    "possible_duplicates": duplicates
+                                }
+                            }
+                        )
+
+                        # Atualizar os leads duplicados tambem
+                        for dup in new_duplicates:
+                            await leads_collection.update_one(
+                                {"lead_id": dup["lead_id"]},
+                                {
+                                    "$addToSet": {
+                                        "possible_duplicates": {
+                                            "lead_id": lead_id,
+                                            "name": name,
+                                            "price": 0
+                                        }
+                                    },
+                                    "$set": {"is_possible_duplicate": True}
+                                }
+                            )
+
+        except Exception as e:
+            logger.error(f"Erro na deteccao de duplicatas: {e}")
+            stats["errors"] += 1
+
+        elapsed = time.time() - start_time
+        stats["elapsed_seconds"] = round(elapsed, 2)
+
+        logger.info(f"Deteccao de duplicatas finalizada em {elapsed:.2f}s - {stats}")
+
+        return {
+            "success": True,
+            "stats": stats
+        }
 
 
 # Instancia singleton

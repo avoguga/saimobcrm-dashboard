@@ -134,6 +134,11 @@ class KommoLead(BaseModel):
     # Flag para soft delete
     is_deleted: bool = Field(default=False, description="Se o lead foi deletado no Kommo")
 
+    # Campos para deteccao de duplicatas
+    normalized_phones: Optional[List[str]] = Field(default=None, description="Telefones normalizados para busca")
+    is_possible_duplicate: bool = Field(default=False, description="Se pode ser duplicado de outro lead")
+    possible_duplicates: Optional[List[Dict[str, Any]]] = Field(default=None, description="Lista de possiveis duplicatas")
+
     class Config:
         allow_population_by_field_name = True
         arbitrary_types_allowed = True
@@ -291,6 +296,45 @@ def parse_kommo_date(value: Any) -> Optional[datetime]:
         return None
 
 
+def normalize_phone(phone: str) -> str:
+    """
+    Normaliza numero de telefone removendo caracteres especiais.
+    Ex: '+55 31 98624-0685' -> '5531986240685'
+    """
+    import re
+    if not phone:
+        return ""
+    # Remove tudo que nao for digito
+    return re.sub(r'\D', '', str(phone))
+
+
+def extract_phones_from_lead_contacts(contacts: List[Dict]) -> List[str]:
+    """
+    Extrai todos os telefones dos contatos de um lead.
+    Retorna lista de telefones normalizados.
+    """
+    phones = []
+    if not contacts:
+        return phones
+
+    for contact in contacts:
+        # Contatos podem ter custom_fields_values com telefones
+        custom_fields = contact.get("custom_fields_values", [])
+        for field in custom_fields:
+            field_code = field.get("field_code", "")
+            # Telefones geralmente tem field_code "PHONE"
+            if field_code == "PHONE" or "phone" in field_code.lower():
+                values = field.get("values", [])
+                for v in values:
+                    phone_value = v.get("value", "")
+                    if phone_value:
+                        normalized = normalize_phone(phone_value)
+                        if normalized and len(normalized) >= 8:  # Telefone valido
+                            phones.append(normalized)
+
+    return phones
+
+
 def process_lead_custom_fields(raw_custom_fields: List[Dict]) -> KommoLeadCustomFields:
     """Processa custom fields brutos e retorna objeto estruturado"""
     if not raw_custom_fields:
@@ -315,6 +359,10 @@ def kommo_lead_to_model(lead_data: Dict, source: str = "api") -> Dict:
     """
     raw_custom_fields = lead_data.get("custom_fields_values", [])
     custom_fields = process_lead_custom_fields(raw_custom_fields)
+    contacts = lead_data.get("_embedded", {}).get("contacts", [])
+
+    # Extrair telefones normalizados para deteccao de duplicatas
+    normalized_phones = extract_phones_from_lead_contacts(contacts)
 
     return {
         "lead_id": lead_data["id"],
@@ -329,7 +377,8 @@ def kommo_lead_to_model(lead_data: Dict, source: str = "api") -> Dict:
         "custom_fields": custom_fields.dict(),
         "raw_custom_fields": raw_custom_fields,
         "tags": lead_data.get("_embedded", {}).get("tags", []),
-        "contacts": lead_data.get("_embedded", {}).get("contacts", []),
+        "contacts": contacts,
+        "normalized_phones": normalized_phones,
         "synced_at": datetime.utcnow(),
         "source": source,
         "is_deleted": False
@@ -404,6 +453,15 @@ async def create_kommo_indexes():
 
         # Indice para leads nao deletados
         IndexModel([("is_deleted", ASCENDING)], name="is_deleted"),
+
+        # Indice para busca por telefone normalizado (deteccao de duplicatas)
+        IndexModel([("normalized_phones", ASCENDING)], name="normalized_phones"),
+
+        # Indice para busca por nome (deteccao de duplicatas)
+        IndexModel([("name", ASCENDING)], name="lead_name"),
+
+        # Indice para leads duplicados
+        IndexModel([("is_possible_duplicate", ASCENDING)], name="is_possible_duplicate"),
     ]
 
     try:

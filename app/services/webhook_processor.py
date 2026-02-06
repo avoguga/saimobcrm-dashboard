@@ -23,6 +23,55 @@ from app.services.kommo_api import get_kommo_api
 
 logger = logging.getLogger(__name__)
 
+
+def normalize_phone(phone: str) -> str:
+    """
+    Normaliza numero de telefone removendo caracteres especiais.
+    Ex: '+55 31 98624-0685' -> '5531986240685'
+    """
+    if not phone:
+        return ""
+    # Remove tudo que nao for digito
+    normalized = re.sub(r'\D', '', str(phone))
+    return normalized
+
+
+def normalize_name(name: str) -> str:
+    """
+    Normaliza nome para comparacao (lowercase, sem espacos extras).
+    """
+    if not name:
+        return ""
+    # Lowercase, remove espacos extras
+    return ' '.join(name.lower().strip().split())
+
+
+def extract_phones_from_contacts(contacts: List[Dict]) -> List[str]:
+    """
+    Extrai todos os telefones dos contatos de um lead.
+    Retorna lista de telefones normalizados.
+    """
+    phones = []
+    if not contacts:
+        return phones
+
+    for contact in contacts:
+        # Contatos podem ter custom_fields_values com telefones
+        custom_fields = contact.get("custom_fields_values", [])
+        for field in custom_fields:
+            field_code = field.get("field_code", "")
+            # Telefones geralmente tem field_code "PHONE"
+            if field_code == "PHONE" or "phone" in field_code.lower():
+                values = field.get("values", [])
+                for v in values:
+                    phone_value = v.get("value", "")
+                    if phone_value:
+                        normalized = normalize_phone(phone_value)
+                        if normalized and len(normalized) >= 8:  # Telefone valido
+                            phones.append(normalized)
+
+    return phones
+
 # Pool de threads para operacoes sync
 _executor = ThreadPoolExecutor(max_workers=4)
 
@@ -113,6 +162,77 @@ class WebhookProcessor:
         self._processing_queue = asyncio.Queue()
         self._is_processing = False
 
+    async def find_duplicate_leads(
+        self,
+        name: str,
+        contacts: List[Dict],
+        current_lead_id: int
+    ) -> List[Dict]:
+        """
+        Busca leads duplicados pelo nome ou telefone.
+        Retorna lista de leads que podem ser duplicados.
+        """
+        duplicates = []
+
+        # Extrair telefones do novo lead
+        phones = extract_phones_from_contacts(contacts)
+        normalized_name = normalize_name(name)
+
+        # Se nao tem nome nem telefone, nao da pra verificar duplicatas
+        if not normalized_name and not phones:
+            return duplicates
+
+        # Construir query para buscar duplicatas
+        # Busca por nome exato OU por telefone
+        or_conditions = []
+
+        if normalized_name:
+            # Busca por nome (case-insensitive)
+            or_conditions.append({
+                "name": {"$regex": f"^{re.escape(normalized_name)}$", "$options": "i"}
+            })
+
+        if phones:
+            # Busca por telefones normalizados
+            # Verifica se algum telefone do lead existente corresponde
+            for phone in phones:
+                # Busca parcial - telefone pode estar com ou sem DDI
+                if len(phone) >= 10:
+                    # Se tem mais de 10 digitos, busca pelos ultimos 10 (DDD + numero)
+                    phone_suffix = phone[-10:]
+                    or_conditions.append({
+                        "normalized_phones": {"$regex": f"{phone_suffix}$"}
+                    })
+                else:
+                    or_conditions.append({
+                        "normalized_phones": phone
+                    })
+
+        if not or_conditions:
+            return duplicates
+
+        # Buscar leads existentes que nao sejam o proprio lead
+        query = {
+            "$and": [
+                {"lead_id": {"$ne": current_lead_id}},
+                {"is_deleted": False},
+                {"$or": or_conditions}
+            ]
+        }
+
+        try:
+            cursor = leads_collection.find(query, {"lead_id": 1, "name": 1, "price": 1, "normalized_phones": 1})
+            async for lead in cursor:
+                duplicates.append({
+                    "lead_id": lead.get("lead_id"),
+                    "name": lead.get("name"),
+                    "price": lead.get("price")
+                })
+        except Exception as e:
+            logger.error(f"Erro ao buscar leads duplicados: {e}")
+
+        return duplicates
+
     async def log_webhook_event(
         self,
         event_type: str,
@@ -153,6 +273,7 @@ class WebhookProcessor:
         """
         Processa evento de lead adicionado.
         O Kommo envia dados basicos, precisamos buscar dados completos.
+        Verifica se ja existe um lead com o mesmo nome ou telefone.
         """
         lead_id = lead_data.get("id")
         if not lead_id:
@@ -178,6 +299,42 @@ class WebhookProcessor:
             # Converter e salvar
             model_data = kommo_lead_to_model(full_lead, source="webhook_add")
 
+            # Extrair contatos e telefones normalizados
+            contacts = full_lead.get("_embedded", {}).get("contacts", [])
+            normalized_phones = extract_phones_from_contacts(contacts)
+            model_data["normalized_phones"] = normalized_phones
+
+            # Verificar se ja existe lead duplicado (mesmo nome ou telefone)
+            lead_name = full_lead.get("name", "")
+            duplicates = await self.find_duplicate_leads(lead_name, contacts, lead_id)
+
+            if duplicates:
+                model_data["possible_duplicates"] = duplicates
+                model_data["is_possible_duplicate"] = True
+                duplicate_ids = [d["lead_id"] for d in duplicates]
+                logger.warning(
+                    f"Lead {lead_id} ({lead_name}) pode ser duplicado de: {duplicate_ids}"
+                )
+
+                # Atualizar os leads existentes para marcar que tem duplicata tambem
+                for dup in duplicates:
+                    await leads_collection.update_one(
+                        {"lead_id": dup["lead_id"]},
+                        {
+                            "$addToSet": {
+                                "possible_duplicates": {
+                                    "lead_id": lead_id,
+                                    "name": lead_name,
+                                    "price": model_data.get("price", 0)
+                                }
+                            },
+                            "$set": {"is_possible_duplicate": True}
+                        }
+                    )
+            else:
+                model_data["is_possible_duplicate"] = False
+                model_data["possible_duplicates"] = []
+
             result = await leads_collection.update_one(
                 {"lead_id": lead_id},
                 {"$set": model_data},
@@ -187,7 +344,13 @@ class WebhookProcessor:
             action = "inserted" if result.upserted_id else "updated"
             logger.info(f"Lead {lead_id} {action} via webhook ADD")
 
-            return {"success": True, "action": action, "lead_id": lead_id}
+            return {
+                "success": True,
+                "action": action,
+                "lead_id": lead_id,
+                "is_duplicate": len(duplicates) > 0,
+                "duplicate_of": [d["lead_id"] for d in duplicates] if duplicates else []
+            }
 
         except Exception as e:
             logger.error(f"Erro ao processar lead ADD {lead_id}: {e}")

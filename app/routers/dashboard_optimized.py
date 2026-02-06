@@ -520,8 +520,33 @@ async def get_detailed_tables_v2(
             closed_at = lead.get("closed_at")
             data_fechamento = cf.get("data_fechamento")
 
-            if data_fechamento and isinstance(data_fechamento, datetime):
-                detail["Data da Venda"] = data_fechamento.strftime("%d/%m/%Y")
+            # Fallback: tentar buscar do raw_custom_fields
+            if not data_fechamento:
+                raw_cf = lead.get("raw_custom_fields", [])
+                for field in raw_cf:
+                    if field and field.get("field_id") == CUSTOM_FIELD_DATA_FECHAMENTO:
+                        values = field.get("values", [])
+                        if values and len(values) > 0:
+                            data_fechamento = values[0].get("value")
+                            break
+
+            # Formatar data da venda
+            if data_fechamento:
+                if isinstance(data_fechamento, datetime):
+                    detail["Data da Venda"] = data_fechamento.strftime("%d/%m/%Y")
+                elif isinstance(data_fechamento, (int, float)):
+                    detail["Data da Venda"] = datetime.fromtimestamp(data_fechamento).strftime("%d/%m/%Y")
+                elif isinstance(data_fechamento, str):
+                    # Tentar parsear e reformatar
+                    for fmt in ["%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"]:
+                        try:
+                            dt = datetime.strptime(data_fechamento, fmt)
+                            detail["Data da Venda"] = dt.strftime("%d/%m/%Y")
+                            break
+                        except ValueError:
+                            continue
+                    else:
+                        detail["Data da Venda"] = data_fechamento  # Usar como esta
             elif closed_at:
                 detail["Data da Venda"] = datetime.fromtimestamp(closed_at).strftime("%d/%m/%Y")
             else:
@@ -578,12 +603,36 @@ async def get_detailed_tables_v2(
             data_fechamento = cf.get("data_fechamento")
 
             if not data_fechamento:
-                continue  # Sem data_fechamento = nao conta como venda (igual V1)
+                # Fallback: tentar buscar do raw_custom_fields
+                raw_cf = lead.get("raw_custom_fields", [])
+                for field in raw_cf:
+                    if field and field.get("field_id") == CUSTOM_FIELD_DATA_FECHAMENTO:
+                        values = field.get("values", [])
+                        if values and len(values) > 0:
+                            data_fechamento = values[0].get("value")
+                            break
+
+                if not data_fechamento:
+                    continue  # Sem data_fechamento = nao conta como venda (igual V1)
 
             # Determinar timestamp da venda
+            venda_timestamp = None
             if isinstance(data_fechamento, datetime):
                 venda_timestamp = int(data_fechamento.timestamp())
-            else:
+            elif isinstance(data_fechamento, (int, float)):
+                # Timestamp Unix direto
+                venda_timestamp = int(data_fechamento)
+            elif isinstance(data_fechamento, str):
+                # Tentar parsear string de data
+                for fmt in ["%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"]:
+                    try:
+                        dt = datetime.strptime(data_fechamento, fmt)
+                        venda_timestamp = int(dt.timestamp())
+                        break
+                    except ValueError:
+                        continue
+
+            if not venda_timestamp:
                 continue  # Formato invalido
 
             # Filtrar por periodo

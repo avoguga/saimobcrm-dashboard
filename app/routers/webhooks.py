@@ -350,3 +350,226 @@ async def delete_all_leads(confirm: bool = Query(False, description="Confirmar e
             status_code=500,
             content={"error": str(e)}
         )
+
+
+# =============================================================================
+# ENDPOINTS DE DETECCAO DE DUPLICATAS
+# =============================================================================
+
+@router.post("/duplicates/detect")
+async def detect_duplicates(
+    background_tasks: BackgroundTasks,
+    wait: bool = Query(False, description="Aguardar conclusao (pode demorar!)")
+):
+    """
+    Detecta e marca leads duplicados em todo o banco de dados.
+
+    Compara leads por:
+    - Nome exato (case-insensitive)
+    - Telefone (normalizado, ultimos 10 digitos)
+
+    Leads duplicados serao marcados com:
+    - is_possible_duplicate: true
+    - possible_duplicates: lista de leads similares
+    """
+    sync_service = get_sync_service()
+
+    if sync_service.is_running():
+        return JSONResponse(
+            status_code=409,
+            content={"error": "Sincronizacao em execucao. Aguarde terminar."}
+        )
+
+    if wait:
+        result = await sync_service.detect_duplicates_all()
+        return result
+    else:
+        background_tasks.add_task(sync_service.detect_duplicates_all)
+        return {
+            "status": "started",
+            "message": "Deteccao de duplicatas iniciada em background",
+            "check_status": "/webhooks/duplicates/stats"
+        }
+
+
+@router.get("/duplicates/list")
+async def list_duplicates(
+    limit: int = Query(50, description="Numero maximo de leads"),
+    page: int = Query(1, description="Pagina"),
+    min_price: Optional[float] = Query(None, description="Valor minimo do lead")
+):
+    """
+    Lista todos os leads que tem possiveis duplicatas.
+    """
+    try:
+        query = {"is_possible_duplicate": True, "is_deleted": False}
+        if min_price:
+            query["price"] = {"$gte": min_price}
+
+        skip = (page - 1) * limit
+
+        # Contar total
+        total = await leads_collection.count_documents(query)
+
+        # Buscar leads
+        cursor = leads_collection.find(
+            query,
+            {
+                "lead_id": 1,
+                "name": 1,
+                "price": 1,
+                "pipeline_id": 1,
+                "status_id": 1,
+                "normalized_phones": 1,
+                "possible_duplicates": 1,
+                "custom_fields": 1,
+                "created_at": 1
+            }
+        ).sort("created_at", -1).skip(skip).limit(limit)
+
+        leads = []
+        async for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            leads.append(doc)
+
+        return {
+            "leads": leads,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "pages": (total + limit - 1) // limit if total > 0 else 0
+        }
+    except Exception as e:
+        logger.error(f"Erro ao listar duplicatas: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+
+@router.get("/duplicates/stats")
+async def duplicates_stats():
+    """
+    Retorna estatisticas de leads duplicados.
+    """
+    try:
+        total_leads = await leads_collection.count_documents({"is_deleted": False})
+        leads_with_duplicates = await leads_collection.count_documents({
+            "is_possible_duplicate": True,
+            "is_deleted": False
+        })
+
+        # Calcular valor total de leads duplicados
+        pipeline = [
+            {"$match": {"is_possible_duplicate": True, "is_deleted": False}},
+            {"$group": {"_id": None, "total_value": {"$sum": "$price"}}}
+        ]
+        result = await leads_collection.aggregate(pipeline).to_list(1)
+        total_value = result[0]["total_value"] if result else 0
+
+        return {
+            "total_leads": total_leads,
+            "leads_with_duplicates": leads_with_duplicates,
+            "percentage": round((leads_with_duplicates / total_leads * 100), 2) if total_leads > 0 else 0,
+            "total_value_duplicates": total_value,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Erro ao obter stats de duplicatas: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+
+@router.get("/duplicates/lead/{lead_id}")
+async def get_lead_duplicates(lead_id: int):
+    """
+    Retorna os possiveis duplicados de um lead especifico.
+    """
+    try:
+        lead = await leads_collection.find_one(
+            {"lead_id": lead_id},
+            {
+                "lead_id": 1,
+                "name": 1,
+                "price": 1,
+                "normalized_phones": 1,
+                "possible_duplicates": 1,
+                "is_possible_duplicate": 1
+            }
+        )
+
+        if not lead:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "Lead nao encontrado"}
+            )
+
+        lead["_id"] = str(lead["_id"])
+
+        # Se tem duplicados, buscar detalhes completos
+        duplicates_details = []
+        if lead.get("possible_duplicates"):
+            for dup in lead["possible_duplicates"]:
+                dup_lead = await leads_collection.find_one(
+                    {"lead_id": dup["lead_id"]},
+                    {
+                        "lead_id": 1,
+                        "name": 1,
+                        "price": 1,
+                        "pipeline_id": 1,
+                        "status_id": 1,
+                        "normalized_phones": 1,
+                        "custom_fields": 1,
+                        "created_at": 1
+                    }
+                )
+                if dup_lead:
+                    dup_lead["_id"] = str(dup_lead["_id"])
+                    duplicates_details.append(dup_lead)
+
+        return {
+            "lead": lead,
+            "duplicates_details": duplicates_details
+        }
+    except Exception as e:
+        logger.error(f"Erro ao buscar duplicados do lead {lead_id}: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+
+@router.post("/duplicates/clear/{lead_id}")
+async def clear_duplicate_flag(lead_id: int):
+    """
+    Remove a marcacao de duplicado de um lead (caso seja falso positivo).
+    """
+    try:
+        result = await leads_collection.update_one(
+            {"lead_id": lead_id},
+            {
+                "$set": {
+                    "is_possible_duplicate": False,
+                    "possible_duplicates": []
+                }
+            }
+        )
+
+        if result.modified_count > 0:
+            return {
+                "success": True,
+                "message": f"Marcacao de duplicado removida do lead {lead_id}"
+            }
+        else:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "Lead nao encontrado ou ja nao estava marcado"}
+            )
+    except Exception as e:
+        logger.error(f"Erro ao limpar flag de duplicado: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
