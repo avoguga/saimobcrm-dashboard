@@ -566,13 +566,14 @@ async def get_detailed_tables_v2(
         # V1 considera APENAS "Orgânico" como fonte orgânica
         FONTES_ORGANICAS = ["Orgânico"]
 
-        # Query base
+        # Query base - usar created_at para manter compatibilidade com V1
         base_query = build_leads_query(
             pipeline_ids=[PIPELINE_VENDAS, PIPELINE_REMARKETING],
             start_timestamp=start_timestamp,
             end_timestamp=end_timestamp,
             corretor=corretor,
-            fonte=fonte
+            fonte=fonte,
+            use_updated_at=False  # Manter compatibilidade com V1
         )
 
         # ===== 1. LEADS DETALHES (nao organicos) =====
@@ -596,8 +597,9 @@ async def get_detailed_tables_v2(
             **base_query,
             "status_id": {"$in": [STATUS_VENDA_FINAL, STATUS_CONTRATO_ASSINADO]}
         }
-        # Para vendas, usamos closed_at ou data_fechamento (remover filtro por created_at se existir)
-        vendas_query.pop("created_at", None)  # Remover filtro por created_at de forma segura
+        # Para vendas, usamos data_fechamento para filtrar (remover filtros de data do lead)
+        vendas_query.pop("created_at", None)
+        vendas_query.pop("updated_at", None)  # Remover ambos os filtros de data
 
         vendas_cursor = leads_collection.find(vendas_query).sort("closed_at", -1).limit(limit)
 
@@ -675,11 +677,14 @@ async def get_detailed_tables_v2(
             propostas_detalhes.append(detail)
 
         # ===== 5. REUNIOES DETALHES =====
-        # Buscar lead_ids primeiro
+        # Buscar lead_ids primeiro - incluir filtro de datas para evitar carregamento infinito
         all_leads_query = build_leads_query(
             pipeline_ids=[PIPELINE_VENDAS, PIPELINE_REMARKETING],
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
             corretor=corretor,
-            fonte=fonte
+            fonte=fonte,
+            use_updated_at=False  # Manter compatibilidade com V1
         )
         lead_ids_cursor = leads_collection.find(all_leads_query, {"lead_id": 1, "custom_fields": 1, "name": 1, "pipeline_id": 1, "status_id": 1})
 
