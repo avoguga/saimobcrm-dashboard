@@ -655,14 +655,24 @@ async def get_detailed_tables_v2(
             total_vendas_valor += lead.get("price", 0) or 0
 
         # ===== 4. PROPOSTAS DETALHES =====
-        # Propostas sao leads com custom_fields.proposta = true
-        propostas_query = {
-            **base_query,
-            "raw_custom_fields": {
-                "$elemMatch": {
-                    "field_id": CUSTOM_FIELD_PROPOSTA,
-                    "values.0.value": {"$in": [True, "true", "1", 1]}
-                }
+        # CORREÇÃO: Propostas devem ser filtradas por data_proposta, não created_at
+        # Igual V1 que usa validate_proposta_in_period() com data_proposta
+        # Isso permite que leads antigos com propostas recentes apareçam
+
+        # Converter timestamps para datetime para comparação com data_proposta
+        start_dt = datetime.fromtimestamp(start_timestamp)
+        end_dt = datetime.fromtimestamp(end_timestamp)
+
+        propostas_query = build_leads_query(
+            pipeline_ids=[PIPELINE_VENDAS, PIPELINE_REMARKETING],
+            # SEM filtro de data - vamos filtrar por data_proposta depois
+            corretor=corretor,
+            fonte=fonte
+        )
+        propostas_query["raw_custom_fields"] = {
+            "$elemMatch": {
+                "field_id": CUSTOM_FIELD_PROPOSTA,
+                "values.0.value": {"$in": [True, "true", "1", 1]}
             }
         }
 
@@ -670,6 +680,27 @@ async def get_detailed_tables_v2(
 
         propostas_detalhes = []
         async for lead in propostas_cursor:
+            # Filtrar por data_proposta no período (igual V1)
+            cf = lead.get("custom_fields", {})
+            data_proposta = cf.get("data_proposta")
+
+            if data_proposta:
+                try:
+                    # data_proposta pode ser datetime ou string
+                    if isinstance(data_proposta, datetime):
+                        proposta_dt = data_proposta
+                    elif isinstance(data_proposta, str):
+                        # Tentar parsing ISO
+                        proposta_dt = datetime.fromisoformat(data_proposta.replace('Z', '+00:00').replace('+00:00', ''))
+                    else:
+                        continue  # Formato desconhecido
+
+                    # Verificar se está no período
+                    if not (start_dt <= proposta_dt <= end_dt):
+                        continue  # Fora do período
+                except Exception:
+                    continue  # Erro no parsing
+
             detail = format_lead_detail(lead, tipo="proposta")
             # Adicionar valor para propostas (campo esperado pelo frontend)
             price = lead.get("price", 0) or 0
