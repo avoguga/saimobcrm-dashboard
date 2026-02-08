@@ -184,14 +184,15 @@ async def get_sales_complete_v2(
             end_timestamp = int(time.time())
             start_timestamp = end_timestamp - (days * 24 * 60 * 60)
 
-        # Query base para leads
+        # Query base para leads - usar created_at para manter compatibilidade com V1
         base_query = build_leads_query(
             pipeline_ids=[PIPELINE_VENDAS, PIPELINE_REMARKETING],
             start_timestamp=start_timestamp,
             end_timestamp=end_timestamp,
             corretor=corretor,
             fonte=fonte,
-            produto=produto
+            produto=produto,
+            use_updated_at=False  # Manter compatibilidade com V1
         )
 
         # ===== AGREGACOES MONGODB =====
@@ -677,14 +678,14 @@ async def get_detailed_tables_v2(
             propostas_detalhes.append(detail)
 
         # ===== 5. REUNIOES DETALHES =====
-        # Buscar lead_ids primeiro - incluir filtro de datas para evitar carregamento infinito
+        # CORREÇÃO: Para reuniões, NÃO filtrar leads por data de criação!
+        # V1 busca TODAS as reuniões no período e depois associa com leads (qualquer lead)
+        # O filtro de data aplica-se apenas às reuniões (complete_till), não aos leads
         all_leads_query = build_leads_query(
             pipeline_ids=[PIPELINE_VENDAS, PIPELINE_REMARKETING],
-            start_timestamp=start_timestamp,
-            end_timestamp=end_timestamp,
+            # SEM filtro de data - reuniões podem ser de leads criados fora do período
             corretor=corretor,
-            fonte=fonte,
-            use_updated_at=False  # Manter compatibilidade com V1
+            fonte=fonte
         )
         lead_ids_cursor = leads_collection.find(all_leads_query, {"lead_id": 1, "custom_fields": 1, "name": 1, "pipeline_id": 1, "status_id": 1})
 
