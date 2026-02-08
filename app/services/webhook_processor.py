@@ -24,6 +24,63 @@ from app.services.kommo_api import get_kommo_api
 logger = logging.getLogger(__name__)
 
 
+def normalize_webhook_task(task_data: Dict) -> Dict:
+    """
+    Normaliza dados de task do webhook para o formato esperado pelo modelo.
+
+    Webhook envia:
+    - task_type -> task_type_id
+    - element_id -> entity_id
+    - element_type -> entity_type (2 = leads)
+    - status -> is_completed (1 = completed)
+    - complete_till (string) -> complete_till (timestamp)
+    """
+    normalized = task_data.copy()
+
+    # task_type -> task_type_id
+    if "task_type" in normalized and "task_type_id" not in normalized:
+        try:
+            normalized["task_type_id"] = int(normalized["task_type"])
+        except (ValueError, TypeError):
+            normalized["task_type_id"] = 0
+
+    # element_id -> entity_id
+    if "element_id" in normalized and "entity_id" not in normalized:
+        try:
+            normalized["entity_id"] = int(normalized["element_id"])
+        except (ValueError, TypeError):
+            normalized["entity_id"] = None
+
+    # element_type -> entity_type (2 = leads)
+    if "element_type" in normalized:
+        element_type = normalized.get("element_type")
+        if element_type == "2" or element_type == 2:
+            normalized["entity_type"] = "leads"
+
+    # status -> is_completed (1 = completed, 0 = pending)
+    if "status" in normalized:
+        status = normalized.get("status")
+        normalized["is_completed"] = status == "1" or status == 1
+
+    # complete_till string -> timestamp
+    if "complete_till" in normalized and isinstance(normalized["complete_till"], str):
+        try:
+            # Formato: "2026-02-09 02:59:00"
+            dt = datetime.strptime(normalized["complete_till"], "%Y-%m-%d %H:%M:%S")
+            normalized["complete_till"] = int(dt.timestamp())
+        except (ValueError, TypeError):
+            pass
+
+    # complete_before pode ser o timestamp já
+    if "complete_before" in normalized and "complete_till" not in normalized:
+        try:
+            normalized["complete_till"] = int(normalized["complete_before"])
+        except (ValueError, TypeError):
+            pass
+
+    return normalized
+
+
 def normalize_phone(phone: str) -> str:
     """
     Normaliza numero de telefone removendo caracteres especiais.
@@ -468,13 +525,16 @@ class WebhookProcessor:
         logger.info(f"Processando task ADD: {task_id}")
 
         try:
+            # Normalizar dados do webhook para o formato do modelo
+            normalized_data = normalize_webhook_task(task_data)
+
             # Verificar se e reuniao (task_type_id = 2)
-            task_type_id = task_data.get("task_type_id")
+            task_type_id = normalized_data.get("task_type_id")
             if task_type_id != 2:
                 logger.info(f"Task {task_id} ignorada - tipo {task_type_id} (nao e reuniao)")
                 return {"success": True, "action": "ignored", "reason": "not_meeting"}
 
-            model_data = kommo_task_to_model(task_data, source="webhook_add")
+            model_data = kommo_task_to_model(normalized_data, source="webhook_add")
 
             result = await tasks_collection.update_one(
                 {"task_id": task_id},
@@ -502,7 +562,9 @@ class WebhookProcessor:
         logger.info(f"Processando task UPDATE: {task_id}")
 
         try:
-            model_data = kommo_task_to_model(task_data, source="webhook_update")
+            # Normalizar dados do webhook para o formato do modelo
+            normalized_data = normalize_webhook_task(task_data)
+            model_data = kommo_task_to_model(normalized_data, source="webhook_update")
 
             result = await tasks_collection.update_one(
                 {"task_id": task_id},

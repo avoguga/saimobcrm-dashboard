@@ -9,6 +9,8 @@ import logging
 from datetime import datetime, timedelta
 import time
 
+from app.utils.date_helpers import BRAZIL_TIMEZONE
+
 from app.models.kommo_models import (
     leads_collection,
     tasks_collection,
@@ -461,7 +463,7 @@ async def get_detailed_tables_v2(
 
             # Formatar data de criacao
             created_at = lead.get("created_at", 0)
-            data_criacao = datetime.fromtimestamp(created_at).strftime("%d/%m/%Y") if created_at else "N/A"
+            data_criacao = datetime.fromtimestamp(created_at, tz=BRAZIL_TIMEZONE).strftime("%d/%m/%Y") if created_at else "N/A"
 
             # Determinar funil
             pipeline_id = lead.get("pipeline_id")
@@ -544,7 +546,7 @@ async def get_detailed_tables_v2(
                 if isinstance(data_fechamento, datetime):
                     detail["Data da Venda"] = data_fechamento.strftime("%d/%m/%Y")
                 elif isinstance(data_fechamento, (int, float)):
-                    detail["Data da Venda"] = datetime.fromtimestamp(data_fechamento).strftime("%d/%m/%Y")
+                    detail["Data da Venda"] = datetime.fromtimestamp(data_fechamento, tz=BRAZIL_TIMEZONE).strftime("%d/%m/%Y")
                 elif isinstance(data_fechamento, str):
                     # Tentar parsear e reformatar
                     for fmt in ["%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"]:
@@ -557,7 +559,7 @@ async def get_detailed_tables_v2(
                     else:
                         detail["Data da Venda"] = data_fechamento  # Usar como esta
             elif closed_at:
-                detail["Data da Venda"] = datetime.fromtimestamp(closed_at).strftime("%d/%m/%Y")
+                detail["Data da Venda"] = datetime.fromtimestamp(closed_at, tz=BRAZIL_TIMEZONE).strftime("%d/%m/%Y")
             else:
                 detail["Data da Venda"] = detail["Data de Criação"]
 
@@ -781,7 +783,7 @@ async def get_detailed_tables_v2(
             # Formato compativel com V1
             detail = {
                 "id": lead_id,
-                "Data da Reunião": datetime.fromtimestamp(task.get("complete_till", 0)).strftime("%d/%m/%Y %H:%M"),
+                "Data da Reunião": datetime.fromtimestamp(task.get("complete_till", 0), tz=BRAZIL_TIMEZONE).strftime("%d/%m/%Y %H:%M"),
                 "Nome do Lead": lead.get("name", ""),
                 "Corretor": cf.get("corretor") or "Não atribuído",
                 "Fonte": fonte_lead,
