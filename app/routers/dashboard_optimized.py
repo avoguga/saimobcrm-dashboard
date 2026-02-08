@@ -678,14 +678,15 @@ async def get_detailed_tables_v2(
             propostas_detalhes.append(detail)
 
         # ===== 5. REUNIOES DETALHES =====
-        # CORREÇÃO: Para reuniões, NÃO filtrar leads por data de criação!
-        # V1 busca TODAS as reuniões no período e depois associa com leads (qualquer lead)
-        # O filtro de data aplica-se apenas às reuniões (complete_till), não aos leads
+        # CORREÇÃO COMPLETA: Igual V1, buscar reuniões de TODOS os leads (qualquer pipeline)
+        # V1 busca TODAS as reuniões no período e depois associa com leads de qualquer pipeline
+        # Leads de outros pipelines aparecem como "Funil: Não atribuído"
         all_leads_query = build_leads_query(
-            pipeline_ids=[PIPELINE_VENDAS, PIPELINE_REMARKETING],
+            # SEM filtro de pipeline - V1 inclui reuniões de leads de qualquer pipeline
             # SEM filtro de data - reuniões podem ser de leads criados fora do período
             corretor=corretor,
-            fonte=fonte
+            fonte=fonte,
+            exclude_incoming=False  # Incluir todos os status
         )
         lead_ids_cursor = leads_collection.find(all_leads_query, {"lead_id": 1, "custom_fields": 1, "name": 1, "pipeline_id": 1, "status_id": 1})
 
