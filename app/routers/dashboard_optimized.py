@@ -70,6 +70,30 @@ def get_etapa_name(status_id: int) -> str:
     return STATUS_MAP.get(status_id, f"Status {status_id}")
 
 
+# Mapeamento para normalizar nomes de corretores (unificar variações)
+CORRETOR_NORMALIZE_MAP = {
+    "não atribuído": "Não atribuído",
+    "nao atribuido": "Não atribuído",
+    "sem corretor": "Sem corretor",
+    "irlas mastroiani": "Irlas Mastroianni",  # Unificar grafia
+    "carol kuratani": "Caroline Kuratani",    # Unificar nomes
+}
+
+def normalize_corretor(corretor: str) -> str:
+    """Normaliza nome do corretor para evitar duplicados por capitalização ou grafia."""
+    if not corretor:
+        return "Não atribuído"
+
+    corretor_lower = corretor.strip().lower()
+
+    # Verificar mapeamento de normalização
+    if corretor_lower in CORRETOR_NORMALIZE_MAP:
+        return CORRETOR_NORMALIZE_MAP[corretor_lower]
+
+    # Retornar original com trim
+    return corretor.strip()
+
+
 def build_leads_query(
     pipeline_ids: List[int] = None,
     start_timestamp: int = None,
@@ -474,8 +498,8 @@ async def get_detailed_tables_v2(
             else:
                 funil = "Não atribuído"
 
-            # Corretor
-            corretor = cf.get("corretor") or "Não atribuído"
+            # Corretor (normalizado para evitar duplicados)
+            corretor = normalize_corretor(cf.get("corretor"))
 
             # Data da proposta
             data_proposta = "N/A"
@@ -681,6 +705,17 @@ async def get_detailed_tables_v2(
         propostas_cursor = leads_collection.find(propostas_query).sort("created_at", -1).limit(limit)
 
         propostas_detalhes = []
+        receita_prevista = 0.0  # Total de propostas "na mesa" (em negociação)
+
+        # Etapas que contam como "propostas na mesa" (receita prevista)
+        ETAPAS_PROPOSTAS_NA_MESA = [
+            "Proposta enviada",
+            "negociação",
+            "Contrato Enviado",
+            "Contrato Assinado",
+            "Venda ganha"
+        ]
+
         async for lead in propostas_cursor:
             # Filtrar por data_proposta no período (igual V1)
             cf = lead.get("custom_fields", {})
@@ -709,6 +744,11 @@ async def get_detailed_tables_v2(
             valor_formatado = f"R$ {price:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
             detail["Valor da Proposta"] = valor_formatado  # Frontend espera este nome
             propostas_detalhes.append(detail)
+
+            # Somar para receita_prevista se estiver em etapa relevante
+            etapa = detail.get("Etapa", "")
+            if etapa in ETAPAS_PROPOSTAS_NA_MESA:
+                receita_prevista += price
 
         # ===== 5. REUNIOES DETALHES =====
         # CORREÇÃO COMPLETA: Igual V1, buscar reuniões de TODOS os leads (qualquer pipeline)
@@ -785,7 +825,7 @@ async def get_detailed_tables_v2(
                 "id": lead_id,
                 "Data da Reunião": datetime.fromtimestamp(task.get("complete_till", 0), tz=BRAZIL_TIMEZONE).strftime("%d/%m/%Y %H:%M"),
                 "Nome do Lead": lead.get("name", ""),
-                "Corretor": cf.get("corretor") or "Não atribuído",
+                "Corretor": normalize_corretor(cf.get("corretor")),
                 "Fonte": fonte_lead,
                 "Anúncio": cf.get("anuncio") or "N/A",
                 "Público": cf.get("publico") or "N/A",
@@ -819,7 +859,8 @@ async def get_detailed_tables_v2(
                 "total_reunioes": len(reunioes_detalhes) + len(reunioes_organicas_detalhes),
                 "total_vendas": len(vendas_detalhes),
                 "total_propostas": len(propostas_detalhes),
-                "valor_total_vendas": total_vendas_valor
+                "valor_total_vendas": total_vendas_valor,
+                "receita_prevista": receita_prevista  # Total de propostas "na mesa"
             },
             "_metadata": {
                 "version": "v2_mongodb",
