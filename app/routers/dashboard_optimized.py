@@ -708,12 +708,11 @@ async def get_detailed_tables_v2(
         receita_prevista = 0.0  # Total de propostas "na mesa" (em negociação)
 
         # Etapas que contam como "propostas na mesa" (receita prevista)
+        # NÃO inclui "Contrato Assinado" e "Venda ganha" - já são vendas realizadas
         ETAPAS_PROPOSTAS_NA_MESA = [
             "Proposta enviada",
             "negociação",
-            "Contrato Enviado",
-            "Contrato Assinado",
-            "Venda ganha"
+            "Contrato Enviado"
         ]
 
         async for lead in propostas_cursor:
