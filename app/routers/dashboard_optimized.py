@@ -707,6 +707,8 @@ async def get_detailed_tables_v2(
 
         # Etapas que contam como "propostas na mesa" (receita prevista)
         # NÃO inclui "Contrato Assinado" e "Venda ganha" - já são vendas realizadas
+        # Etapas que contam como "propostas na mesa" (em negociação ativa)
+        # NÃO inclui "Venda ganha" e "Contrato Assinado" - já são vendas realizadas
         ETAPAS_PROPOSTAS_NA_MESA = [
             "Proposta enviada",
             "negociação",
@@ -739,16 +741,20 @@ async def get_detailed_tables_v2(
                 continue  # Erro no parsing
 
             detail = format_lead_detail(lead, tipo="proposta")
+            etapa = detail.get("Etapa", "")
+
+            # FILTRAR: só incluir propostas em negociação ativa (excluir vendas já realizadas)
+            if etapa not in ETAPAS_PROPOSTAS_NA_MESA:
+                continue  # Pular vendas já concluídas e outras etapas
+
             # Adicionar valor para propostas (campo esperado pelo frontend)
             price = lead.get("price", 0) or 0
             valor_formatado = f"R$ {price:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
             detail["Valor da Proposta"] = valor_formatado  # Frontend espera este nome
             propostas_detalhes.append(detail)
 
-            # Somar para receita_prevista se estiver em etapa relevante
-            etapa = detail.get("Etapa", "")
-            if etapa in ETAPAS_PROPOSTAS_NA_MESA:
-                receita_prevista += price
+            # Somar para receita_prevista
+            receita_prevista += price
 
         # ===== 5. REUNIOES DETALHES =====
         # CORREÇÃO COMPLETA: Igual V1, buscar reuniões de TODOS os leads (qualquer pipeline)
