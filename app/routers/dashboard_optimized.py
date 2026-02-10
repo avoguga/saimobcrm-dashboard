@@ -695,12 +695,15 @@ async def get_detailed_tables_v2(
             corretor=corretor,
             fonte=fonte
         )
+        # Nova lógica: usar data_proposta ao invés do campo booleano "proposta"
+        # Proposta = tem data_proposta preenchida E price > 0
         propostas_query["raw_custom_fields"] = {
             "$elemMatch": {
-                "field_id": CUSTOM_FIELD_PROPOSTA,
-                "values.0.value": {"$in": [True, "true", "1", 1]}
+                "field_id": CUSTOM_FIELD_DATA_PROPOSTA,
+                "values.0.value": {"$exists": True, "$ne": None}
             }
         }
+        propostas_query["price"] = {"$gt": 0}
 
         propostas_cursor = leads_collection.find(propostas_query).sort("created_at", -1).limit(limit)
 
@@ -720,22 +723,25 @@ async def get_detailed_tables_v2(
             cf = lead.get("custom_fields", {})
             data_proposta = cf.get("data_proposta")
 
-            if data_proposta:
-                try:
-                    # data_proposta pode ser datetime ou string
-                    if isinstance(data_proposta, datetime):
-                        proposta_dt = data_proposta
-                    elif isinstance(data_proposta, str):
-                        # Tentar parsing ISO
-                        proposta_dt = datetime.fromisoformat(data_proposta.replace('Z', '+00:00').replace('+00:00', ''))
-                    else:
-                        continue  # Formato desconhecido
+            # Verificar data_proposta no período (obrigatório)
+            if not data_proposta:
+                continue  # Sem data_proposta = não é proposta
 
-                    # Verificar se está no período
-                    if not (start_dt <= proposta_dt <= end_dt):
-                        continue  # Fora do período
-                except Exception:
-                    continue  # Erro no parsing
+            try:
+                # data_proposta pode ser datetime ou string
+                if isinstance(data_proposta, datetime):
+                    proposta_dt = data_proposta
+                elif isinstance(data_proposta, str):
+                    # Tentar parsing ISO
+                    proposta_dt = datetime.fromisoformat(data_proposta.replace('Z', '+00:00').replace('+00:00', ''))
+                else:
+                    continue  # Formato desconhecido
+
+                # Verificar se está no período
+                if not (start_dt <= proposta_dt <= end_dt):
+                    continue  # Fora do período
+            except Exception:
+                continue  # Erro no parsing
 
             detail = format_lead_detail(lead, tipo="proposta")
             # Adicionar valor para propostas (campo esperado pelo frontend)

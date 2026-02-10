@@ -1019,30 +1019,37 @@ async def get_detailed_tables(
                 return None
 
         def is_proposta(lead):
-            """Verifica se um lead é uma proposta usando o campo boolean 861100"""
+            """Verifica se um lead é uma proposta: tem data_proposta E price > 0"""
             try:
-                proposta_value = get_custom_field_value(lead, CUSTOM_FIELD_PROPOSTA)
-                # Campo boolean pode retornar True, "true", "1", 1, etc.
-                if proposta_value in [True, "true", "1", 1, "True", "TRUE"]:
-                    return True
-                return False
+                # Verificar se tem valor monetário (price > 0)
+                price = lead.get("price", 0) or 0
+                if price <= 0:
+                    return False
+
+                # Verificar se tem data_proposta preenchida
+                data_proposta = get_custom_field_value(lead, CUSTOM_FIELD_DATA_PROPOSTA)
+                if not data_proposta:
+                    return False
+
+                return True
             except Exception as e:
                 logger.error(f"Erro ao verificar se lead é proposta: {e}")
                 return False
-        
+
         def validate_proposta_in_period(lead, start_timestamp, end_timestamp):
-            """Valida se a proposta deve ser incluída baseado na Data da Proposta"""
+            """Valida se a proposta deve ser incluída baseado na Data da Proposta e valor"""
             try:
-                # Verificar se é uma proposta
-                if not is_proposta(lead):
-                    return False
-                
+                # Verificar se tem valor monetário (price > 0)
+                price = lead.get("price", 0) or 0
+                if price <= 0:
+                    return False  # Sem valor = não é proposta
+
                 # Extrair data da proposta
                 data_proposta_timestamp = get_custom_field_value(lead, CUSTOM_FIELD_DATA_PROPOSTA)
-                
+
                 if not data_proposta_timestamp:
-                    return False
-                
+                    return False  # Sem data_proposta = não é proposta
+
                 # Converter para timestamp se necessário
                 if isinstance(data_proposta_timestamp, str):
                     try:
@@ -1055,10 +1062,10 @@ async def get_detailed_tables(
                             data_proposta_timestamp = int(dt.timestamp())
                     except:
                         return False
-                
+
                 # Verificar se está no período
                 return start_timestamp <= data_proposta_timestamp <= end_timestamp
-                
+
             except Exception as e:
                 logger.error(f"Erro ao validar proposta no período: {e}")
                 return False
@@ -2054,7 +2061,7 @@ async def get_detailed_tables(
                     "fonte": 837886,
                     "corretor": 837920,
                     "data_fechamento": CUSTOM_FIELD_DATA_FECHAMENTO,
-                    "proposta": CUSTOM_FIELD_PROPOSTA
+                    "data_proposta": CUSTOM_FIELD_DATA_PROPOSTA  # Proposta = data_proposta preenchida + price > 0
                 },
                 "pipelines_utilizados": {
                     "funil_vendas": PIPELINE_VENDAS,
