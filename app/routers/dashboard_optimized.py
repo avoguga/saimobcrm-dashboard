@@ -697,12 +697,7 @@ async def get_detailed_tables_v2(
         )
         # Nova lógica: usar data_proposta ao invés do campo booleano "proposta"
         # Proposta = tem data_proposta preenchida E price > 0
-        propostas_query["raw_custom_fields"] = {
-            "$elemMatch": {
-                "field_id": CUSTOM_FIELD_DATA_PROPOSTA,
-                "values.0.value": {"$exists": True, "$ne": None}
-            }
-        }
+        propostas_query["custom_fields.data_proposta"] = {"$exists": True, "$ne": None}
         propostas_query["price"] = {"$gt": 0}
 
         propostas_cursor = leads_collection.find(propostas_query).sort("created_at", -1).limit(limit)
