@@ -77,6 +77,7 @@ CORRETOR_NORMALIZE_MAP = {
     "sem corretor": "Sem corretor",
     "irlas mastroiani": "Irlas Mastroianni",  # Unificar grafia
     "carol kuratani": "Caroline Kuratani",    # Unificar nomes
+    "paula vidal": "Ana Paula",               # Nome antigo -> nome atual
 }
 
 def normalize_corretor(corretor: str) -> str:
@@ -262,23 +263,33 @@ async def get_sales_complete_v2(
             }}
         ]
 
-        leads_by_user = []
+        # Agrupar resultados normalizando nomes de corretores
+        leads_by_user_temp = {}
         async for doc in leads_collection.aggregate(pipeline_corretor):
-            corretor_name = doc["_id"] or "Sem corretor"
+            corretor_name = normalize_corretor(doc["_id"]) if doc["_id"] else "Sem corretor"
             total = doc["total"]
             won = doc["won"]
             lost = doc["lost"]
             active = total - won - lost
 
-            leads_by_user.append({
-                "name": corretor_name,
-                "value": total,
-                "active": active,
-                "lost": lost,
-                "sales": won,
-                "meetings": 0,  # Sera preenchido depois
-                "meetingsHeld": 0
-            })
+            # Agrupar corretores com nomes normalizados
+            if corretor_name in leads_by_user_temp:
+                leads_by_user_temp[corretor_name]["value"] += total
+                leads_by_user_temp[corretor_name]["active"] += active
+                leads_by_user_temp[corretor_name]["lost"] += lost
+                leads_by_user_temp[corretor_name]["sales"] += won
+            else:
+                leads_by_user_temp[corretor_name] = {
+                    "name": corretor_name,
+                    "value": total,
+                    "active": active,
+                    "lost": lost,
+                    "sales": won,
+                    "meetings": 0,
+                    "meetingsHeld": 0
+                }
+
+        leads_by_user = list(leads_by_user_temp.values())
 
         # 4. Reunioes por corretor (buscar do MongoDB de tasks)
         # Primeiro, buscar lead_ids dos leads filtrados
@@ -320,8 +331,9 @@ async def get_sales_complete_v2(
 
         meetings_by_corretor = {}
         async for doc in tasks_collection.aggregate(pipeline_meetings):
-            corretor_name = doc["_id"] or "Sem corretor"
-            meetings_by_corretor[corretor_name] = doc["count"]
+            corretor_name = normalize_corretor(doc["_id"]) if doc["_id"] else "Sem corretor"
+            # Agrupar reuniões de corretores com nomes normalizados
+            meetings_by_corretor[corretor_name] = meetings_by_corretor.get(corretor_name, 0) + doc["count"]
 
         # Atualizar reunioes no leads_by_user
         total_meetings = 0
