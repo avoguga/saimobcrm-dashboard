@@ -47,21 +47,27 @@ class KommoSyncService:
         self._is_running = False
         self._running_since: Optional[float] = None
 
-    def _acquire_lock(self) -> bool:
+    def _check_stuck_and_reset(self) -> bool:
         """
-        Tenta adquirir o lock de execucao. Se o lock estiver preso ha mais de
-        STUCK_SYNC_TIMEOUT_SECONDS, auto-reseta (indica crash de sync anterior).
+        Se o lock esta preso ha mais de STUCK_SYNC_TIMEOUT_SECONDS, auto-reseta.
+        Retorna True se resetou (indica crash de sync anterior).
         """
-        if self._is_running:
-            if self._running_since and (time.time() - self._running_since) > self.STUCK_SYNC_TIMEOUT_SECONDS:
-                elapsed = time.time() - self._running_since
+        if self._is_running and self._running_since:
+            elapsed = time.time() - self._running_since
+            if elapsed > self.STUCK_SYNC_TIMEOUT_SECONDS:
                 logger.warning(
                     f"Sync travado ha {elapsed:.0f}s (>{self.STUCK_SYNC_TIMEOUT_SECONDS}s). Auto-resetando flag."
                 )
                 self._is_running = False
                 self._running_since = None
-            else:
-                return False
+                return True
+        return False
+
+    def _acquire_lock(self) -> bool:
+        """Tenta adquirir o lock. Auto-reseta se preso por mais do que o timeout."""
+        self._check_stuck_and_reset()
+        if self._is_running:
+            return False
         self._is_running = True
         self._running_since = time.time()
         return True
@@ -537,7 +543,8 @@ class KommoSyncService:
         return history
 
     def is_running(self) -> bool:
-        """Verifica se ha sync em execucao"""
+        """Verifica se ha sync em execucao. Auto-reseta se preso alem do timeout."""
+        self._check_stuck_and_reset()
         return self._is_running
 
     def reset_running_state(self):
