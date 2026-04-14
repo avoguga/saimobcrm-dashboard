@@ -39,9 +39,36 @@ kommo_api = get_kommo_api()
 class KommoSyncService:
     """Servico para sincronizar dados do Kommo com MongoDB"""
 
+    # Timeout apos o qual um sync travado e considerado abandonado e a flag auto-reseta
+    STUCK_SYNC_TIMEOUT_SECONDS = 30 * 60
+
     def __init__(self):
         self.kommo_api = get_kommo_api()
         self._is_running = False
+        self._running_since: Optional[float] = None
+
+    def _acquire_lock(self) -> bool:
+        """
+        Tenta adquirir o lock de execucao. Se o lock estiver preso ha mais de
+        STUCK_SYNC_TIMEOUT_SECONDS, auto-reseta (indica crash de sync anterior).
+        """
+        if self._is_running:
+            if self._running_since and (time.time() - self._running_since) > self.STUCK_SYNC_TIMEOUT_SECONDS:
+                elapsed = time.time() - self._running_since
+                logger.warning(
+                    f"Sync travado ha {elapsed:.0f}s (>{self.STUCK_SYNC_TIMEOUT_SECONDS}s). Auto-resetando flag."
+                )
+                self._is_running = False
+                self._running_since = None
+            else:
+                return False
+        self._is_running = True
+        self._running_since = time.time()
+        return True
+
+    def _release_lock(self):
+        self._is_running = False
+        self._running_since = None
 
     async def _create_sync_status(self, sync_type: str) -> str:
         """Cria registro de status de sync"""
@@ -146,10 +173,9 @@ class KommoSyncService:
         Returns:
             Estatisticas da sincronizacao
         """
-        if self._is_running:
+        if not self._acquire_lock():
             return {"error": "Sync ja em execucao"}
 
-        self._is_running = True
         sync_id = await self._create_sync_status("full")
 
         start_time = time.time()
@@ -312,7 +338,7 @@ class KommoSyncService:
             return {"success": False, "error": str(e)}
 
         finally:
-            self._is_running = False
+            self._release_lock()
 
     async def sync_incremental(self, minutes: int = 20) -> Dict:
         """
@@ -325,10 +351,9 @@ class KommoSyncService:
         Returns:
             Estatisticas da sincronizacao
         """
-        if self._is_running:
+        if not self._acquire_lock():
             return {"error": "Sync ja em execucao"}
 
-        self._is_running = True
         sync_id = await self._create_sync_status("incremental")
 
         start_time = time.time()
@@ -433,7 +458,7 @@ class KommoSyncService:
             return {"success": False, "error": str(e)}
 
         finally:
-            self._is_running = False
+            self._release_lock()
 
     async def sync_single_lead(self, lead_id: int, source: str = "webhook") -> Dict:
         """
@@ -521,7 +546,7 @@ class KommoSyncService:
         Usar apenas quando o sync travou e precisa ser desbloqueado.
         """
         was_running = self._is_running
-        self._is_running = False
+        self._release_lock()
         logger.warning(f"Estado de sync resetado manualmente (was_running={was_running})")
         return {"reset": True, "was_running": was_running}
 
