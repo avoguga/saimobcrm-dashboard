@@ -35,13 +35,18 @@ app.include_router(dashboard_optimized.router, prefix="/v2/dashboard", tags=["Da
 
 @app.on_event("startup")
 async def startup_event():
+    import asyncio
+
     # Scheduler Facebook
     from app.services.scheduler import facebook_scheduler
     facebook_scheduler.start_scheduler()
     print("Scheduler Facebook iniciado automaticamente - Sync diaria as 5:00 AM")
 
     # Scheduler Kommo (MongoDB sync)
+    # CRITICO: passar o loop do FastAPI para o scheduler poder rodar
+    # coroutines nele (Motor/MongoDB exige mesmo loop em que foi criado).
     from app.services.kommo_scheduler import kommo_scheduler
+    kommo_scheduler.main_loop = asyncio.get_running_loop()
     kommo_scheduler.start_scheduler()
     print("Scheduler Kommo iniciado - Sync incremental a cada 15 min, completo as 3:00 AM")
 

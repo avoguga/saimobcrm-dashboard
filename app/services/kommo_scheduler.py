@@ -28,6 +28,10 @@ class KommoScheduler:
     def __init__(self):
         self.running = False
         self.scheduler_thread: Optional[threading.Thread] = None
+        # Loop do FastAPI onde Motor (MongoDB async) foi inicializado.
+        # CRITICO: jobs devem rodar neste loop, nao em loops novos. Senao,
+        # o Motor fica esperando sinais do loop original e o sync trava.
+        self.main_loop: Optional[asyncio.AbstractEventLoop] = None
         self.sync_status = {
             "scheduler_running": False,
             "incremental_running": False,
@@ -130,33 +134,30 @@ class KommoScheduler:
         finally:
             self.sync_status["full_running"] = False
 
-    def _run_incremental_job(self):
-        """Wrapper para executar sync incremental em thread separada"""
-        logger.info("[Kommo Scheduler] Executando job incremental...")
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
+    def _submit_to_main_loop(self, coro, job_name: str):
+        """
+        Submete uma coroutine ao event loop do FastAPI via run_coroutine_threadsafe.
+        Essencial: Motor (MongoDB async) exige ser usado no loop em que foi criado.
+        """
+        if self.main_loop is None or not self.main_loop.is_running():
+            logger.error(
+                f"[Kommo Scheduler] main_loop indisponivel, pulando job {job_name}"
+            )
+            return
+        future = asyncio.run_coroutine_threadsafe(coro, self.main_loop)
         try:
-            loop.run_until_complete(self.run_incremental_sync())
+            # Timeout alto: full sync pode levar minutos. Incremental, segundos.
+            future.result(timeout=25 * 60)
         except Exception as e:
-            logger.error(f"[Kommo Scheduler] Erro no job incremental: {e}")
-        finally:
-            loop.close()
+            logger.error(f"[Kommo Scheduler] Erro no job {job_name}: {e}")
+
+    def _run_incremental_job(self):
+        logger.info("[Kommo Scheduler] Executando job incremental...")
+        self._submit_to_main_loop(self.run_incremental_sync(), "incremental")
 
     def _run_full_job(self):
-        """Wrapper para executar sync completo em thread separada"""
         logger.info("[Kommo Scheduler] Executando job completo...")
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            loop.run_until_complete(self.run_full_sync())
-        except Exception as e:
-            logger.error(f"[Kommo Scheduler] Erro no job completo: {e}")
-        finally:
-            loop.close()
+        self._submit_to_main_loop(self.run_full_sync(), "full")
 
     def schedule_jobs(self):
         """Agenda os jobs de sincronizacao"""
