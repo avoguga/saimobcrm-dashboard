@@ -228,6 +228,43 @@ async def sync_reset():
     }
 
 
+@router.post("/mongo/reset-and-sync")
+async def mongo_reset_and_sync(background_tasks: BackgroundTasks):
+    """
+    DESTRUTIVO: limpa as collections kommo_leads e kommo_tasks no MongoDB
+    e dispara um sync completo (TODO o historico) em background.
+
+    Use quando suspeitar de inconsistencia geral entre Kommo e MongoDB.
+    Pode demorar varios minutos para o sync completo terminar.
+    """
+    from app.models.kommo_models import leads_collection, tasks_collection
+
+    sync_service = get_sync_service()
+    if sync_service.is_running():
+        return JSONResponse(
+            status_code=409,
+            content={"error": "Sincronizacao ja em execucao. Aguarde ou use /sync/reset."}
+        )
+
+    # Wipe local collections
+    leads_result = await leads_collection.delete_many({})
+    tasks_result = await tasks_collection.delete_many({})
+
+    # Schedule full resync (sem limite de data)
+    background_tasks.add_task(sync_service.sync_all_leads, None)
+
+    return {
+        "status": "started",
+        "message": "MongoDB zerado. Sync completo agendado em background.",
+        "deleted": {
+            "leads": leads_result.deleted_count,
+            "tasks": tasks_result.deleted_count,
+        },
+        "check_status": "/webhooks/sync/status",
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
 # =============================================================================
 # ENDPOINTS DE DEBUG/ADMIN
 # =============================================================================
