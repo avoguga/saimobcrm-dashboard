@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from app.routers import leads, tags, pipelines, users, custom_fields, sources, dashboard, cache_admin, facebook
-from app.routers import webhooks, dashboard_optimized
+from app.routers import webhooks, dashboard_optimized, auth
 import config
 
 app = FastAPI(
@@ -32,6 +32,7 @@ app.include_router(cache_admin.router, tags=["Cache Admin"])
 app.include_router(facebook.router, prefix="/facebook", tags=["Facebook Analytics"])
 app.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks Kommo"])
 app.include_router(dashboard_optimized.router, prefix="/v2/dashboard", tags=["Dashboard V2 Otimizado"])
+app.include_router(auth.router, prefix="/auth", tags=["Auth (mock)"])
 
 @app.on_event("startup")
 async def startup_event():
